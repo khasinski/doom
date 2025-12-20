@@ -29,7 +29,6 @@ sprites = Doom::Wad::SpriteManager.new(wad)
 map = Doom::Map::MapData.load(wad, 'E1M1')
 
 puts "Player start: #{map.player_start.x}, #{map.player_start.y}, angle #{map.player_start.angle}"
-puts "Things in map: #{map.things.size}"
 
 renderer = Doom::Render::Renderer.new(wad, map, textures, palette, colormap, flats, sprites)
 renderer.set_player(map.player_start.x, map.player_start.y, 41, map.player_start.angle)

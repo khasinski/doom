@@ -8,6 +8,21 @@ module Doom
     HALF_HEIGHT = SCREEN_HEIGHT / 2
     FOV = 90.0
 
+    # Visplane stores floor/ceiling rendering info for a sector
+    Visplane = Struct.new(:sector, :height, :texture, :light_level, :is_ceiling, :top, :bottom) do
+      def initialize(sector, height, texture, light_level, is_ceiling)
+        super(sector, height, texture, light_level, is_ceiling,
+              Array.new(SCREEN_WIDTH, SCREEN_HEIGHT),  # top (initially invalid)
+              Array.new(SCREEN_WIDTH, -1))             # bottom (initially invalid)
+      end
+
+      def mark(x, y1, y2)
+        return if y1 > y2
+        top[x] = [top[x], y1].min
+        bottom[x] = [bottom[x], y2].max
+      end
+    end
+
     class Renderer
       attr_reader :framebuffer
 
@@ -53,11 +68,17 @@ module Doom
         @sin_angle = Math.sin(@player_angle)
         @cos_angle = Math.cos(@player_angle)
 
-        # Pre-fill with sky and default floor to handle open areas
-        draw_background
+        # Draw floor/ceiling background first (will be partially overwritten by walls)
+        draw_floor_ceiling_background
+
+        # Initialize visplanes for tracking visible floor/ceiling spans
+        @visplanes = []
 
         # Render walls via BSP traversal
         render_bsp_node(@map.nodes.size - 1)
+
+        # Draw visplanes for sectors different from background
+        draw_other_sector_planes
 
         # Save wall clip arrays for sprite clipping
         @sprite_ceiling_clip = @ceiling_clip.dup
@@ -65,6 +86,184 @@ module Doom
 
         # Render sprites
         render_sprites if @sprites
+      end
+
+      def draw_floor_ceiling_background
+        player_sector = @map.sector_at(@player_x, @player_y)
+        return unless player_sector
+
+        fill_uncovered_with_sector(player_sector)
+      end
+
+      def draw_other_sector_planes
+        # Visplane drawing disabled - ray-casting background handles per-sector floors/ceilings
+      end
+
+      def find_or_create_visplane(sector, height, texture, light_level, is_ceiling)
+        # Find existing visplane with matching properties
+        plane = @visplanes.find do |vp|
+          vp.height == height &&
+          vp.texture == texture &&
+          vp.light_level == light_level &&
+          vp.is_ceiling == is_ceiling
+        end
+
+        unless plane
+          plane = Visplane.new(sector, height, texture, light_level, is_ceiling)
+          @visplanes << plane
+        end
+
+        plane
+      end
+
+      def fill_uncovered_with_sector(default_sector)
+        # For each pixel, determine the actual sector and use its floor/ceiling
+        SCREEN_WIDTH.times do |x|
+          column_angle = @player_angle + Math.atan2(x - HALF_WIDTH, @projection)
+          cos_angle = Math.cos(column_angle)
+          sin_angle = Math.sin(column_angle)
+
+          # Fill ceiling area (top of screen to horizon)
+          (0...HALF_HEIGHT).each do |y|
+            dy = HALF_HEIGHT - y
+            next if dy == 0
+
+            # Calculate world position for this pixel using default sector height first
+            ceil_height = default_sector.ceiling_height - @player_z
+            row_distance = (ceil_height.abs * @projection / dy.to_f).abs
+            next if row_distance <= 0
+
+            world_x = @player_x + row_distance * cos_angle
+            world_y = @player_y + row_distance * sin_angle
+
+            # Find the actual sector at this world position
+            actual_sector = @map.sector_at(world_x, world_y) || default_sector
+            is_sky = actual_sector.ceiling_texture == 'F_SKY1'
+
+            if is_sky
+              sky_texture = @textures['SKY1']
+              if sky_texture
+                sky_angle = (column_angle * 256 / Math::PI).to_i & 255
+                sky_x = sky_angle % sky_texture.width
+                sky_y = y % sky_texture.height
+                color = sky_texture.column_pixels(sky_x)[sky_y] || 0
+                set_pixel(x, y, color)
+              end
+            else
+              # Recalculate distance with actual sector's ceiling height
+              actual_ceil_height = actual_sector.ceiling_height - @player_z
+              actual_distance = (actual_ceil_height.abs * @projection / dy.to_f).abs
+
+              flat = @flats[actual_sector.ceiling_texture]
+              if flat && actual_distance > 0
+                world_x = @player_x + actual_distance * cos_angle
+                world_y = @player_y + actual_distance * sin_angle
+                tex_x = world_x.to_i & 63
+                tex_y = world_y.to_i & 63
+                color = flat[tex_x, tex_y] || 0
+              else
+                color = 0
+              end
+
+              light = calculate_light(actual_sector.light_level, actual_distance)
+              color = @colormap.maps[light][color]
+              set_pixel(x, y, color)
+            end
+          end
+
+          # Fill floor area (horizon to bottom of screen)
+          (HALF_HEIGHT...SCREEN_HEIGHT).each do |y|
+            dy = y - HALF_HEIGHT
+            next if dy == 0
+
+            # Iterate to find the correct sector (floor heights affect world position)
+            current_sector = default_sector
+            floor_height = current_sector.floor_height - @player_z
+
+            3.times do
+              row_distance = (floor_height.abs * @projection / dy.to_f).abs
+              break if row_distance <= 0
+
+              world_x = @player_x + row_distance * cos_angle
+              world_y = @player_y + row_distance * sin_angle
+
+              new_sector = @map.sector_at(world_x, world_y)
+              break unless new_sector
+              break if new_sector == current_sector
+
+              current_sector = new_sector
+              floor_height = current_sector.floor_height - @player_z
+            end
+
+            actual_distance = (floor_height.abs * @projection / dy.to_f).abs
+            next if actual_distance <= 0
+
+            world_x = @player_x + actual_distance * cos_angle
+            world_y = @player_y + actual_distance * sin_angle
+
+            flat = @flats[current_sector.floor_texture]
+            if flat
+              tex_x = world_x.to_i & 63
+              tex_y = world_y.to_i & 63
+              color = flat[tex_x, tex_y] || 0
+            else
+              color = 96
+            end
+
+            light = calculate_light(current_sector.light_level, actual_distance)
+            color = @colormap.maps[light][color]
+            set_pixel(x, y, color)
+          end
+        end
+      end
+
+      def draw_visplane(plane)
+        texture_name = plane.texture
+        is_sky = texture_name == 'F_SKY1'
+        flat = is_sky ? nil : @flats[texture_name]
+        sky_texture = is_sky ? @textures['SKY1'] : nil
+        plane_height = plane.height
+
+        SCREEN_WIDTH.times do |x|
+          y1 = plane.top[x]
+          y2 = plane.bottom[x]
+          next if y1 > y2
+
+          column_angle = @player_angle + Math.atan2(x - HALF_WIDTH, @projection)
+
+          (y1..y2).each do |y|
+            next if y < 0 || y >= SCREEN_HEIGHT
+
+            if is_sky && sky_texture
+              # Sky rendering
+              sky_angle = (column_angle * 256 / Math::PI).to_i & 255
+              sky_x = sky_angle % sky_texture.width
+              sky_y = y % sky_texture.height
+              color = sky_texture.column_pixels(sky_x)[sky_y] || 0
+              set_pixel(x, y, color)
+            else
+              dy = y - HALF_HEIGHT
+              next if dy == 0
+
+              # distance = |height| * projection / |dy|
+              row_distance = (plane_height.abs * @projection / dy.abs).to_f
+
+              if flat && row_distance > 0
+                world_x = @player_x + row_distance * Math.cos(column_angle)
+                world_y = @player_y + row_distance * Math.sin(column_angle)
+                tex_x = world_x.to_i & 63
+                tex_y = world_y.to_i & 63
+                color = flat[tex_x, tex_y] || 0
+              else
+                color = plane.is_ceiling ? 0 : 96
+              end
+
+              light = calculate_light(plane.light_level, row_distance)
+              color = @colormap.maps[light][color]
+              set_pixel(x, y, color)
+            end
+          end
+        end
       end
 
       def draw_background
@@ -321,13 +520,23 @@ module Doom
             back_ceil_y = (HALF_HEIGHT - back_ceil * scale).to_i
             back_floor_y = (HALF_HEIGHT - back_floor * scale).to_i
 
-            # Draw ceiling flat (from clipped ceiling to the higher of front/back ceiling)
+            # Determine visible ceiling/floor boundaries
             high_ceil = [ceil_y, back_ceil_y].max
-            draw_flat_column(x, ceil_y, high_ceil - 1, sector.ceiling_texture, sector.light_level, true, front_ceil)
-
-            # Draw floor flat (from the lower of front/back floor to clipped floor)
             low_floor = [floor_y, back_floor_y].min
-            draw_flat_column(x, low_floor + 1, floor_y, sector.floor_texture, sector.light_level, false, front_floor)
+
+            # Record front sector's ceiling (the step region where ceiling drops)
+            if sector.ceiling_height > back_sector.ceiling_height && ceil_y <= back_ceil_y - 1
+              ceil_plane = find_or_create_visplane(sector, front_ceil, sector.ceiling_texture, sector.light_level, true)
+              ceil_plane.mark(x, ceil_y, back_ceil_y - 1)
+            end
+
+            # Record front sector's floor (the step region where floor rises)
+            if sector.floor_height < back_sector.floor_height && back_floor_y + 1 <= floor_y
+              floor_plane = find_or_create_visplane(sector, front_floor, sector.floor_texture, sector.light_level, false)
+              floor_plane.mark(x, back_floor_y + 1, floor_y)
+            end
+
+            # Note: Back sector's floor/ceiling is rendered when processing segs inside that sector
 
             # Upper wall (ceiling step down)
             if sector.ceiling_height > back_sector.ceiling_height
@@ -348,11 +557,17 @@ module Doom
             @floor_clip[x] = [[back_floor_y, floor_y].min, @floor_clip[x]].min
           else
             # One-sided (solid) wall
-            # Draw ceiling (from previous clip to wall's ceiling)
-            draw_flat_column(x, @ceiling_clip[x] + 1, ceil_y - 1, sector.ceiling_texture, sector.light_level, true, front_ceil)
+            # Record ceiling visplane (from previous clip to wall's ceiling)
+            if @ceiling_clip[x] + 1 <= ceil_y - 1
+              ceil_plane = find_or_create_visplane(sector, front_ceil, sector.ceiling_texture, sector.light_level, true)
+              ceil_plane.mark(x, @ceiling_clip[x] + 1, ceil_y - 1)
+            end
 
-            # Draw floor (from wall's floor to previous clip)
-            draw_flat_column(x, floor_y + 1, @floor_clip[x] - 1, sector.floor_texture, sector.light_level, false, front_floor)
+            # Record floor visplane (from wall's floor to previous clip)
+            if floor_y + 1 <= @floor_clip[x] - 1
+              floor_plane = find_or_create_visplane(sector, front_floor, sector.floor_texture, sector.light_level, false)
+              floor_plane.mark(x, floor_y + 1, @floor_clip[x] - 1)
+            end
 
             # Draw wall (from clipped ceiling to clipped floor)
             wall_height = sector.ceiling_height - sector.floor_height
