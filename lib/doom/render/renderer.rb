@@ -623,9 +623,12 @@ module Doom
             draw_wall_column_ex(x, ceil_y, floor_y, sidedef.middle_texture, dist,
                                 sector.light_level, tex_col, mid_tex_y, scale, sector.ceiling_height, sector.floor_height)
 
-            # Fully occluded
-            @ceiling_clip[x] = SCREEN_HEIGHT
-            @floor_clip[x] = -1
+            # Mark column as processed - set clips to where this wall is
+            # This preserves the floor/ceiling bounds for sprite clipping:
+            # - ceiling_clip = top of wall (sprites above this are in ceiling)
+            # - floor_clip = bottom of wall (sprites below this are on floor)
+            @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
+            @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
           end
         end
       end
