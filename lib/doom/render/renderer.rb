@@ -175,7 +175,7 @@ module Doom
                 color = 0
               end
 
-              light = calculate_light(actual_sector.light_level, actual_perp)
+              light = calculate_flat_light(actual_sector.light_level, actual_perp)
               color = @colormap.maps[light][color]
               set_pixel(x, y, color)
             end
@@ -222,7 +222,7 @@ module Doom
               color = 96
             end
 
-            light = calculate_light(current_sector.light_level, perp_distance)
+            light = calculate_flat_light(current_sector.light_level, perp_distance)
             color = @colormap.maps[light][color]
             set_pixel(x, y, color)
           end
@@ -671,9 +671,32 @@ module Doom
         end
       end
 
+      # Calculate colormap index for lighting
+      # Doom uses: walllights[scale >> LIGHTSCALESHIFT] where scale = projection/distance
+      # LIGHTSCALESHIFT = 12, MAXLIGHTSCALE = 48, NUMCOLORMAPS = 32
+      #
+      # For walls: index based on scale (closer = brighter)
+      # For floors: index based on distance (LIGHTZSHIFT = 20)
       def calculate_light(light_level, dist)
-        diminish = (dist / 32.0).to_i
-        (31 - (light_level >> 3) + diminish).clamp(0, 31)
+        # Base light from sector: darker sectors = higher colormap index
+        # light_level 255 = brightest (colormap 0), light_level 0 = darkest (colormap ~31)
+        base_light = 31 - (light_level >> 3)
+
+        # Distance-based light diminishing
+        # Simplified formula that approximates Doom's look
+        # Further walls get darker, but not too aggressively
+        diminish = (dist / 400.0).to_i
+
+        (base_light + diminish).clamp(0, 31)
+      end
+
+      # Calculate light for floor/ceiling (uses distance directly)
+      def calculate_flat_light(light_level, distance)
+        base_light = 31 - (light_level >> 3)
+        # Doom uses LIGHTZSHIFT = 20 for floor/ceiling
+        # More gradual falloff for flats
+        diminish = (distance / 400.0).to_i
+        (base_light + diminish).clamp(0, 31)
       end
 
       def render_sprites

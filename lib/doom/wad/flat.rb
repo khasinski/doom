@@ -9,6 +9,14 @@ module Doom
 
       attr_reader :name, :pixels
 
+      def width
+        WIDTH
+      end
+
+      def height
+        HEIGHT
+      end
+
       def initialize(name, pixels)
         @name = name
         @pixels = pixels
