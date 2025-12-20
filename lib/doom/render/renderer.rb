@@ -115,7 +115,17 @@ module Doom
       end
 
       def draw_other_sector_planes
-        # Visplane drawing disabled - ray-casting background handles per-sector floors/ceilings
+        # Draw visplanes for sectors different from the player's current sector
+        player_sector = @map.sector_at(@player_x, @player_y)
+        return unless player_sector
+
+        @visplanes.each do |plane|
+          # Skip if this is the player's sector (already drawn as background)
+          next if plane.height == player_sector.floor_height && !plane.is_ceiling
+          next if plane.height == player_sector.ceiling_height && plane.is_ceiling
+
+          draw_visplane(plane)
+        end
       end
 
       def find_or_create_visplane(sector, height, texture, light_level, is_ceiling)
