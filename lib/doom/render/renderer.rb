@@ -71,6 +71,10 @@ module Doom
         @player_y = y.to_f
       end
 
+      def set_z(z)
+        @player_z = z.to_f
+      end
+
       def turn(degrees)
         @player_angle += degrees * Math::PI / 180.0
       end
@@ -340,10 +344,9 @@ module Doom
               row_distance = (ceil_rel.abs * @projection / dy.to_f).abs
 
               if ceil_flat && row_distance > 0
-                world_x = @player_x + row_distance * Math.cos(column_angle)
-                world_y = @player_y + row_distance * Math.sin(column_angle)
-                tex_x = world_x.to_i & 63
-                tex_y = world_y.to_i & 63
+                # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
+                tex_x = (@player_x + row_distance * Math.cos(column_angle)).to_i & 63
+                tex_y = (-@player_y - row_distance * Math.sin(column_angle)).to_i & 63
                 color = ceil_flat[tex_x, tex_y] || 100
               else
                 color = 100
@@ -364,10 +367,9 @@ module Doom
             row_distance = (floor_rel.abs * @projection / dy.to_f).abs
 
             if floor_flat && row_distance > 0
-              world_x = @player_x + row_distance * Math.cos(column_angle)
-              world_y = @player_y + row_distance * Math.sin(column_angle)
-              tex_x = world_x.to_i & 63
-              tex_y = world_y.to_i & 63
+              # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
+              tex_x = (@player_x + row_distance * Math.cos(column_angle)).to_i & 63
+              tex_y = (-@player_y - row_distance * Math.sin(column_angle)).to_i & 63
               color = floor_flat[tex_x, tex_y] || 96
             else
               color = 96
@@ -514,25 +516,31 @@ module Doom
       end
 
       def draw_seg_range(x1, x2, sx1, sx2, dist1, dist2, sector, back_sector, sidedef, linedef, seg, seg_length)
+        # Texture coordinates at seg endpoints
+        tex_col_1 = seg.offset + sidedef.x_offset
+        tex_col_2 = seg.offset + seg_length + sidedef.x_offset
+
         (x1..x2).each do |x|
           next if @ceiling_clip[x] >= @floor_clip[x] - 1
 
-          # Interpolate distance and texture column
+          # Screen-space interpolation factor
           t = sx2 != sx1 ? (x - sx1) / (sx2 - sx1) : 0
           t = t.clamp(0.0, 1.0)
 
-          # Calculate texture column: seg.offset + distance along seg
-          # seg.offset is the offset along the linedef to this seg's start
-          # t gives us position along the seg (0 to 1)
-          tex_col = seg.offset + (t * seg_length).to_i + sidedef.x_offset
-
-          # Perspective-correct interpolation
+          # Perspective-correct interpolation for both distance and texture
           if dist1 > 0 && dist2 > 0
             inv_dist = (1.0 - t) / dist1 + t / dist2
             dist = 1.0 / inv_dist
+
+            # Perspective-correct texture interpolation
+            # tex = (tex1/z1 * (1-t) + tex2/z2 * t) / (1/z1 * (1-t) + 1/z2 * t)
+            tex_col = ((tex_col_1 / dist1) * (1.0 - t) + (tex_col_2 / dist2) * t) / inv_dist
           else
             dist = dist1 > 0 ? dist1 : dist2
+            tex_col = tex_col_1 + t * seg_length
           end
+
+          tex_col = tex_col.to_i
 
           # Skip if too close
           next if dist < 1
@@ -750,13 +758,9 @@ module Doom
           row_distance = (height.abs * @projection / dy.abs).to_f
 
           if flat && row_distance > 0
-            # Calculate world coordinates for this pixel
-            world_x = @player_x + row_distance * Math.cos(column_angle)
-            world_y = @player_y + row_distance * Math.sin(column_angle)
-
-            # Get texture coordinates (flats are 64x64, world units)
-            tex_x = world_x.to_i & 63
-            tex_y = world_y.to_i & 63
+            # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
+            tex_x = (@player_x + row_distance * Math.cos(column_angle)).to_i & 63
+            tex_y = (-@player_y - row_distance * Math.sin(column_angle)).to_i & 63
             color = flat[tex_x, tex_y] || 0
           elsif is_ceiling
             color = 0  # Sky/black

@@ -81,15 +81,27 @@ module Doom
         # Check if new position is valid (simple collision detection)
         if valid_position?(new_x, new_y)
           @renderer.move_to(new_x, new_y)
+          update_player_height(new_x, new_y)
         else
           # Try sliding along walls - try X movement only
           if valid_position?(new_x, @renderer.player_y)
             @renderer.move_to(new_x, @renderer.player_y)
+            update_player_height(new_x, @renderer.player_y)
           # Try Y movement only
           elsif valid_position?(@renderer.player_x, new_y)
             @renderer.move_to(@renderer.player_x, new_y)
+            update_player_height(@renderer.player_x, new_y)
           end
         end
+      end
+
+      def update_player_height(x, y)
+        sector = @map.sector_at(x, y)
+        return unless sector
+
+        # Player view height is 41 units above floor
+        target_z = sector.floor_height + 41
+        @renderer.set_z(target_z)
       end
 
       def valid_position?(x, y)
