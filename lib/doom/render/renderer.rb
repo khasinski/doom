@@ -577,8 +577,7 @@ module Doom
               end
               draw_wall_column_ex(x, ceil_y, back_ceil_y - 1, sidedef.upper_texture, dist,
                                   sector.light_level, tex_col, upper_tex_y, scale, sector.ceiling_height, back_sector.ceiling_height)
-              # Track wall depth for sprite clipping (upper wall occludes this column)
-              @wall_depth[x] = [@wall_depth[x], dist].min
+              # Note: Upper walls don't fully occlude - sprites can be visible through openings
             end
 
             # Lower wall (floor step up)
@@ -593,8 +592,7 @@ module Doom
               end
               draw_wall_column_ex(x, back_floor_y + 1, floor_y, sidedef.lower_texture, dist,
                                   sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height, sector.floor_height)
-              # Track wall depth for sprite clipping (lower wall occludes this column)
-              @wall_depth[x] = [@wall_depth[x], dist].min
+              # Note: Lower walls don't fully occlude - sprites can be visible through openings
             end
 
             # Update clip bounds
