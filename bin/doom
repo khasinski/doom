@@ -1,0 +1,19 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative '../lib/doom'
+
+if ARGV.empty?
+  puts "Usage: doom <path-to-wad>"
+  puts "       doom doom1.wad"
+  exit 1
+end
+
+wad_path = ARGV[0]
+
+unless File.exist?(wad_path)
+  puts "Error: WAD file not found: #{wad_path}"
+  exit 1
+end
+
+Doom.run(wad_path)

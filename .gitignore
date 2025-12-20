@@ -1,0 +1,7 @@
+*.wad
+*.WAD
+*.png
+reference/
+Gemfile.lock
+.bundle/
+vendor/
