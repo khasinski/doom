@@ -119,22 +119,31 @@ module Doom
       def fill_uncovered_with_sector(default_sector)
         # For each pixel, determine the actual sector and use its floor/ceiling
         SCREEN_WIDTH.times do |x|
-          column_angle = @player_angle + Math.atan2(x - HALF_WIDTH, @projection)
+          # Calculate column angle and distscale correction for perspective
+          dx = x - HALF_WIDTH
+          column_angle = @player_angle + Math.atan2(dx, @projection)
           cos_angle = Math.cos(column_angle)
           sin_angle = Math.sin(column_angle)
+
+          # Distscale corrects for fisheye distortion at screen edges
+          # distscale = 1 / cos(angle_from_center) = sqrt(dx^2 + proj^2) / proj
+          distscale = Math.sqrt(dx * dx + @projection * @projection) / @projection
 
           # Fill ceiling area (top of screen to horizon)
           (0...HALF_HEIGHT).each do |y|
             dy = HALF_HEIGHT - y
             next if dy == 0
 
-            # Calculate world position for this pixel using default sector height first
+            # Calculate perpendicular distance, then apply distscale for actual ray distance
             ceil_height = default_sector.ceiling_height - @player_z
-            row_distance = (ceil_height.abs * @projection / dy.to_f).abs
-            next if row_distance <= 0
+            perp_distance = (ceil_height.abs * @projection / dy.to_f).abs
+            next if perp_distance <= 0
 
-            world_x = @player_x + row_distance * cos_angle
-            world_y = @player_y + row_distance * sin_angle
+            # Ray distance along the view direction for this column
+            ray_distance = perp_distance * distscale
+
+            world_x = @player_x + ray_distance * cos_angle
+            world_y = @player_y + ray_distance * sin_angle
 
             # Find the actual sector at this world position
             actual_sector = @map.sector_at(world_x, world_y) || default_sector
@@ -152,12 +161,13 @@ module Doom
             else
               # Recalculate distance with actual sector's ceiling height
               actual_ceil_height = actual_sector.ceiling_height - @player_z
-              actual_distance = (actual_ceil_height.abs * @projection / dy.to_f).abs
+              actual_perp = (actual_ceil_height.abs * @projection / dy.to_f).abs
+              actual_ray_dist = actual_perp * distscale
 
               flat = @flats[actual_sector.ceiling_texture]
-              if flat && actual_distance > 0
-                world_x = @player_x + actual_distance * cos_angle
-                world_y = @player_y + actual_distance * sin_angle
+              if flat && actual_ray_dist > 0
+                world_x = @player_x + actual_ray_dist * cos_angle
+                world_y = @player_y + actual_ray_dist * sin_angle
                 tex_x = world_x.to_i & 63
                 tex_y = world_y.to_i & 63
                 color = flat[tex_x, tex_y] || 0
@@ -165,7 +175,7 @@ module Doom
                 color = 0
               end
 
-              light = calculate_light(actual_sector.light_level, actual_distance)
+              light = calculate_light(actual_sector.light_level, actual_perp)
               color = @colormap.maps[light][color]
               set_pixel(x, y, color)
             end
@@ -181,11 +191,12 @@ module Doom
             floor_height = current_sector.floor_height - @player_z
 
             3.times do
-              row_distance = (floor_height.abs * @projection / dy.to_f).abs
-              break if row_distance <= 0
+              perp_distance = (floor_height.abs * @projection / dy.to_f).abs
+              break if perp_distance <= 0
 
-              world_x = @player_x + row_distance * cos_angle
-              world_y = @player_y + row_distance * sin_angle
+              ray_distance = perp_distance * distscale
+              world_x = @player_x + ray_distance * cos_angle
+              world_y = @player_y + ray_distance * sin_angle
 
               new_sector = @map.sector_at(world_x, world_y)
               break unless new_sector
@@ -195,11 +206,12 @@ module Doom
               floor_height = current_sector.floor_height - @player_z
             end
 
-            actual_distance = (floor_height.abs * @projection / dy.to_f).abs
-            next if actual_distance <= 0
+            perp_distance = (floor_height.abs * @projection / dy.to_f).abs
+            next if perp_distance <= 0
 
-            world_x = @player_x + actual_distance * cos_angle
-            world_y = @player_y + actual_distance * sin_angle
+            ray_distance = perp_distance * distscale
+            world_x = @player_x + ray_distance * cos_angle
+            world_y = @player_y + ray_distance * sin_angle
 
             flat = @flats[current_sector.floor_texture]
             if flat
@@ -210,7 +222,7 @@ module Doom
               color = 96
             end
 
-            light = calculate_light(current_sector.light_level, actual_distance)
+            light = calculate_light(current_sector.light_level, perp_distance)
             color = @colormap.maps[light][color]
             set_pixel(x, y, color)
           end
