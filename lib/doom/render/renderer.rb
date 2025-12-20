@@ -142,8 +142,11 @@ module Doom
             # Ray distance along the view direction for this column
             ray_distance = perp_distance * distscale
 
+            # Doom's R_MapPlane uses: xfrac = viewx + cos*length, yfrac = -viewy - sin*length
             world_x = @player_x + ray_distance * cos_angle
             world_y = @player_y + ray_distance * sin_angle
+            # For texture coords, Doom negates Y: tex_y uses -viewy - sin*length
+            tex_world_y = -@player_y - ray_distance * sin_angle
 
             # Find the actual sector at this world position
             actual_sector = @map.sector_at(world_x, world_y) || default_sector
@@ -166,10 +169,9 @@ module Doom
 
               flat = @flats[actual_sector.ceiling_texture]
               if flat && actual_ray_dist > 0
-                world_x = @player_x + actual_ray_dist * cos_angle
-                world_y = @player_y + actual_ray_dist * sin_angle
-                tex_x = world_x.to_i & 63
-                tex_y = world_y.to_i & 63
+                # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
+                tex_x = (@player_x + actual_ray_dist * cos_angle).to_i & 63
+                tex_y = (-@player_y - actual_ray_dist * sin_angle).to_i & 63
                 color = flat[tex_x, tex_y] || 0
               else
                 color = 0
@@ -215,8 +217,9 @@ module Doom
 
             flat = @flats[current_sector.floor_texture]
             if flat
+              # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
               tex_x = world_x.to_i & 63
-              tex_y = world_y.to_i & 63
+              tex_y = (-@player_y - ray_distance * sin_angle).to_i & 63
               color = flat[tex_x, tex_y] || 0
             else
               color = 96
@@ -261,10 +264,9 @@ module Doom
               row_distance = (plane_height.abs * @projection / dy.abs).to_f
 
               if flat && row_distance > 0
-                world_x = @player_x + row_distance * Math.cos(column_angle)
-                world_y = @player_y + row_distance * Math.sin(column_angle)
-                tex_x = world_x.to_i & 63
-                tex_y = world_y.to_i & 63
+                # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
+                tex_x = (@player_x + row_distance * Math.cos(column_angle)).to_i & 63
+                tex_y = (-@player_y - row_distance * Math.sin(column_angle)).to_i & 63
                 color = flat[tex_x, tex_y] || 0
               else
                 color = plane.is_ceiling ? 0 : 96
@@ -474,7 +476,12 @@ module Doom
           end
         end
 
-        draw_seg_range(x1i, x2i, sx1, sx2, y1, y2, sector, back_sector, sidedef, linedef)
+        # Calculate seg length for texture mapping
+        seg_v1 = @map.vertices[seg.v1]
+        seg_v2 = @map.vertices[seg.v2]
+        seg_length = Math.sqrt((seg_v2.x - seg_v1.x)**2 + (seg_v2.y - seg_v1.y)**2)
+
+        draw_seg_range(x1i, x2i, sx1, sx2, y1, y2, sector, back_sector, sidedef, linedef, seg, seg_length)
       end
 
       def transform_point(wx, wy)
@@ -490,13 +497,18 @@ module Doom
         [x, y]
       end
 
-      def draw_seg_range(x1, x2, sx1, sx2, dist1, dist2, sector, back_sector, sidedef, linedef)
+      def draw_seg_range(x1, x2, sx1, sx2, dist1, dist2, sector, back_sector, sidedef, linedef, seg, seg_length)
         (x1..x2).each do |x|
           next if @ceiling_clip[x] >= @floor_clip[x] - 1
 
-          # Interpolate distance
+          # Interpolate distance and texture column
           t = sx2 != sx1 ? (x - sx1) / (sx2 - sx1) : 0
           t = t.clamp(0.0, 1.0)
+
+          # Calculate texture column: seg.offset + distance along seg
+          # seg.offset is the offset along the linedef to this seg's start
+          # t gives us position along the seg (0 to 1)
+          tex_col = seg.offset + (t * seg_length).to_i + sidedef.x_offset
 
           # Perspective-correct interpolation
           if dist1 > 0 && dist2 > 0
@@ -552,16 +564,32 @@ module Doom
 
             # Upper wall (ceiling step down)
             if sector.ceiling_height > back_sector.ceiling_height
-              upper_height = sector.ceiling_height - back_sector.ceiling_height
-              draw_wall_column(x, ceil_y, back_ceil_y - 1, sidedef.upper_texture, dist, sector.light_level,
-                               sidedef.x_offset, sidedef.y_offset, upper_height)
+              # Upper texture Y offset depends on DONTPEGTOP flag
+              # With DONTPEGTOP: texture top aligns with front ceiling
+              # Without: texture bottom aligns with back ceiling (for doors opening)
+              if linedef.upper_unpegged?
+                upper_tex_y = sidedef.y_offset
+              else
+                texture = @textures[sidedef.upper_texture]
+                tex_height = texture ? texture.height : 128
+                upper_tex_y = sidedef.y_offset + back_sector.ceiling_height - sector.ceiling_height + tex_height
+              end
+              draw_wall_column_ex(x, ceil_y, back_ceil_y - 1, sidedef.upper_texture, dist,
+                                  sector.light_level, tex_col, upper_tex_y, scale, sector.ceiling_height, back_sector.ceiling_height)
             end
 
             # Lower wall (floor step up)
             if sector.floor_height < back_sector.floor_height
-              lower_height = back_sector.floor_height - sector.floor_height
-              draw_wall_column(x, back_floor_y + 1, floor_y, sidedef.lower_texture, dist, sector.light_level,
-                               sidedef.x_offset, sidedef.y_offset, lower_height)
+              # Lower texture Y offset depends on DONTPEGBOTTOM flag
+              # With DONTPEGBOTTOM: texture bottom aligns with lower floor
+              # Without: texture top aligns with higher floor
+              if linedef.lower_unpegged?
+                lower_tex_y = sidedef.y_offset + sector.ceiling_height - back_sector.floor_height
+              else
+                lower_tex_y = sidedef.y_offset
+              end
+              draw_wall_column_ex(x, back_floor_y + 1, floor_y, sidedef.lower_texture, dist,
+                                  sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height, sector.floor_height)
             end
 
             # Update clip bounds
@@ -582,9 +610,18 @@ module Doom
             end
 
             # Draw wall (from clipped ceiling to clipped floor)
-            wall_height = sector.ceiling_height - sector.floor_height
-            draw_wall_column(x, ceil_y, floor_y, sidedef.middle_texture, dist, sector.light_level,
-                             sidedef.x_offset, sidedef.y_offset, wall_height)
+            # Middle texture Y offset depends on DONTPEGBOTTOM flag
+            # With DONTPEGBOTTOM: texture bottom aligns with floor
+            # Without: texture top aligns with ceiling
+            if linedef.lower_unpegged?
+              texture = @textures[sidedef.middle_texture]
+              tex_height = texture ? texture.height : 128
+              mid_tex_y = sidedef.y_offset + tex_height - (sector.ceiling_height - sector.floor_height)
+            else
+              mid_tex_y = sidedef.y_offset
+            end
+            draw_wall_column_ex(x, ceil_y, floor_y, sidedef.middle_texture, dist,
+                                sector.light_level, tex_col, mid_tex_y, scale, sector.ceiling_height, sector.floor_height)
 
             # Fully occluded
             @ceiling_clip[x] = SCREEN_HEIGHT
@@ -593,6 +630,7 @@ module Doom
         end
       end
 
+      # Legacy wall column drawing (for compatibility)
       def draw_wall_column(x, y1, y2, texture_name, dist, light_level, tex_x_offset = 0, tex_y_offset = 0, wall_height = nil)
         return if y1 > y2
         return if texture_name.nil? || texture_name.empty? || texture_name == '-'
@@ -604,23 +642,61 @@ module Doom
           next if y < 0 || y >= SCREEN_HEIGHT
 
           if texture
-            # Apply texture offsets
             tex_x = (x + tex_x_offset) % texture.width
-
-            # Calculate texture Y with proper scaling and offset
             column_height = y2 - y1 + 1
-            if wall_height && wall_height > 0
-              # Use wall height for proper texture scaling
-              tex_y = ((y - y1) * texture.height / column_height + tex_y_offset) % texture.height
-            else
-              tex_y = ((y - y1) * texture.height / column_height + tex_y_offset) % texture.height
-            end
-
+            tex_y = ((y - y1) * texture.height / column_height + tex_y_offset) % texture.height
             color = texture.column_pixels(tex_x)[tex_y] || 0
           else
             color = 96
           end
 
+          color = @colormap.maps[light][color]
+          set_pixel(x, y, color)
+        end
+      end
+
+      # Enhanced wall column drawing with proper texture mapping
+      # tex_col: texture column (X coordinate in texture)
+      # tex_y_start: starting Y coordinate in texture (accounts for pegging)
+      # scale: projection scale for this column (projection / distance)
+      # world_top, world_bottom: world heights of this wall section
+      def draw_wall_column_ex(x, y1, y2, texture_name, dist, light_level, tex_col, tex_y_start, scale, world_top, world_bottom)
+        return if y1 > y2
+        return if texture_name.nil? || texture_name.empty? || texture_name == '-'
+
+        texture = @textures[texture_name]
+        return unless texture
+
+        light = calculate_light(light_level, dist)
+
+        # Texture X coordinate (wrap around texture width)
+        tex_x = tex_col.to_i % texture.width
+        tex_x = texture.width + tex_x if tex_x < 0
+
+        # Get the column of pixels
+        column = texture.column_pixels(tex_x)
+        return unless column
+
+        # Texture step per screen pixel: 1 texture pixel = 1 world unit
+        # tex_step = world_units_per_screen_pixel = 1 / scale
+        # This is independent of clipping!
+        tex_step = 1.0 / scale
+
+        # Calculate where the unclipped wall top would be on screen
+        unclipped_y1 = HALF_HEIGHT - (world_top - @player_z) * scale
+
+        # Adjust tex_y_start for any clipping at the top
+        # If y1 > unclipped_y1, we've clipped the top, so advance tex_y accordingly
+        tex_y_at_y1 = tex_y_start + (y1 - unclipped_y1) * tex_step
+
+        (y1..y2).each do |y|
+          next if y < 0 || y >= SCREEN_HEIGHT
+
+          screen_offset = y - y1
+          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % texture.height
+          tex_y = texture.height + tex_y if tex_y < 0
+
+          color = column[tex_y] || 0
           color = @colormap.maps[light][color]
           set_pixel(x, y, color)
         end
@@ -674,29 +750,63 @@ module Doom
       # Calculate colormap index for lighting
       # Doom uses: walllights[scale >> LIGHTSCALESHIFT] where scale = projection/distance
       # LIGHTSCALESHIFT = 12, MAXLIGHTSCALE = 48, NUMCOLORMAPS = 32
-      #
-      # For walls: index based on scale (closer = brighter)
-      # For floors: index based on distance (LIGHTZSHIFT = 20)
+      # Doom lighting constants from r_main.h
+      LIGHTLEVELS = 16
+      LIGHTSEGSHIFT = 4
+      MAXLIGHTSCALE = 48
+      LIGHTSCALESHIFT = 12
+      MAXLIGHTZ = 128
+      LIGHTZSHIFT = 20
+      NUMCOLORMAPS = 32
+      DISTMAP = 2
+
+      # Calculate light for walls using Doom's scalelight formula
+      # In Doom: scalelight[lightnum][scale_index] where:
+      #   lightnum = sector_light >> LIGHTSEGSHIFT (0-15)
+      #   startmap = (LIGHTLEVELS-1-lightnum) * 2 * NUMCOLORMAPS / LIGHTLEVELS
+      #   level = startmap - scale_index * SCREENWIDTH / (viewwidth * DISTMAP)
+      #   scale_index = rw_scale >> LIGHTSCALESHIFT (0-47)
       def calculate_light(light_level, dist)
-        # Base light from sector: darker sectors = higher colormap index
-        # light_level 255 = brightest (colormap 0), light_level 0 = darkest (colormap ~31)
-        base_light = 31 - (light_level >> 3)
+        # lightnum from sector light level (0-15)
+        lightnum = (light_level >> LIGHTSEGSHIFT).clamp(0, LIGHTLEVELS - 1)
 
-        # Distance-based light diminishing
-        # Simplified formula that approximates Doom's look
-        # Further walls get darker, but not too aggressively
-        diminish = (dist / 400.0).to_i
+        # startmap = (15 - lightnum) * 4 for LIGHTLEVELS=16, NUMCOLORMAPS=32
+        startmap = ((LIGHTLEVELS - 1 - lightnum) * 2 * NUMCOLORMAPS) / LIGHTLEVELS
 
-        (base_light + diminish).clamp(0, 31)
+        # scale_index from projection scale
+        # rw_scale (fixed point) = projection * FRACUNIT / distance
+        # scale_index = rw_scale >> LIGHTSCALESHIFT = projection * 16 / distance
+        # With projection = 160: scale_index = 2560 / distance
+        scale_index = dist > 0 ? (2560.0 / dist).to_i : MAXLIGHTSCALE
+        scale_index = scale_index.clamp(0, MAXLIGHTSCALE - 1)
+
+        # level = startmap - scale_index * 320 / (320 * 2) = startmap - scale_index / 2
+        level = startmap - (scale_index * SCREEN_WIDTH / (SCREEN_WIDTH * DISTMAP))
+
+        level.clamp(0, NUMCOLORMAPS - 1)
       end
 
-      # Calculate light for floor/ceiling (uses distance directly)
+      # Calculate light for floor/ceiling using Doom's zlight formula
+      # In Doom: zlight[lightnum][z_index] where:
+      #   z_index = distance >> LIGHTZSHIFT (0-127)
+      #   For each z_index, a scale is computed and used to find the level
       def calculate_flat_light(light_level, distance)
-        base_light = 31 - (light_level >> 3)
-        # Doom uses LIGHTZSHIFT = 20 for floor/ceiling
-        # More gradual falloff for flats
-        diminish = (distance / 400.0).to_i
-        (base_light + diminish).clamp(0, 31)
+        # lightnum from sector light level (0-15)
+        lightnum = (light_level >> LIGHTSEGSHIFT).clamp(0, LIGHTLEVELS - 1)
+
+        # startmap = (15 - lightnum) * 4
+        startmap = ((LIGHTLEVELS - 1 - lightnum) * 2 * NUMCOLORMAPS) / LIGHTLEVELS
+
+        # z_index = distance (in fixed point) >> LIGHTZSHIFT
+        # Our float distance * FRACUNIT >> LIGHTZSHIFT = distance * 65536 / 1048576 = distance / 16
+        z_index = (distance / 16.0).to_i.clamp(0, MAXLIGHTZ - 1)
+
+        # From R_InitLightTables: scale = FixedDiv(160*FRACUNIT, (j+1)<<LIGHTZSHIFT) >> LIGHTSCALESHIFT
+        # Simplifies to: diminish = 80 / (z_index + 1)
+        diminish = 80.0 / (z_index + 1)
+
+        level = startmap - diminish
+        level.to_i.clamp(0, NUMCOLORMAPS - 1)
       end
 
       def render_sprites
@@ -706,8 +816,8 @@ module Doom
         visible_sprites = []
 
         @map.things.each do |thing|
-          sprite = @sprites[thing.type]
-          next unless sprite
+          # Check if we have a sprite for this thing type
+          next unless @sprites.prefix_for(thing.type)
 
           # Transform to view space
           view_x, view_y = transform_point(thing.x, thing.y)
@@ -717,6 +827,15 @@ module Doom
 
           # Calculate distance for sorting and scaling
           dist = view_y
+
+          # Calculate angle from player to thing (for rotation selection)
+          dx = thing.x - @player_x
+          dy = thing.y - @player_y
+          angle_to_thing = Math.atan2(dy, dx)
+
+          # Get the correct rotated sprite
+          sprite = @sprites.get_rotated(thing.type, angle_to_thing, thing.angle)
+          next unless sprite
 
           # Project to screen X
           screen_x = HALF_WIDTH + (view_x * @projection / view_y)

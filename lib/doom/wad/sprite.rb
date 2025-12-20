@@ -139,8 +139,10 @@ module Doom
       def initialize(wad)
         @wad = wad
         @cache = {}
+        @rotation_cache = {}
       end
 
+      # Get default sprite (rotation 0 or 1)
       def [](thing_type)
         return @cache[thing_type] if @cache.key?(thing_type)
 
@@ -153,6 +155,50 @@ module Doom
 
         @cache[thing_type] = sprite
         sprite
+      end
+
+      # Get sprite prefix for a thing type
+      def prefix_for(thing_type)
+        THING_SPRITES[thing_type]
+      end
+
+      # Get sprite for specific rotation (1-8, or 0 for all angles)
+      # viewer_angle: angle from viewer to sprite in radians
+      # thing_angle: thing's facing angle in degrees
+      def get_rotated(thing_type, viewer_angle, thing_angle)
+        prefix = THING_SPRITES[thing_type]
+        return nil unless prefix
+
+        # Check cache for rotation 0 (all angles) sprite
+        cache_key = "#{prefix}A0"
+        if @rotation_cache.key?(cache_key)
+          return @rotation_cache[cache_key] if @rotation_cache[cache_key]
+        else
+          sprite = Sprite.load(@wad, cache_key)
+          @rotation_cache[cache_key] = sprite
+          return sprite if sprite
+        end
+
+        # Calculate rotation frame (1-8)
+        # Doom rotations: 1=front, 2=front-right, 3=right, etc. (clockwise)
+        # The angle we need is: viewer's angle to sprite - sprite's facing angle
+        angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0)
+
+        # Normalize to 0-2π
+        angle_diff = angle_diff % (2 * Math::PI)
+        angle_diff += 2 * Math::PI if angle_diff < 0
+
+        # Convert to rotation frame (1-8)
+        # Each rotation covers 45 degrees (π/4 radians)
+        # Add π/8 to center the ranges
+        rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1
+
+        cache_key = "#{prefix}A#{rotation}"
+        unless @rotation_cache.key?(cache_key)
+          @rotation_cache[cache_key] = Sprite.load(@wad, cache_key)
+        end
+
+        @rotation_cache[cache_key] || @cache[thing_type]
       end
     end
   end
