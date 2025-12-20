@@ -238,6 +238,43 @@ module Doom
       def player_start
         @things.find { |t| t.type == 1 }
       end
+
+      # Find the sector at a given position by traversing the BSP tree
+      def sector_at(x, y)
+        subsector = subsector_at(x, y)
+        return nil unless subsector
+
+        # Get sector from first seg of subsector
+        seg = @segs[subsector.first_seg]
+        return nil unless seg
+
+        linedef = @linedefs[seg.linedef]
+        sidedef_idx = seg.direction == 0 ? linedef.sidedef_right : linedef.sidedef_left
+        return nil if sidedef_idx < 0
+
+        @sectors[@sidedefs[sidedef_idx].sector]
+      end
+
+      # Find the subsector containing a point
+      def subsector_at(x, y)
+        node_idx = @nodes.size - 1
+        while (node_idx & Node::SUBSECTOR_FLAG) == 0
+          node = @nodes[node_idx]
+          side = point_on_side(x, y, node)
+          node_idx = side == 0 ? node.child_right : node.child_left
+        end
+        @subsectors[node_idx & ~Node::SUBSECTOR_FLAG]
+      end
+
+      private
+
+      def point_on_side(x, y, node)
+        dx = x - node.x
+        dy = y - node.y
+        left = dy * node.dx
+        right = dx * node.dy
+        right >= left ? 0 : 1
+      end
     end
   end
 end

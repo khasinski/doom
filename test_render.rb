@@ -8,6 +8,7 @@ require_relative 'lib/doom/wad/colormap'
 require_relative 'lib/doom/wad/flat'
 require_relative 'lib/doom/wad/patch'
 require_relative 'lib/doom/wad/texture'
+require_relative 'lib/doom/wad/sprite'
 require_relative 'lib/doom/map/data'
 require_relative 'lib/doom/render/renderer'
 
@@ -24,11 +25,13 @@ palette = Doom::Wad::Palette.load(wad)
 colormap = Doom::Wad::Colormap.load(wad)
 flats = Doom::Wad::Flat.load_all(wad)
 textures = Doom::Wad::TextureManager.new(wad)
+sprites = Doom::Wad::SpriteManager.new(wad)
 map = Doom::Map::MapData.load(wad, 'E1M1')
 
 puts "Player start: #{map.player_start.x}, #{map.player_start.y}, angle #{map.player_start.angle}"
+puts "Things in map: #{map.things.size}"
 
-renderer = Doom::Render::Renderer.new(wad, map, textures, palette, colormap, flats)
+renderer = Doom::Render::Renderer.new(wad, map, textures, palette, colormap, flats, sprites)
 renderer.set_player(map.player_start.x, map.player_start.y, 41, map.player_start.angle)
 
 puts "Rendering frame..."

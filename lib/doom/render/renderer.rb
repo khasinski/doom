@@ -11,13 +11,14 @@ module Doom
     class Renderer
       attr_reader :framebuffer
 
-      def initialize(wad, map, textures, palette, colormap, flats)
+      def initialize(wad, map, textures, palette, colormap, flats, sprites = nil)
         @wad = wad
         @map = map
         @textures = textures
         @palette = palette
         @colormap = colormap
         @flats = flats.to_h { |f| [f.name, f] }
+        @sprites = sprites
 
         @framebuffer = Array.new(SCREEN_WIDTH * SCREEN_HEIGHT, 0)
 
@@ -32,6 +33,10 @@ module Doom
         # Clipping arrays
         @ceiling_clip = Array.new(SCREEN_WIDTH, -1)
         @floor_clip = Array.new(SCREEN_WIDTH, SCREEN_HEIGHT)
+
+        # Sprite clip arrays (copy of wall clips for sprite clipping)
+        @sprite_ceiling_clip = Array.new(SCREEN_WIDTH, -1)
+        @sprite_floor_clip = Array.new(SCREEN_WIDTH, SCREEN_HEIGHT)
       end
 
       def set_player(x, y, z, angle)
@@ -51,43 +56,75 @@ module Doom
         # Pre-fill with sky and default floor to handle open areas
         draw_background
 
+        # Render walls via BSP traversal
         render_bsp_node(@map.nodes.size - 1)
+
+        # Save wall clip arrays for sprite clipping
+        @sprite_ceiling_clip = @ceiling_clip.dup
+        @sprite_floor_clip = @floor_clip.dup
+
+        # Render sprites
+        render_sprites if @sprites
       end
 
       def draw_background
-        # Default textures for E1M1 starting area
-        default_floor_tex = 'FLOOR4_8'
-        default_ceil_tex = 'CEIL3_5'
-        default_floor_height = 0
-        default_ceil_height = 72
+        # Get player's sector for correct textures
+        player_sector = @map.sector_at(@player_x, @player_y)
 
-        floor_flat = @flats[default_floor_tex]
-        ceil_flat = @flats[default_ceil_tex]
+        if player_sector
+          floor_tex = player_sector.floor_texture
+          ceil_tex = player_sector.ceiling_texture
+          floor_height = player_sector.floor_height
+          ceil_height = player_sector.ceiling_height
+          light_level = player_sector.light_level
+        else
+          floor_tex = 'FLOOR4_8'
+          ceil_tex = 'CEIL3_5'
+          floor_height = 0
+          ceil_height = 72
+          light_level = 160
+        end
+
+        floor_flat = @flats[floor_tex]
+        ceil_flat = @flats[ceil_tex]
+        is_sky = ceil_tex == 'F_SKY1'
+
+        # Load sky texture if needed
+        sky_texture = is_sky ? @textures['SKY1'] : nil
 
         SCREEN_WIDTH.times do |x|
           column_angle = @player_angle + Math.atan2(x - HALF_WIDTH, @projection)
 
           # Ceiling (top half)
           (0...HALF_HEIGHT).each do |y|
-            dy = HALF_HEIGHT - y
-            next if dy == 0
-
-            ceil_rel = default_ceil_height - @player_z
-            row_distance = (ceil_rel.abs * @projection / dy.to_f).abs
-
-            if ceil_flat && row_distance > 0
-              world_x = @player_x + row_distance * Math.cos(column_angle)
-              world_y = @player_y + row_distance * Math.sin(column_angle)
-              tex_x = world_x.to_i & 63
-              tex_y = world_y.to_i & 63
-              color = ceil_flat[tex_x, tex_y] || 100
+            if is_sky && sky_texture
+              # Sky texture - use view angle for horizontal, fixed for vertical
+              sky_angle = (column_angle * 256 / Math::PI).to_i & 255
+              sky_x = sky_angle % sky_texture.width
+              sky_y = y % sky_texture.height
+              color = sky_texture.column_pixels(sky_x)[sky_y] || 0
+              set_pixel(x, y, color)
             else
-              color = 100
-            end
+              dy = HALF_HEIGHT - y
+              next if dy == 0
 
-            light = calculate_light(144, row_distance)  # Default light level
-            color = @colormap.maps[light][color]
-            set_pixel(x, y, color)
+              ceil_rel = ceil_height - @player_z
+              row_distance = (ceil_rel.abs * @projection / dy.to_f).abs
+
+              if ceil_flat && row_distance > 0
+                world_x = @player_x + row_distance * Math.cos(column_angle)
+                world_y = @player_y + row_distance * Math.sin(column_angle)
+                tex_x = world_x.to_i & 63
+                tex_y = world_y.to_i & 63
+                color = ceil_flat[tex_x, tex_y] || 100
+              else
+                color = 100
+              end
+
+              light = calculate_light(light_level, row_distance)
+              color = @colormap.maps[light][color]
+              set_pixel(x, y, color)
+            end
           end
 
           # Floor (bottom half)
@@ -95,7 +132,7 @@ module Doom
             dy = y - HALF_HEIGHT
             next if dy == 0
 
-            floor_rel = default_floor_height - @player_z
+            floor_rel = floor_height - @player_z
             row_distance = (floor_rel.abs * @projection / dy.to_f).abs
 
             if floor_flat && row_distance > 0
@@ -108,7 +145,7 @@ module Doom
               color = 96
             end
 
-            light = calculate_light(144, row_distance)  # Default light level
+            light = calculate_light(light_level, row_distance)
             color = @colormap.maps[light][color]
             set_pixel(x, y, color)
           end
@@ -294,12 +331,16 @@ module Doom
 
             # Upper wall (ceiling step down)
             if sector.ceiling_height > back_sector.ceiling_height
-              draw_wall_column(x, ceil_y, back_ceil_y - 1, sidedef.upper_texture, dist, sector.light_level)
+              upper_height = sector.ceiling_height - back_sector.ceiling_height
+              draw_wall_column(x, ceil_y, back_ceil_y - 1, sidedef.upper_texture, dist, sector.light_level,
+                               sidedef.x_offset, sidedef.y_offset, upper_height)
             end
 
             # Lower wall (floor step up)
             if sector.floor_height < back_sector.floor_height
-              draw_wall_column(x, back_floor_y + 1, floor_y, sidedef.lower_texture, dist, sector.light_level)
+              lower_height = back_sector.floor_height - sector.floor_height
+              draw_wall_column(x, back_floor_y + 1, floor_y, sidedef.lower_texture, dist, sector.light_level,
+                               sidedef.x_offset, sidedef.y_offset, lower_height)
             end
 
             # Update clip bounds
@@ -314,7 +355,9 @@ module Doom
             draw_flat_column(x, floor_y + 1, @floor_clip[x] - 1, sector.floor_texture, sector.light_level, false, front_floor)
 
             # Draw wall (from clipped ceiling to clipped floor)
-            draw_wall_column(x, ceil_y, floor_y, sidedef.middle_texture, dist, sector.light_level)
+            wall_height = sector.ceiling_height - sector.floor_height
+            draw_wall_column(x, ceil_y, floor_y, sidedef.middle_texture, dist, sector.light_level,
+                             sidedef.x_offset, sidedef.y_offset, wall_height)
 
             # Fully occluded
             @ceiling_clip[x] = SCREEN_HEIGHT
@@ -323,7 +366,7 @@ module Doom
         end
       end
 
-      def draw_wall_column(x, y1, y2, texture_name, dist, light_level)
+      def draw_wall_column(x, y1, y2, texture_name, dist, light_level, tex_x_offset = 0, tex_y_offset = 0, wall_height = nil)
         return if y1 > y2
         return if texture_name.nil? || texture_name.empty? || texture_name == '-'
 
@@ -334,8 +377,19 @@ module Doom
           next if y < 0 || y >= SCREEN_HEIGHT
 
           if texture
-            tex_y = ((y - y1) * texture.height / (y2 - y1 + 1)) % texture.height
-            color = texture.column_pixels(x % texture.width)[tex_y] || 0
+            # Apply texture offsets
+            tex_x = (x + tex_x_offset) % texture.width
+
+            # Calculate texture Y with proper scaling and offset
+            column_height = y2 - y1 + 1
+            if wall_height && wall_height > 0
+              # Use wall height for proper texture scaling
+              tex_y = ((y - y1) * texture.height / column_height + tex_y_offset) % texture.height
+            else
+              tex_y = ((y - y1) * texture.height / column_height + tex_y_offset) % texture.height
+            end
+
+            color = texture.column_pixels(tex_x)[tex_y] || 0
           else
             color = 96
           end
@@ -393,6 +447,130 @@ module Doom
       def calculate_light(light_level, dist)
         diminish = (dist / 32.0).to_i
         (31 - (light_level >> 3) + diminish).clamp(0, 31)
+      end
+
+      def render_sprites
+        return unless @sprites
+
+        # Collect visible sprites with their distances
+        visible_sprites = []
+
+        @map.things.each do |thing|
+          sprite = @sprites[thing.type]
+          next unless sprite
+
+          # Transform to view space
+          view_x, view_y = transform_point(thing.x, thing.y)
+
+          # Skip if behind player
+          next if view_y <= 0
+
+          # Calculate distance for sorting and scaling
+          dist = view_y
+
+          # Project to screen X
+          screen_x = HALF_WIDTH + (view_x * @projection / view_y)
+
+          # Skip if completely off screen (with margin for sprite width)
+          sprite_half_width = (sprite.width * @projection / dist / 2).to_i
+          next if screen_x + sprite_half_width < 0
+          next if screen_x - sprite_half_width >= SCREEN_WIDTH
+
+          visible_sprites << {
+            thing: thing,
+            sprite: sprite,
+            view_x: view_x,
+            view_y: view_y,
+            dist: dist,
+            screen_x: screen_x
+          }
+        end
+
+        # Sort by distance (back to front for proper overdraw)
+        visible_sprites.sort_by! { |s| -s[:dist] }
+
+        # Draw each sprite
+        visible_sprites.each do |vs|
+          draw_sprite(vs)
+        end
+      end
+
+      def draw_sprite(vs)
+        sprite = vs[:sprite]
+        dist = vs[:dist]
+        screen_x = vs[:screen_x]
+        thing = vs[:thing]
+
+        # Calculate scale
+        scale = @projection / dist
+
+        # Sprite dimensions on screen
+        sprite_screen_width = (sprite.width * scale).to_i
+        sprite_screen_height = (sprite.height * scale).to_i
+
+        return if sprite_screen_width <= 0 || sprite_screen_height <= 0
+
+        # Get sector for lighting
+        sector = @map.sector_at(thing.x, thing.y)
+        light_level = sector ? sector.light_level : 160
+        light = calculate_light(light_level, dist)
+
+        # Sprite screen bounds using offset (sprites are anchored at bottom center + offsets)
+        # left_offset = pixels from left edge to center
+        # top_offset = pixels from top to bottom (ground line)
+        sprite_left = (screen_x - sprite.left_offset * scale).to_i
+        sprite_right = sprite_left + sprite_screen_width - 1
+
+        # Calculate vertical position
+        # Thing's Z is at floor level, sprite bottom should be at floor
+        thing_floor = sector ? sector.floor_height : 0
+        thing_z = thing_floor
+
+        # Top of sprite in world space is thing_z + top_offset
+        sprite_top_world = thing_z + sprite.top_offset - @player_z
+        sprite_bottom_world = sprite_top_world - sprite.height
+
+        # Project to screen Y
+        sprite_top_screen = (HALF_HEIGHT - sprite_top_world * scale).to_i
+        sprite_bottom_screen = (HALF_HEIGHT - sprite_bottom_world * scale).to_i
+
+        # Draw each column of the sprite
+        (sprite_left..sprite_right).each do |x|
+          next if x < 0 || x >= SCREEN_WIDTH
+
+          # Clip against walls
+          top_clip = @sprite_ceiling_clip[x] + 1
+          bottom_clip = @sprite_floor_clip[x] - 1
+
+          # Skip if fully clipped
+          next if top_clip > bottom_clip
+
+          # Calculate which texture column to use
+          tex_x = ((x - sprite_left) * sprite.width / sprite_screen_width).to_i
+          tex_x = tex_x.clamp(0, sprite.width - 1)
+
+          # Get column pixels
+          column = sprite.column_pixels(tex_x)
+          next unless column
+
+          # Draw visible portion of this column
+          y_start = [sprite_top_screen, top_clip].max
+          y_end = [sprite_bottom_screen, bottom_clip].min
+
+          (y_start..y_end).each do |y|
+            # Calculate texture Y
+            tex_y = ((y - sprite_top_screen) * sprite.height / sprite_screen_height).to_i
+            tex_y = tex_y.clamp(0, sprite.height - 1)
+
+            # Get pixel (nil = transparent)
+            color = column[tex_y]
+            next unless color
+
+            # Apply lighting
+            color = @colormap.maps[light][color]
+            set_pixel(x, y, color)
+          end
+        end
       end
 
       def set_pixel(x, y, color)
