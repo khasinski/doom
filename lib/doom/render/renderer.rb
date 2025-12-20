@@ -52,6 +52,9 @@ module Doom
         # Sprite clip arrays (copy of wall clips for sprite clipping)
         @sprite_ceiling_clip = Array.new(SCREEN_WIDTH, -1)
         @sprite_floor_clip = Array.new(SCREEN_WIDTH, SCREEN_HEIGHT)
+
+        # Wall depth array - tracks distance to nearest wall at each column
+        @wall_depth = Array.new(SCREEN_WIDTH, Float::INFINITY)
       end
 
       def set_player(x, y, z, angle)
@@ -83,6 +86,7 @@ module Doom
         # Save wall clip arrays for sprite clipping
         @sprite_ceiling_clip = @ceiling_clip.dup
         @sprite_floor_clip = @floor_clip.dup
+        @sprite_wall_depth = @wall_depth.dup
 
         # Render sprites
         render_sprites if @sprites
@@ -374,6 +378,7 @@ module Doom
       def reset_clipping
         @ceiling_clip.fill(-1)
         @floor_clip.fill(SCREEN_HEIGHT)
+        @wall_depth.fill(Float::INFINITY)
       end
 
       def render_bsp_node(node_index)
@@ -576,6 +581,8 @@ module Doom
               end
               draw_wall_column_ex(x, ceil_y, back_ceil_y - 1, sidedef.upper_texture, dist,
                                   sector.light_level, tex_col, upper_tex_y, scale, sector.ceiling_height, back_sector.ceiling_height)
+              # Track wall depth for sprite clipping (upper wall occludes this column)
+              @wall_depth[x] = [@wall_depth[x], dist].min
             end
 
             # Lower wall (floor step up)
@@ -590,6 +597,8 @@ module Doom
               end
               draw_wall_column_ex(x, back_floor_y + 1, floor_y, sidedef.lower_texture, dist,
                                   sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height, sector.floor_height)
+              # Track wall depth for sprite clipping (lower wall occludes this column)
+              @wall_depth[x] = [@wall_depth[x], dist].min
             end
 
             # Update clip bounds
@@ -622,6 +631,9 @@ module Doom
             end
             draw_wall_column_ex(x, ceil_y, floor_y, sidedef.middle_texture, dist,
                                 sector.light_level, tex_col, mid_tex_y, scale, sector.ceiling_height, sector.floor_height)
+
+            # Track wall depth for sprite clipping (solid wall occludes this column)
+            @wall_depth[x] = [@wall_depth[x], dist].min
 
             # Fully occluded
             @ceiling_clip[x] = SCREEN_HEIGHT
@@ -907,12 +919,13 @@ module Doom
         (sprite_left..sprite_right).each do |x|
           next if x < 0 || x >= SCREEN_WIDTH
 
-          # Clip against walls
-          top_clip = @sprite_ceiling_clip[x] + 1
-          bottom_clip = @sprite_floor_clip[x] - 1
+          # Depth-based clipping: only draw if sprite is closer than the wall
+          wall_dist = @sprite_wall_depth[x]
+          next if dist >= wall_dist
 
-          # Skip if fully clipped
-          next if top_clip > bottom_clip
+          # Use screen bounds for Y clipping
+          top_clip = 0
+          bottom_clip = SCREEN_HEIGHT - 1
 
           # Calculate which texture column to use
           tex_x = ((x - sprite_left) * sprite.width / sprite_screen_width).to_i

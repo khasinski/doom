@@ -7,6 +7,7 @@ require_relative 'doom/wad/colormap'
 require_relative 'doom/wad/flat'
 require_relative 'doom/wad/patch'
 require_relative 'doom/wad/texture'
+require_relative 'doom/wad/sprite'
 require_relative 'doom/map/data'
 require_relative 'doom/render/renderer'
 require_relative 'doom/platform/gosu_window'
@@ -34,6 +35,9 @@ module Doom
       textures = Wad::TextureManager.new(wad)
       puts "  #{textures.textures.size} textures, #{textures.pnames.size} patches"
 
+      puts 'Loading sprites...'
+      sprites = Wad::SpriteManager.new(wad)
+
       puts "Loading map #{map_name}..."
       map = Map::MapData.load(wad, map_name)
       puts "  #{map.vertices.size} vertices, #{map.linedefs.size} linedefs"
@@ -49,7 +53,7 @@ module Doom
       end
 
       puts 'Creating renderer...'
-      renderer = Render::Renderer.new(wad, map, textures, palette, colormap, flats)
+      renderer = Render::Renderer.new(wad, map, textures, palette, colormap, flats, sprites)
       renderer.set_player(player_start.x, player_start.y, 41, player_start.angle)
 
       puts 'Starting game window...'
