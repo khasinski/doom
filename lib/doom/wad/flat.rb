@@ -49,12 +49,12 @@ module Doom
 
       def self.load_all(wad)
         entries = wad.lumps_between('F_START', 'F_END')
-        entries.filter_map do |entry|
+        entries.map do |entry|
           next if entry.size != SIZE
 
           data = wad.read_lump_at(entry)
           new(entry.name, data.bytes)
-        end
+        end.compact
       end
     end
   end

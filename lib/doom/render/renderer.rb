@@ -9,17 +9,27 @@ module Doom
     FOV = 90.0
 
     # Visplane stores floor/ceiling rendering info for a sector
-    Visplane = Struct.new(:sector, :height, :texture, :light_level, :is_ceiling, :top, :bottom) do
+    # Matches Chocolate Doom's visplane_t structure from r_plane.c
+    Visplane = Struct.new(:sector, :height, :texture, :light_level, :is_ceiling,
+                          :top, :bottom, :minx, :maxx) do
       def initialize(sector, height, texture, light_level, is_ceiling)
         super(sector, height, texture, light_level, is_ceiling,
               Array.new(SCREEN_WIDTH, SCREEN_HEIGHT),  # top (initially invalid)
-              Array.new(SCREEN_WIDTH, -1))             # bottom (initially invalid)
+              Array.new(SCREEN_WIDTH, -1),             # bottom (initially invalid)
+              SCREEN_WIDTH,                            # minx (no columns marked yet)
+              -1)                                      # maxx (no columns marked yet)
       end
 
       def mark(x, y1, y2)
         return if y1 > y2
         top[x] = [top[x], y1].min
         bottom[x] = [bottom[x], y2].max
+        self.minx = [minx, x].min
+        self.maxx = [maxx, x].max
+      end
+
+      def valid?
+        minx <= maxx
       end
     end
 
@@ -86,6 +96,9 @@ module Doom
         @sin_angle = Math.sin(@player_angle)
         @cos_angle = Math.cos(@player_angle)
 
+        # Precompute column angles for floor/ceiling rendering
+        precompute_column_data
+
         # Draw floor/ceiling background first (will be partially overwritten by walls)
         draw_floor_ceiling_background
 
@@ -96,7 +109,7 @@ module Doom
         render_bsp_node(@map.nodes.size - 1)
 
         # Draw visplanes for sectors different from background
-        draw_other_sector_planes
+        draw_all_visplanes
 
         # Save wall clip arrays for sprite clipping
         @sprite_ceiling_clip = @ceiling_clip.dup
@@ -107,6 +120,21 @@ module Doom
         render_sprites if @sprites
       end
 
+      # Precompute column-based data for floor/ceiling rendering (R_InitLightTables-like)
+      def precompute_column_data
+        @column_cos ||= Array.new(SCREEN_WIDTH)
+        @column_sin ||= Array.new(SCREEN_WIDTH)
+        @column_distscale ||= Array.new(SCREEN_WIDTH)
+
+        SCREEN_WIDTH.times do |x|
+          dx = x - HALF_WIDTH
+          column_angle = @player_angle - Math.atan2(dx, @projection)
+          @column_cos[x] = Math.cos(column_angle)
+          @column_sin[x] = Math.sin(column_angle)
+          @column_distscale[x] = Math.sqrt(dx * dx + @projection * @projection) / @projection
+        end
+      end
+
       def draw_floor_ceiling_background
         player_sector = @map.sector_at(@player_x, @player_y)
         return unless player_sector
@@ -114,8 +142,130 @@ module Doom
         fill_uncovered_with_sector(player_sector)
       end
 
-      def draw_other_sector_planes
-        # Visplane drawing disabled - ray-casting background handles per-sector floors/ceilings
+      # Render all visplanes after BSP traversal (R_DrawPlanes in Chocolate Doom)
+      def draw_all_visplanes
+        @visplanes.each do |plane|
+          next unless plane.valid?
+
+          if plane.texture == 'F_SKY1'
+            draw_sky_plane(plane)
+          else
+            render_visplane_spans(plane)
+          end
+        end
+      end
+
+      # Render visplane using horizontal spans (R_MakeSpans in Chocolate Doom)
+      # This processes columns left-to-right, building spans and rendering them
+      def render_visplane_spans(plane)
+        return if plane.minx > plane.maxx
+
+        spanstart = Array.new(SCREEN_HEIGHT)  # Track where each row's span started
+
+        # Process columns left to right
+        ((plane.minx)..(plane.maxx + 1)).each do |x|
+          # Get current column bounds
+          if x <= plane.maxx
+            t2 = plane.top[x]
+            b2 = plane.bottom[x]
+            t2 = SCREEN_HEIGHT if t2 > b2  # Invalid = empty
+          else
+            t2, b2 = SCREEN_HEIGHT, -1  # Sentinel for final column
+          end
+
+          # Get previous column bounds
+          if x > plane.minx
+            t1 = plane.top[x - 1]
+            b1 = plane.bottom[x - 1]
+            t1 = SCREEN_HEIGHT if t1 > b1
+          else
+            t1, b1 = SCREEN_HEIGHT, -1
+          end
+
+          # Close spans that ended (visible in prev column, not in current)
+          if t1 < SCREEN_HEIGHT
+            # Rows visible in previous but not current (above current or below current)
+            (t1..[b1, t2 - 1].min).each do |y|
+              draw_span(plane, y, spanstart[y], x - 1) if spanstart[y]
+              spanstart[y] = nil
+            end
+            ([t1, b2 + 1].max..b1).each do |y|
+              draw_span(plane, y, spanstart[y], x - 1) if spanstart[y]
+              spanstart[y] = nil
+            end
+          end
+
+          # Open new spans (visible in current, not started yet)
+          if t2 < SCREEN_HEIGHT
+            (t2..b2).each do |y|
+              spanstart[y] ||= x
+            end
+          end
+        end
+      end
+
+      # Render one horizontal span with texture mapping (R_MapPlane in Chocolate Doom)
+      def draw_span(plane, y, x1, x2)
+        return if x1.nil? || x1 > x2 || y < 0 || y >= SCREEN_HEIGHT
+
+        flat = @flats[plane.texture]
+        return unless flat
+
+        # Distance from horizon (y=100 for 200-high screen)
+        dy = y - HALF_HEIGHT
+        return if dy == 0
+
+        # Plane height relative to player eye level
+        plane_height = (plane.height - @player_z).abs
+        return if plane_height == 0
+
+        # Perpendicular distance to this row: distance = height * projection / dy
+        perp_dist = plane_height * @projection / dy.abs
+
+        # Calculate lighting for this distance
+        light = calculate_flat_light(plane.light_level, perp_dist)
+        cmap = @colormap.maps[light]
+
+        # Draw each pixel in the span
+        (x1..x2).each do |x|
+          next if x < 0 || x >= SCREEN_WIDTH
+
+          # Scale perpendicular distance by column angle distortion
+          ray_dist = perp_dist * @column_distscale[x]
+
+          # Calculate texture coordinates (Doom convention)
+          tex_x = (@player_x + ray_dist * @column_cos[x]).to_i & 63
+          tex_y = (-@player_y - ray_dist * @column_sin[x]).to_i & 63
+
+          color = flat[tex_x, tex_y] || 0
+          set_pixel(x, y, cmap[color])
+        end
+      end
+
+      # Render sky ceiling as columns (column-based like walls, not spans)
+      def draw_sky_plane(plane)
+        sky_texture = @textures['SKY1']
+        return unless sky_texture
+
+        (plane.minx..plane.maxx).each do |x|
+          next if x < 0 || x >= SCREEN_WIDTH
+
+          y1 = plane.top[x]
+          y2 = plane.bottom[x]
+          next if y1 > y2
+
+          # Sky X based on view angle (wraps around 256 degrees)
+          column_angle = @player_angle - Math.atan2(x - HALF_WIDTH, @projection)
+          sky_x = ((column_angle * 256 / Math::PI).to_i & 255) % sky_texture.width
+          column = sky_texture.column_pixels(sky_x)
+          next unless column
+
+          (y1..y2).each do |y|
+            next if y < 0 || y >= SCREEN_HEIGHT
+            color = column[y % sky_texture.height] || 0
+            set_pixel(x, y, color)
+          end
+        end
       end
 
       def find_or_create_visplane(sector, height, texture, light_level, is_ceiling)
@@ -136,18 +286,7 @@ module Doom
       end
 
       def fill_uncovered_with_sector(default_sector)
-        # Precompute column data (sin, cos, distscale for each column)
-        @column_cos ||= Array.new(SCREEN_WIDTH)
-        @column_sin ||= Array.new(SCREEN_WIDTH)
-        @column_distscale ||= Array.new(SCREEN_WIDTH)
-
-        SCREEN_WIDTH.times do |x|
-          dx = x - HALF_WIDTH
-          column_angle = @player_angle - Math.atan2(dx, @projection)
-          @column_cos[x] = Math.cos(column_angle)
-          @column_sin[x] = Math.sin(column_angle)
-          @column_distscale[x] = Math.sqrt(dx * dx + @projection * @projection) / @projection
-        end
+        # Column data is precomputed in precompute_column_data()
 
         # Cache frequently used values
         ceil_height = (default_sector.ceiling_height - @player_z).abs
@@ -545,23 +684,25 @@ module Doom
             back_ceil_y = (HALF_HEIGHT - back_ceil * scale).to_i
             back_floor_y = (HALF_HEIGHT - back_floor * scale).to_i
 
-            # Determine visible ceiling/floor boundaries
+            # Determine visible ceiling/floor boundaries (the opening)
+            # high_ceil = top of the opening (highest of the two ceilings on screen = lowest world ceiling)
+            # low_floor = bottom of the opening (lowest of the two floors on screen = highest world floor)
             high_ceil = [ceil_y, back_ceil_y].max
             low_floor = [floor_y, back_floor_y].min
 
-            # Record front sector's ceiling (the step region where ceiling drops)
-            if sector.ceiling_height > back_sector.ceiling_height && ceil_y <= back_ceil_y - 1
-              ceil_plane = find_or_create_visplane(sector, front_ceil, sector.ceiling_texture, sector.light_level, true)
-              ceil_plane.mark(x, ceil_y, back_ceil_y - 1)
+            # Record front sector's ceiling (from previous clip to top of opening)
+            # This covers the full visible ceiling area, not just step regions
+            if @ceiling_clip[x] + 1 <= high_ceil - 1
+              ceil_plane = find_or_create_visplane(sector, sector.ceiling_height, sector.ceiling_texture, sector.light_level, true)
+              ceil_plane.mark(x, @ceiling_clip[x] + 1, high_ceil - 1)
             end
 
-            # Record front sector's floor (the step region where floor rises)
-            if sector.floor_height < back_sector.floor_height && back_floor_y + 1 <= floor_y
-              floor_plane = find_or_create_visplane(sector, front_floor, sector.floor_texture, sector.light_level, false)
-              floor_plane.mark(x, back_floor_y + 1, floor_y)
+            # Record front sector's floor (from bottom of opening to previous clip)
+            # This covers the full visible floor area, not just step regions
+            if low_floor + 1 <= @floor_clip[x] - 1
+              floor_plane = find_or_create_visplane(sector, sector.floor_height, sector.floor_texture, sector.light_level, false)
+              floor_plane.mark(x, low_floor + 1, @floor_clip[x] - 1)
             end
-
-            # Note: Back sector's floor/ceiling is rendered when processing segs inside that sector
 
             # Upper wall (ceiling step down)
             if sector.ceiling_height > back_sector.ceiling_height
@@ -598,17 +739,22 @@ module Doom
             # Update clip bounds
             @ceiling_clip[x] = [[back_ceil_y, ceil_y].max, @ceiling_clip[x]].max
             @floor_clip[x] = [[back_floor_y, floor_y].min, @floor_clip[x]].min
+
+            # If opening is fully blocked (closed door), track depth for sprite clipping
+            if @ceiling_clip[x] >= @floor_clip[x] - 1
+              @wall_depth[x] = [@wall_depth[x], dist].min
+            end
           else
             # One-sided (solid) wall
             # Record ceiling visplane (from previous clip to wall's ceiling)
             if @ceiling_clip[x] + 1 <= ceil_y - 1
-              ceil_plane = find_or_create_visplane(sector, front_ceil, sector.ceiling_texture, sector.light_level, true)
+              ceil_plane = find_or_create_visplane(sector, sector.ceiling_height, sector.ceiling_texture, sector.light_level, true)
               ceil_plane.mark(x, @ceiling_clip[x] + 1, ceil_y - 1)
             end
 
             # Record floor visplane (from wall's floor to previous clip)
             if floor_y + 1 <= @floor_clip[x] - 1
-              floor_plane = find_or_create_visplane(sector, front_floor, sector.floor_texture, sector.light_level, false)
+              floor_plane = find_or_create_visplane(sector, sector.floor_height, sector.floor_texture, sector.light_level, false)
               floor_plane.mark(x, floor_y + 1, @floor_clip[x] - 1)
             end
 
@@ -913,9 +1059,12 @@ module Doom
           wall_dist = @sprite_wall_depth[x]
           next if dist >= wall_dist
 
-          # Use screen bounds for Y clipping
-          top_clip = 0
-          bottom_clip = SCREEN_HEIGHT - 1
+          # Use saved wall clip arrays for Y clipping (handles sprites behind walls)
+          top_clip = @sprite_ceiling_clip[x] + 1
+          bottom_clip = @sprite_floor_clip[x] - 1
+
+          # Skip if column is fully occluded
+          next if top_clip > bottom_clip
 
           # Calculate which texture column to use
           tex_x = ((x - sprite_left) * sprite.width / sprite_screen_width).to_i
