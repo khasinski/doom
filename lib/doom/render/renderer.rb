@@ -57,11 +57,22 @@ module Doom
         @wall_depth = Array.new(SCREEN_WIDTH, Float::INFINITY)
       end
 
+      attr_reader :player_x, :player_y, :player_z, :sin_angle, :cos_angle
+
       def set_player(x, y, z, angle)
         @player_x = x.to_f
         @player_y = y.to_f
         @player_z = z.to_f
         @player_angle = angle * Math::PI / 180.0
+      end
+
+      def move_to(x, y)
+        @player_x = x.to_f
+        @player_y = y.to_f
+      end
+
+      def turn(degrees)
+        @player_angle += degrees * Math::PI / 180.0
       end
 
       def render_frame

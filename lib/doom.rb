@@ -57,7 +57,7 @@ module Doom
       renderer.set_player(player_start.x, player_start.y, 41, player_start.angle)
 
       puts 'Starting game window...'
-      window = Platform::GosuWindow.new(renderer, palette)
+      window = Platform::GosuWindow.new(renderer, palette, map)
       window.show
     end
   end
