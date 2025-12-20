@@ -140,7 +140,7 @@ module Doom
         SCREEN_WIDTH.times do |x|
           # Calculate column angle and distscale correction for perspective
           dx = x - HALF_WIDTH
-          column_angle = @player_angle + Math.atan2(dx, @projection)
+          column_angle = @player_angle - Math.atan2(dx, @projection)
           cos_angle = Math.cos(column_angle)
           sin_angle = Math.sin(column_angle)
 
@@ -263,7 +263,7 @@ module Doom
           y2 = plane.bottom[x]
           next if y1 > y2
 
-          column_angle = @player_angle + Math.atan2(x - HALF_WIDTH, @projection)
+          column_angle = @player_angle - Math.atan2(x - HALF_WIDTH, @projection)
 
           (y1..y2).each do |y|
             next if y < 0 || y >= SCREEN_HEIGHT
@@ -325,7 +325,7 @@ module Doom
         sky_texture = is_sky ? @textures['SKY1'] : nil
 
         SCREEN_WIDTH.times do |x|
-          column_angle = @player_angle + Math.atan2(x - HALF_WIDTH, @projection)
+          column_angle = @player_angle - Math.atan2(x - HALF_WIDTH, @projection)
 
           # Ceiling (top half)
           (0...HALF_HEIGHT).each do |y|
