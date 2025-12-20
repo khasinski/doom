@@ -48,7 +48,71 @@ module Doom
         @sin_angle = Math.sin(@player_angle)
         @cos_angle = Math.cos(@player_angle)
 
+        # Pre-fill with sky and default floor to handle open areas
+        draw_background
+
         render_bsp_node(@map.nodes.size - 1)
+      end
+
+      def draw_background
+        # Default textures for E1M1 starting area
+        default_floor_tex = 'FLOOR4_8'
+        default_ceil_tex = 'CEIL3_5'
+        default_floor_height = 0
+        default_ceil_height = 72
+
+        floor_flat = @flats[default_floor_tex]
+        ceil_flat = @flats[default_ceil_tex]
+
+        SCREEN_WIDTH.times do |x|
+          column_angle = @player_angle + Math.atan2(x - HALF_WIDTH, @projection)
+
+          # Ceiling (top half)
+          (0...HALF_HEIGHT).each do |y|
+            dy = HALF_HEIGHT - y
+            next if dy == 0
+
+            ceil_rel = default_ceil_height - @player_z
+            row_distance = (ceil_rel.abs * @projection / dy.to_f).abs
+
+            if ceil_flat && row_distance > 0
+              world_x = @player_x + row_distance * Math.cos(column_angle)
+              world_y = @player_y + row_distance * Math.sin(column_angle)
+              tex_x = world_x.to_i & 63
+              tex_y = world_y.to_i & 63
+              color = ceil_flat[tex_x, tex_y] || 100
+            else
+              color = 100
+            end
+
+            light = calculate_light(144, row_distance)  # Default light level
+            color = @colormap.maps[light][color]
+            set_pixel(x, y, color)
+          end
+
+          # Floor (bottom half)
+          (HALF_HEIGHT...SCREEN_HEIGHT).each do |y|
+            dy = y - HALF_HEIGHT
+            next if dy == 0
+
+            floor_rel = default_floor_height - @player_z
+            row_distance = (floor_rel.abs * @projection / dy.to_f).abs
+
+            if floor_flat && row_distance > 0
+              world_x = @player_x + row_distance * Math.cos(column_angle)
+              world_y = @player_y + row_distance * Math.sin(column_angle)
+              tex_x = world_x.to_i & 63
+              tex_y = world_y.to_i & 63
+              color = floor_flat[tex_x, tex_y] || 96
+            else
+              color = 96
+            end
+
+            light = calculate_light(144, row_distance)  # Default light level
+            color = @colormap.maps[light][color]
+            set_pixel(x, y, color)
+          end
+        end
       end
 
       private
@@ -222,11 +286,11 @@ module Doom
 
             # Draw ceiling flat (from clipped ceiling to the higher of front/back ceiling)
             high_ceil = [ceil_y, back_ceil_y].max
-            draw_flat_column(x, ceil_y, high_ceil - 1, sector.ceiling_texture, sector.light_level, true)
+            draw_flat_column(x, ceil_y, high_ceil - 1, sector.ceiling_texture, sector.light_level, true, front_ceil)
 
             # Draw floor flat (from the lower of front/back floor to clipped floor)
             low_floor = [floor_y, back_floor_y].min
-            draw_flat_column(x, low_floor + 1, floor_y, sector.floor_texture, sector.light_level, false)
+            draw_flat_column(x, low_floor + 1, floor_y, sector.floor_texture, sector.light_level, false, front_floor)
 
             # Upper wall (ceiling step down)
             if sector.ceiling_height > back_sector.ceiling_height
@@ -244,10 +308,10 @@ module Doom
           else
             # One-sided (solid) wall
             # Draw ceiling (from previous clip to wall's ceiling)
-            draw_flat_column(x, @ceiling_clip[x] + 1, ceil_y - 1, sector.ceiling_texture, sector.light_level, true)
+            draw_flat_column(x, @ceiling_clip[x] + 1, ceil_y - 1, sector.ceiling_texture, sector.light_level, true, front_ceil)
 
             # Draw floor (from wall's floor to previous clip)
-            draw_flat_column(x, floor_y + 1, @floor_clip[x] - 1, sector.floor_texture, sector.light_level, false)
+            draw_flat_column(x, floor_y + 1, @floor_clip[x] - 1, sector.floor_texture, sector.light_level, false, front_floor)
 
             # Draw wall (from clipped ceiling to clipped floor)
             draw_wall_column(x, ceil_y, floor_y, sidedef.middle_texture, dist, sector.light_level)
@@ -281,24 +345,46 @@ module Doom
         end
       end
 
-      def draw_flat_column(x, y1, y2, texture_name, light_level, is_ceiling)
+      def draw_flat_column(x, y1, y2, texture_name, light_level, is_ceiling, plane_height = nil)
         return if y1 > y2
 
         flat = @flats[texture_name]
-        light = calculate_light(light_level, 100)
+
+        # Calculate angle for this screen column
+        # tan(angle) = (x - HALF_WIDTH) / projection
+        column_angle = @player_angle + Math.atan2(x - HALF_WIDTH, @projection)
 
         (y1..y2).each do |y|
           next if y < 0 || y >= SCREEN_HEIGHT
 
-          if flat
-            # Simple texture coords (not perspective correct, but visible)
-            color = flat[(x * 2) % 64, (y * 2) % 64]
+          # Calculate distance to this floor/ceiling pixel
+          # For floor: y > HALF_HEIGHT, plane is below eye (negative height)
+          # For ceiling: y < HALF_HEIGHT, plane is above eye (positive height)
+          dy = y - HALF_HEIGHT
+          next if dy == 0  # At horizon
+
+          # Use provided plane_height or estimate from y position
+          height = plane_height || (is_ceiling ? 31.0 : -41.0)
+
+          # distance = |height| * projection / |dy|
+          row_distance = (height.abs * @projection / dy.abs).to_f
+
+          if flat && row_distance > 0
+            # Calculate world coordinates for this pixel
+            world_x = @player_x + row_distance * Math.cos(column_angle)
+            world_y = @player_y + row_distance * Math.sin(column_angle)
+
+            # Get texture coordinates (flats are 64x64, world units)
+            tex_x = world_x.to_i & 63
+            tex_y = world_y.to_i & 63
+            color = flat[tex_x, tex_y] || 0
           elsif is_ceiling
             color = 0  # Sky/black
           else
             color = 96  # Gray floor
           end
 
+          light = calculate_light(light_level, row_distance)
           color = @colormap.maps[light][color]
           set_pixel(x, y, color)
         end
