@@ -14,17 +14,22 @@ module Doom
         @renderer = renderer
         @palette = palette
         @screen_image = nil
+        @needs_render = true
+
+        # Pre-build palette lookup for speed
+        @palette_rgba = palette.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
       end
 
       def update
-        @renderer.render_frame
+        if @needs_render
+          @renderer.render_frame
+          @needs_render = false
+        end
       end
 
       def draw
-        rgba = @renderer.framebuffer.flat_map do |color_idx|
-          r, g, b = @palette[color_idx]
-          [r, g, b, 255]
-        end.pack('C*')
+        # Fast RGBA conversion using pre-built palette
+        rgba = @renderer.framebuffer.map { |idx| @palette_rgba[idx] }.join
 
         @screen_image = Gosu::Image.from_blob(
           Render::SCREEN_WIDTH,
