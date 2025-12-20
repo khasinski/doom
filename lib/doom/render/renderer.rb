@@ -684,24 +684,30 @@ module Doom
             back_ceil_y = (HALF_HEIGHT - back_ceil * scale).to_i
             back_floor_y = (HALF_HEIGHT - back_floor * scale).to_i
 
-            # Determine visible ceiling/floor boundaries (the opening)
-            # high_ceil = top of the opening (highest of the two ceilings on screen = lowest world ceiling)
-            # low_floor = bottom of the opening (lowest of the two floors on screen = highest world floor)
+            # Determine visible ceiling/floor boundaries (the opening between sectors)
+            # high_ceil = top of the opening on screen (max Y = lower world ceiling)
+            # low_floor = bottom of the opening on screen (min Y = higher world floor)
             high_ceil = [ceil_y, back_ceil_y].max
             low_floor = [floor_y, back_floor_y].min
 
-            # Record front sector's ceiling (from previous clip to top of opening)
-            # This covers the full visible ceiling area, not just step regions
-            if @ceiling_clip[x] + 1 <= high_ceil - 1
+            # Record front sector's ceiling (from previous clip to where ceiling ends)
+            # For upper step: ceiling ends at ceil_y (front ceiling)
+            # For no step or lower step: ceiling ends at back_ceil_y
+            # The ceiling visplane should NOT overlap with upper wall
+            ceil_vis_bottom = [ceil_y, back_ceil_y].min  # Where ceiling ends (before upper wall or opening)
+            if @ceiling_clip[x] + 1 <= ceil_vis_bottom - 1
               ceil_plane = find_or_create_visplane(sector, sector.ceiling_height, sector.ceiling_texture, sector.light_level, true)
-              ceil_plane.mark(x, @ceiling_clip[x] + 1, high_ceil - 1)
+              ceil_plane.mark(x, @ceiling_clip[x] + 1, ceil_vis_bottom - 1)
             end
 
-            # Record front sector's floor (from bottom of opening to previous clip)
-            # This covers the full visible floor area, not just step regions
-            if low_floor + 1 <= @floor_clip[x] - 1
+            # Record front sector's floor (from where floor starts to previous clip)
+            # For lower step: floor starts at floor_y (front floor)
+            # For no step or upper step: floor starts at back_floor_y
+            # The floor visplane should NOT overlap with lower wall
+            floor_vis_top = [floor_y, back_floor_y].max  # Where floor starts (after lower wall or opening)
+            if floor_vis_top + 1 <= @floor_clip[x] - 1
               floor_plane = find_or_create_visplane(sector, sector.floor_height, sector.floor_texture, sector.light_level, false)
-              floor_plane.mark(x, low_floor + 1, @floor_clip[x] - 1)
+              floor_plane.mark(x, floor_vis_top + 1, @floor_clip[x] - 1)
             end
 
             # Upper wall (ceiling step down)
@@ -740,10 +746,8 @@ module Doom
             @ceiling_clip[x] = [[back_ceil_y, ceil_y].max, @ceiling_clip[x]].max
             @floor_clip[x] = [[back_floor_y, floor_y].min, @floor_clip[x]].min
 
-            # If opening is fully blocked (closed door), track depth for sprite clipping
-            if @ceiling_clip[x] >= @floor_clip[x] - 1
-              @wall_depth[x] = [@wall_depth[x], dist].min
-            end
+            # Note: We don't set wall_depth for two-sided walls because sprites should be
+            # visible through openings. Solid walls (one-sided) handle depth clipping.
           else
             # One-sided (solid) wall
             # Record ceiling visplane (from previous clip to wall's ceiling)
@@ -1055,16 +1059,15 @@ module Doom
         (sprite_left..sprite_right).each do |x|
           next if x < 0 || x >= SCREEN_WIDTH
 
-          # Depth-based clipping: only draw if sprite is closer than the wall
+          # Depth-based clipping: only draw if sprite is closer than the nearest solid wall
           wall_dist = @sprite_wall_depth[x]
           next if dist >= wall_dist
 
-          # Use saved wall clip arrays for Y clipping (handles sprites behind walls)
-          top_clip = @sprite_ceiling_clip[x] + 1
-          bottom_clip = @sprite_floor_clip[x] - 1
-
-          # Skip if column is fully occluded
-          next if top_clip > bottom_clip
+          # Use screen bounds for Y clipping
+          # Note: More complex clip array clipping could be added for sprites behind windows,
+          # but for now depth testing handles the main case of sprites behind solid walls
+          top_clip = 0
+          bottom_clip = SCREEN_HEIGHT - 1
 
           # Calculate which texture column to use
           tex_x = ((x - sprite_left) * sprite.width / sprite_screen_width).to_i
