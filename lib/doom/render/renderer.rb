@@ -1208,11 +1208,6 @@ module Doom
           end
         end
       end
-
-      def set_pixel(x, y, color)
-        return if x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT
-        @framebuffer[y * SCREEN_WIDTH + x] = color
-      end
     end
   end
 end
