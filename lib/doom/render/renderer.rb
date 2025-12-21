@@ -862,6 +862,10 @@ module Doom
             elsif sector.ceiling_height < back_sector.ceiling_height
               # Ceiling step up - clip to front ceiling
               @ceiling_clip[x] = [ceil_y, @ceiling_clip[x]].max
+            elsif should_mark_ceiling
+              # Same height but different texture/light - still update clip
+              # Matches Chocolate Doom: if (markceiling) ceilingclip[rw_x] = yl-1;
+              @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
             end
 
             # Floor clip decreases (moves up) as floor is marked
@@ -871,6 +875,10 @@ module Doom
             elsif sector.floor_height > back_sector.floor_height
               # Floor step down - clip to front floor to allow back sector to mark later
               @floor_clip[x] = [floor_y, @floor_clip[x]].min
+            elsif should_mark_floor
+              # Same height but different texture/light - still update clip
+              # Matches Chocolate Doom: if (markfloor) floorclip[rw_x] = yh+1;
+              @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
             end
 
             # Note: We don't set wall_depth for two-sided walls because sprites should be
