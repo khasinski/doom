@@ -1,6 +1,11 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+# Enable YJIT if available (Ruby 3.1+) for better performance
+if defined?(RubyVM::YJIT) && RubyVM::YJIT.respond_to?(:enable)
+  RubyVM::YJIT.enable
+end
+
 # Parse arguments before loading heavy dependencies
 wad_path = ARGV[0]
 
