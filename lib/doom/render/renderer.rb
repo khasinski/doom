@@ -2,8 +2,8 @@
 
 module Doom
   module Render
-    SCREEN_WIDTH = 320
-    SCREEN_HEIGHT = 200
+    SCREEN_WIDTH = 288
+    SCREEN_HEIGHT = 144
     HALF_WIDTH = SCREEN_WIDTH / 2
     HALF_HEIGHT = SCREEN_HEIGHT / 2
     FOV = 90.0
@@ -285,6 +285,60 @@ module Doom
         plane
       end
 
+      # R_CheckPlane equivalent - check if columns in range are already marked
+      # If overlap exists, create a new visplane; otherwise update minx/maxx
+      def check_plane(plane, start_x, stop_x)
+        return plane unless plane
+
+        # Calculate intersection and union of column ranges
+        if start_x < plane.minx
+          intrl = plane.minx
+          unionl = start_x
+        else
+          unionl = plane.minx
+          intrl = start_x
+        end
+
+        if stop_x > plane.maxx
+          intrh = plane.maxx
+          unionh = stop_x
+        else
+          unionh = plane.maxx
+          intrh = stop_x
+        end
+
+        # Check if any column in intersection range is already marked
+        # A column is marked if top[x] <= bottom[x] (valid range)
+        overlap = false
+        (intrl..intrh).each do |x|
+          next if x < 0 || x >= SCREEN_WIDTH
+          if plane.top[x] <= plane.bottom[x]
+            overlap = true
+            break
+          end
+        end
+
+        if !overlap
+          # No overlap - reuse same visplane with expanded range
+          plane.minx = unionl if unionl < plane.minx
+          plane.maxx = unionh if unionh > plane.maxx
+          return plane
+        end
+
+        # Overlap detected - create new visplane with same properties
+        new_plane = Visplane.new(
+          plane.sector,
+          plane.height,
+          plane.texture,
+          plane.light_level,
+          plane.is_ceiling
+        )
+        new_plane.minx = start_x
+        new_plane.maxx = stop_x
+        @visplanes << new_plane
+        new_plane
+      end
+
       def fill_uncovered_with_sector(default_sector)
         # Column data is precomputed in precompute_column_data()
 
@@ -540,6 +594,45 @@ module Doom
         subsector = @map.subsectors[index]
         return unless subsector
 
+        # Get the sector for this subsector (from first seg's linedef)
+        first_seg = @map.segs[subsector.first_seg]
+        linedef = @map.linedefs[first_seg.linedef]
+        sidedef_idx = first_seg.direction == 0 ? linedef.sidedef_right : linedef.sidedef_left
+        return if sidedef_idx < 0
+
+        sidedef = @map.sidedefs[sidedef_idx]
+        @current_sector = @map.sectors[sidedef.sector]
+
+        # Create floor visplane if floor is visible (below eye level)
+        # Matches Chocolate Doom: if (frontsector->floorheight < viewz)
+        if @current_sector.floor_height < @player_z
+          @current_floor_plane = find_or_create_visplane(
+            @current_sector,
+            @current_sector.floor_height,
+            @current_sector.floor_texture,
+            @current_sector.light_level,
+            false
+          )
+        else
+          @current_floor_plane = nil
+        end
+
+        # Create ceiling visplane if ceiling is visible (above eye level or sky)
+        # Matches Chocolate Doom: if (frontsector->ceilingheight > viewz || frontsector->ceilingpic == skyflatnum)
+        is_sky = @current_sector.ceiling_texture == 'F_SKY1'
+        if @current_sector.ceiling_height > @player_z || is_sky
+          @current_ceiling_plane = find_or_create_visplane(
+            @current_sector,
+            @current_sector.ceiling_height,
+            @current_sector.ceiling_texture,
+            @current_sector.light_level,
+            true
+          )
+        else
+          @current_ceiling_plane = nil
+        end
+
+        # Process all segs in this subsector
         subsector.seg_count.times do |i|
           seg = @map.segs[subsector.first_seg + i]
           render_seg(seg)
@@ -636,6 +729,15 @@ module Doom
         tex_col_1 = seg.offset + sidedef.x_offset
         tex_col_2 = seg.offset + seg_length + sidedef.x_offset
 
+        # Check planes for this seg range (R_CheckPlane equivalent)
+        # This may create new visplanes if column ranges would overlap
+        if @current_floor_plane
+          @current_floor_plane = check_plane(@current_floor_plane, x1, x2)
+        end
+        if @current_ceiling_plane
+          @current_ceiling_plane = check_plane(@current_ceiling_plane, x1, x2)
+        end
+
         (x1..x2).each do |x|
           next if @ceiling_clip[x] >= @floor_clip[x] - 1
 
@@ -690,24 +792,34 @@ module Doom
             high_ceil = [ceil_y, back_ceil_y].max
             low_floor = [floor_y, back_floor_y].min
 
-            # Record front sector's ceiling (from previous clip to where ceiling ends)
-            # For upper step: ceiling ends at ceil_y (front ceiling)
-            # For no step or lower step: ceiling ends at back_ceil_y
-            # The ceiling visplane should NOT overlap with upper wall
-            ceil_vis_bottom = [ceil_y, back_ceil_y].min  # Where ceiling ends (before upper wall or opening)
-            if @ceiling_clip[x] + 1 <= ceil_vis_bottom - 1
-              ceil_plane = find_or_create_visplane(sector, sector.ceiling_height, sector.ceiling_texture, sector.light_level, true)
-              ceil_plane.mark(x, @ceiling_clip[x] + 1, ceil_vis_bottom - 1)
+            # Mark ceiling visplane - mark front sector's ceiling for two-sided lines
+            # Matches Chocolate Doom: mark from ceilingclip+1 to yl-1 (front ceiling)
+            # (yl is clamped to ceilingclip+1, so we use ceil_y which is already clamped)
+            should_mark_ceiling = sector.ceiling_height != back_sector.ceiling_height ||
+                                  sector.ceiling_texture != back_sector.ceiling_texture ||
+                                  sector.light_level != back_sector.light_level
+            if @current_ceiling_plane && should_mark_ceiling
+              mark_top = @ceiling_clip[x] + 1
+              mark_bottom = ceil_y - 1
+              mark_bottom = [@floor_clip[x] - 1, mark_bottom].min
+              if mark_top <= mark_bottom
+                @current_ceiling_plane.mark(x, mark_top, mark_bottom)
+              end
             end
 
-            # Record front sector's floor (from where floor starts to previous clip)
-            # For lower step: floor starts at floor_y (front floor)
-            # For no step or upper step: floor starts at back_floor_y
-            # The floor visplane should NOT overlap with lower wall
-            floor_vis_top = [floor_y, back_floor_y].max  # Where floor starts (after lower wall or opening)
-            if floor_vis_top + 1 <= @floor_clip[x] - 1
-              floor_plane = find_or_create_visplane(sector, sector.floor_height, sector.floor_texture, sector.light_level, false)
-              floor_plane.mark(x, floor_vis_top + 1, @floor_clip[x] - 1)
+            # Mark floor visplane - mark front sector's floor for two-sided lines
+            # Matches Chocolate Doom: mark from yh+1 (front floor) to floorclip-1
+            # (yh is clamped to floorclip-1, so we use floor_y which is already clamped)
+            should_mark_floor = sector.floor_height != back_sector.floor_height ||
+                                sector.floor_texture != back_sector.floor_texture ||
+                                sector.light_level != back_sector.light_level
+            if @current_floor_plane && should_mark_floor
+              mark_top = floor_y + 1
+              mark_bottom = @floor_clip[x] - 1
+              mark_top = [@ceiling_clip[x] + 1, mark_top].max
+              if mark_top <= mark_bottom
+                @current_floor_plane.mark(x, mark_top, mark_bottom)
+              end
             end
 
             # Upper wall (ceiling step down)
@@ -742,24 +854,38 @@ module Doom
               # Note: Lower walls don't fully occlude - sprites can be visible through openings
             end
 
-            # Update clip bounds
-            @ceiling_clip[x] = [[back_ceil_y, ceil_y].max, @ceiling_clip[x]].max
-            @floor_clip[x] = [[back_floor_y, floor_y].min, @floor_clip[x]].min
+            # Update clip bounds after marking
+            # Ceiling clip increases (moves down) as ceiling is marked
+            if sector.ceiling_height > back_sector.ceiling_height
+              # Upper wall drawn - clip ceiling to back ceiling
+              @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
+            elsif sector.ceiling_height < back_sector.ceiling_height
+              # Ceiling step up - clip to front ceiling
+              @ceiling_clip[x] = [ceil_y, @ceiling_clip[x]].max
+            end
+
+            # Floor clip decreases (moves up) as floor is marked
+            if sector.floor_height < back_sector.floor_height
+              # Lower wall drawn - clip floor to back floor
+              @floor_clip[x] = [back_floor_y, @floor_clip[x]].min
+            elsif sector.floor_height > back_sector.floor_height
+              # Floor step down - clip to front floor to allow back sector to mark later
+              @floor_clip[x] = [floor_y, @floor_clip[x]].min
+            end
 
             # Note: We don't set wall_depth for two-sided walls because sprites should be
             # visible through openings. Solid walls (one-sided) handle depth clipping.
           else
             # One-sided (solid) wall
-            # Record ceiling visplane (from previous clip to wall's ceiling)
-            if @ceiling_clip[x] + 1 <= ceil_y - 1
-              ceil_plane = find_or_create_visplane(sector, sector.ceiling_height, sector.ceiling_texture, sector.light_level, true)
-              ceil_plane.mark(x, @ceiling_clip[x] + 1, ceil_y - 1)
+            # Mark ceiling visplane (from previous clip to wall's ceiling)
+            if @current_ceiling_plane && @ceiling_clip[x] + 1 <= ceil_y - 1
+              @current_ceiling_plane.mark(x, @ceiling_clip[x] + 1, ceil_y - 1)
             end
 
-            # Record floor visplane (from wall's floor to previous clip)
-            if floor_y + 1 <= @floor_clip[x] - 1
-              floor_plane = find_or_create_visplane(sector, sector.floor_height, sector.floor_texture, sector.light_level, false)
-              floor_plane.mark(x, floor_y + 1, @floor_clip[x] - 1)
+            # Mark floor visplane (from wall's floor to previous floor clip)
+            # Floor is visible BELOW the wall (from floor_y+1 to floor_clip-1)
+            if @current_floor_plane && floor_y + 1 <= @floor_clip[x] - 1
+              @current_floor_plane.mark(x, floor_y + 1, @floor_clip[x] - 1)
             end
 
             # Draw wall (from clipped ceiling to clipped floor)
