@@ -8,6 +8,18 @@ module Doom
     HALF_HEIGHT = SCREEN_HEIGHT / 2
     FOV = 90.0
 
+    # Silhouette types for sprite clipping (matches Chocolate Doom r_defs.h)
+    SIL_NONE = 0
+    SIL_BOTTOM = 1
+    SIL_TOP = 2
+    SIL_BOTH = 3
+
+    # Drawseg stores wall segment info for sprite clipping
+    # Matches Chocolate Doom's drawseg_t structure
+    Drawseg = Struct.new(:x1, :x2, :scale1, :scale2,
+                         :silhouette, :bsilheight, :tsilheight,
+                         :sprtopclip, :sprbottomclip)
+
     # Visplane stores floor/ceiling rendering info for a sector
     # Matches Chocolate Doom's visplane_t structure from r_plane.c
     Visplane = Struct.new(:sector, :height, :texture, :light_level, :is_ceiling,
@@ -104,6 +116,9 @@ module Doom
 
         # Initialize visplanes for tracking visible floor/ceiling spans
         @visplanes = []
+
+        # Initialize drawsegs for sprite clipping
+        @drawsegs = []
 
         # Render walls via BSP traversal
         render_bsp_node(@map.nodes.size - 1)
@@ -725,9 +740,42 @@ module Doom
       end
 
       def draw_seg_range(x1, x2, sx1, sx2, dist1, dist2, sector, back_sector, sidedef, linedef, seg, seg_length)
-        # Texture coordinates at seg endpoints
-        tex_col_1 = seg.offset + sidedef.x_offset
-        tex_col_2 = seg.offset + seg_length + sidedef.x_offset
+        # Get seg vertices in world space for texture coordinate calculation
+        seg_v1 = @map.vertices[seg.v1]
+        seg_v2 = @map.vertices[seg.v2]
+
+        # Calculate scales for drawseg (scale = projection / distance)
+        scale1 = dist1 > 0 ? @projection / dist1 : Float::INFINITY
+        scale2 = dist2 > 0 ? @projection / dist2 : Float::INFINITY
+
+        # Determine silhouette type for sprite clipping
+        silhouette = SIL_NONE
+        bsilheight = 0  # bottom silhouette world height
+        tsilheight = 0  # top silhouette world height
+
+        if back_sector
+          # Two-sided line - check for silhouettes
+          if sector.floor_height > back_sector.floor_height
+            silhouette |= SIL_BOTTOM
+            bsilheight = sector.floor_height
+          elsif back_sector.floor_height > @player_z
+            silhouette |= SIL_BOTTOM
+            bsilheight = Float::INFINITY
+          end
+
+          if sector.ceiling_height < back_sector.ceiling_height
+            silhouette |= SIL_TOP
+            tsilheight = sector.ceiling_height
+          elsif back_sector.ceiling_height < @player_z
+            silhouette |= SIL_TOP
+            tsilheight = -Float::INFINITY
+          end
+        else
+          # Solid wall - full silhouette
+          silhouette = SIL_BOTH
+          bsilheight = Float::INFINITY
+          tsilheight = -Float::INFINITY
+        end
 
         # Check planes for this seg range (R_CheckPlane equivalent)
         # This may create new visplanes if column ranges would overlap
@@ -741,23 +789,29 @@ module Doom
         (x1..x2).each do |x|
           next if @ceiling_clip[x] >= @floor_clip[x] - 1
 
-          # Screen-space interpolation factor
+          # Screen-space interpolation factor for distance only
           t = sx2 != sx1 ? (x - sx1) / (sx2 - sx1) : 0
           t = t.clamp(0.0, 1.0)
 
-          # Perspective-correct interpolation for both distance and texture
+          # Perspective-correct interpolation for distance
           if dist1 > 0 && dist2 > 0
             inv_dist = (1.0 - t) / dist1 + t / dist2
             dist = 1.0 / inv_dist
-
-            # Perspective-correct texture interpolation
-            # tex = (tex1/z1 * (1-t) + tex2/z2 * t) / (1/z1 * (1-t) + 1/z2 * t)
-            tex_col = ((tex_col_1 / dist1) * (1.0 - t) + (tex_col_2 / dist2) * t) / inv_dist
           else
             dist = dist1 > 0 ? dist1 : dist2
-            tex_col = tex_col_1 + t * seg_length
           end
 
+          # Texture column using perspective-correct interpolation
+          # tex_col_1 is texture coordinate at seg v1, tex_col_2 at v2
+          tex_col_1 = seg.offset + sidedef.x_offset
+          tex_col_2 = seg.offset + seg_length + sidedef.x_offset
+
+          # Perspective-correct interpolation: interpolate tex/z, then multiply by z
+          if dist1 > 0 && dist2 > 0
+            tex_col = ((tex_col_1 / dist1) * (1.0 - t) + (tex_col_2 / dist2) * t) / inv_dist
+          else
+            tex_col = tex_col_1 * (1.0 - t) + tex_col_2 * t
+          end
           tex_col = tex_col.to_i
 
           # Skip if too close
@@ -880,9 +934,6 @@ module Doom
               # Matches Chocolate Doom: if (markfloor) floorclip[rw_x] = yh+1;
               @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
             end
-
-            # Note: We don't set wall_depth for two-sided walls because sprites should be
-            # visible through openings. Solid walls (one-sided) handle depth clipping.
           else
             # One-sided (solid) wall
             # Mark ceiling visplane (from previous clip to wall's ceiling)
@@ -917,6 +968,22 @@ module Doom
             @ceiling_clip[x] = SCREEN_HEIGHT
             @floor_clip[x] = -1
           end
+        end
+
+        # Save drawseg for sprite clipping (after columns are rendered)
+        # Copy the clip arrays for the segment's screen range
+        if silhouette != SIL_NONE
+          sprtopclip = @ceiling_clip[x1..x2].dup
+          sprbottomclip = @floor_clip[x1..x2].dup
+
+          drawseg = Drawseg.new(
+            x1, x2,
+            scale1, scale2,
+            silhouette,
+            bsilheight, tsilheight,
+            sprtopclip, sprbottomclip
+          )
+          @drawsegs << drawseg
         end
       end
 
@@ -953,6 +1020,14 @@ module Doom
       def draw_wall_column_ex(x, y1, y2, texture_name, dist, light_level, tex_col, tex_y_start, scale, world_top, world_bottom)
         return if y1 > y2
         return if texture_name.nil? || texture_name.empty? || texture_name == '-'
+
+        # Clip to visible range (ceiling_clip/floor_clip)
+        # This ensures distant walls don't overdraw closer walls
+        clip_top = @ceiling_clip[x] + 1
+        clip_bottom = @floor_clip[x] - 1
+        y1 = [y1, clip_top].max
+        y2 = [y2, clip_bottom].min
+        return if y1 > y2
 
         texture = @textures[texture_name]
         return unless texture
@@ -1157,52 +1232,109 @@ module Doom
         screen_x = vs[:screen_x]
         thing = vs[:thing]
 
-        # Calculate scale
-        scale = @projection / dist
+        # Calculate scale (inverse of distance, used for depth comparison)
+        sprite_scale = @projection / dist
 
         # Sprite dimensions on screen
-        sprite_screen_width = (sprite.width * scale).to_i
-        sprite_screen_height = (sprite.height * scale).to_i
+        sprite_screen_width = (sprite.width * sprite_scale).to_i
+        sprite_screen_height = (sprite.height * sprite_scale).to_i
 
         return if sprite_screen_width <= 0 || sprite_screen_height <= 0
 
-        # Get sector for lighting
+        # Get sector for lighting and Z position
         sector = @map.sector_at(thing.x, thing.y)
         light_level = sector ? sector.light_level : 160
         light = calculate_light(light_level, dist)
 
-        # Sprite screen bounds using offset (sprites are anchored at bottom center + offsets)
-        # left_offset = pixels from left edge to center
-        # top_offset = pixels from top to bottom (ground line)
-        sprite_left = (screen_x - sprite.left_offset * scale).to_i
+        # Sprite screen bounds
+        sprite_left = (screen_x - sprite.left_offset * sprite_scale).to_i
         sprite_right = sprite_left + sprite_screen_width - 1
 
-        # Calculate vertical position
-        # Thing's Z is at floor level, sprite bottom should be at floor
+        # Clamp to screen
+        x1 = [sprite_left, 0].max
+        x2 = [sprite_right, SCREEN_WIDTH - 1].min
+        return if x1 > x2
+
+        # Calculate sprite world Z positions
         thing_floor = sector ? sector.floor_height : 0
-        thing_z = thing_floor
+        sprite_gz = thing_floor  # bottom of sprite in world Z
+        sprite_gzt = thing_floor + sprite.top_offset  # top of sprite in world Z
 
-        # Top of sprite in world space is thing_z + top_offset
-        sprite_top_world = thing_z + sprite.top_offset - @player_z
-        sprite_bottom_world = sprite_top_world - sprite.height
+        # Initialize per-column clip arrays (-2 = not yet clipped)
+        clipbot = Array.new(SCREEN_WIDTH, -2)
+        cliptop = Array.new(SCREEN_WIDTH, -2)
 
-        # Project to screen Y
-        sprite_top_screen = (HALF_HEIGHT - sprite_top_world * scale).to_i
-        sprite_bottom_screen = (HALF_HEIGHT - sprite_bottom_world * scale).to_i
+        # Scan drawsegs from back to front for obscuring segs
+        @drawsegs.reverse_each do |ds|
+          # Skip if drawseg doesn't overlap sprite horizontally
+          next if ds.x1 > x2 || ds.x2 < x1
+
+          # Skip if drawseg has no silhouette
+          next if ds.silhouette == SIL_NONE
+
+          # Determine overlap range
+          r1 = [ds.x1, x1].max
+          r2 = [ds.x2, x2].min
+
+          # Get drawseg's scale range for depth comparison
+          lowscale = [ds.scale1, ds.scale2].min
+          highscale = [ds.scale1, ds.scale2].max
+
+          # If drawseg is behind sprite, skip (seg must be closer to clip)
+          if highscale < sprite_scale
+            next
+          elsif lowscale < sprite_scale
+            # Seg partially overlaps in depth - would need point-on-seg test
+            # For simplicity, we'll clip if any part of seg is closer
+          end
+
+          # Determine which silhouettes apply based on sprite Z
+          silhouette = ds.silhouette
+
+          # If sprite bottom is at or above the bottom silhouette height, don't clip bottom
+          if sprite_gz >= ds.bsilheight
+            silhouette &= ~SIL_BOTTOM
+          end
+
+          # If sprite top is at or below the top silhouette height, don't clip top
+          if sprite_gzt <= ds.tsilheight
+            silhouette &= ~SIL_TOP
+          end
+
+          # Apply clipping for each column in the overlap
+          (r1..r2).each do |x|
+            # Index into drawseg's clip arrays (0-based from ds.x1)
+            ds_idx = x - ds.x1
+
+            if (silhouette & SIL_BOTTOM) != 0 && clipbot[x] == -2
+              clipbot[x] = ds.sprbottomclip[ds_idx] if ds.sprbottomclip && ds_idx < ds.sprbottomclip.length
+            end
+
+            if (silhouette & SIL_TOP) != 0 && cliptop[x] == -2
+              cliptop[x] = ds.sprtopclip[ds_idx] if ds.sprtopclip && ds_idx < ds.sprtopclip.length
+            end
+          end
+        end
+
+        # Fill in default values for unclipped columns
+        (x1..x2).each do |x|
+          clipbot[x] = SCREEN_HEIGHT if clipbot[x] == -2
+          cliptop[x] = -1 if cliptop[x] == -2
+        end
+
+        # Calculate sprite screen Y positions
+        sprite_top_world = sprite_gzt - @player_z
+        sprite_bottom_world = sprite_gz - @player_z
+        sprite_top_screen = (HALF_HEIGHT - sprite_top_world * sprite_scale).to_i
+        sprite_bottom_screen = (HALF_HEIGHT - sprite_bottom_world * sprite_scale).to_i
 
         # Draw each column of the sprite
-        (sprite_left..sprite_right).each do |x|
-          next if x < 0 || x >= SCREEN_WIDTH
+        (x1..x2).each do |x|
+          # Get clip bounds for this column
+          top_clip = cliptop[x] + 1
+          bottom_clip = clipbot[x] - 1
 
-          # Depth-based clipping: only draw if sprite is closer than the nearest solid wall
-          wall_dist = @sprite_wall_depth[x]
-          next if dist >= wall_dist
-
-          # Use screen bounds for Y clipping
-          # Note: More complex clip array clipping could be added for sprites behind windows,
-          # but for now depth testing handles the main case of sprites behind solid walls
-          top_clip = 0
-          bottom_clip = SCREEN_HEIGHT - 1
+          next if top_clip > bottom_clip
 
           # Calculate which texture column to use
           tex_x = ((x - sprite_left) * sprite.width / sprite_screen_width).to_i
