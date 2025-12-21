@@ -26,27 +26,6 @@ module Doom
         @pixels[(y & 63) * WIDTH + (x & 63)]
       end
 
-      def to_png(palette, filename)
-        require 'chunky_png'
-
-        img = ChunkyPNG::Image.new(WIDTH, HEIGHT)
-        @pixels.each_with_index do |color_index, i|
-          x = i % WIDTH
-          y = i / WIDTH
-          r, g, b = palette[color_index]
-          img[x, y] = ChunkyPNG::Color.rgb(r, g, b)
-        end
-        img.save(filename)
-      end
-
-      def self.load(wad, name)
-        data = wad.read_lump(name)
-        return nil unless data
-        raise Error, "Invalid flat size: #{data.size}" unless data.size == SIZE
-
-        new(name, data.bytes)
-      end
-
       def self.load_all(wad)
         entries = wad.lumps_between('F_START', 'F_END')
         entries.map do |entry|

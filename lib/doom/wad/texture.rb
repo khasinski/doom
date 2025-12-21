@@ -12,16 +12,6 @@ module Doom
         @width = width
         @height = height
         @patch_refs = patch_refs
-        @columns = nil
-      end
-
-      def columns
-        @columns ||= build_columns
-      end
-
-      def build_columns
-        # Will be built when patches are composited
-        nil
       end
 
       def self.load_all(wad)
