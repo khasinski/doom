@@ -7,8 +7,8 @@ require 'fileutils'
 module Doom
   # Downloads the shareware DOOM1.WAD if not present
   class WadDownloader
-    # Official Doom shareware WAD (v1.9) - hosted on archive.org
-    SHAREWARE_URL = 'https://archive.org/download/DoomsharewareEpisode/doom1.wad'
+    # Official Doom shareware WAD, uploaded by id Software to archive.org
+    SHAREWARE_URL = 'https://archive.org/download/doom-shareware_1996/DOOM1.WAD'
     SHAREWARE_SIZE = 4_196_020  # Expected size in bytes
     SHAREWARE_FILENAME = 'doom1.wad'
 

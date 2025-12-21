@@ -2,8 +2,8 @@
 
 module Doom
   module Render
-    SCREEN_WIDTH = 288
-    SCREEN_HEIGHT = 144
+    SCREEN_WIDTH = 320
+    SCREEN_HEIGHT = 240
     HALF_WIDTH = SCREEN_WIDTH / 2
     HALF_HEIGHT = SCREEN_HEIGHT / 2
     FOV = 90.0
