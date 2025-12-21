@@ -1,6 +1,6 @@
 # DOOM Ruby
 
-A faithful port of the DOOM (1993) rendering engine to Ruby.
+A faithful ruby port of the DOOM (1993) rendering engine to Ruby.
 
 ![DOOM Ruby Screenshot](https://raw.githubusercontent.com/khasinski/doom-rb/main/e1m1_spawn.png)
 
@@ -50,6 +50,32 @@ doom /path/to/doom.wad
 
 - Ruby 3.1 or higher
 - Gosu gem (for window/graphics)
+- SDL2 (native library required by Gosu)
+
+### Installing SDL2
+
+**macOS:**
+```bash
+brew install sdl2
+```
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install build-essential libsdl2-dev libgl1-mesa-dev libfontconfig1-dev
+```
+
+**Fedora:**
+```bash
+sudo dnf install SDL2-devel mesa-libGL-devel fontconfig-devel gcc-c++
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S sdl2 mesa
+```
+
+**Windows:**
+No additional setup needed - the gem includes SDL2.
 
 ## Development
 
@@ -82,7 +108,7 @@ DOOM is a registered trademark of id Software LLC. This is an unofficial fan pro
 
 The shareware version of DOOM (Episode 1) is freely distributable. For the full game,
 please purchase DOOM from [Steam](https://store.steampowered.com/app/2280/Ultimate_Doom/),
-[GOG](https://www.gog.com/game/the_ultimate_doom), or other retailers.
+[GOG](https://www.gog.com/pl/game/doom_doom_ii), or other retailers.
 
 ## License
 
