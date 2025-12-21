@@ -110,9 +110,8 @@ end
 
 RSpec.describe 'Doom::Render constants' do
   it 'has correct screen dimensions' do
-    # Using 288x144 to match Chocolate Doom's low-detail mode
-    expect(Doom::Render::SCREEN_WIDTH).to eq(288)
-    expect(Doom::Render::SCREEN_HEIGHT).to eq(144)
+    expect(Doom::Render::SCREEN_WIDTH).to eq(320)
+    expect(Doom::Render::SCREEN_HEIGHT).to eq(240)
   end
 
   it 'has correct half dimensions' do

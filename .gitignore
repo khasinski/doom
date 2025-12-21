@@ -2,9 +2,12 @@
 *.WAD
 *.png
 *.ppm
+*.gem
 reference/
 Gemfile.lock
 .bundle/
 vendor/
 .idea/
 plan.md
+profile.rb
+spec/examples.txt

@@ -241,19 +241,28 @@ module Doom
         light = calculate_flat_light(plane.light_level, perp_dist)
         cmap = @colormap.maps[light]
 
-        # Draw each pixel in the span
-        (x1..x2).each do |x|
-          next if x < 0 || x >= SCREEN_WIDTH
+        # Cache locals for inner loop
+        framebuffer = @framebuffer
+        column_distscale = @column_distscale
+        column_cos = @column_cos
+        column_sin = @column_sin
+        player_x = @player_x
+        neg_player_y = -@player_y
+        row_offset = y * SCREEN_WIDTH
 
-          # Scale perpendicular distance by column angle distortion
-          ray_dist = perp_dist * @column_distscale[x]
+        # Clamp to screen bounds
+        x1 = 0 if x1 < 0
+        x2 = SCREEN_WIDTH - 1 if x2 >= SCREEN_WIDTH
 
-          # Calculate texture coordinates (Doom convention)
-          tex_x = (@player_x + ray_dist * @column_cos[x]).to_i & 63
-          tex_y = (-@player_y - ray_dist * @column_sin[x]).to_i & 63
-
+        # Draw each pixel in the span using while loop
+        x = x1
+        while x <= x2
+          ray_dist = perp_dist * column_distscale[x]
+          tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
+          tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
           color = flat[tex_x, tex_y] || 0
-          set_pixel(x, y, cmap[color])
+          framebuffer[row_offset + x] = cmap[color]
+          x += 1
         end
       end
 
@@ -262,23 +271,34 @@ module Doom
         sky_texture = @textures['SKY1']
         return unless sky_texture
 
-        (plane.minx..plane.maxx).each do |x|
-          next if x < 0 || x >= SCREEN_WIDTH
+        framebuffer = @framebuffer
+        player_angle = @player_angle
+        projection = @projection
+        sky_width = sky_texture.width
+        sky_height = sky_texture.height
 
+        # Clamp to screen bounds
+        minx = [plane.minx, 0].max
+        maxx = [plane.maxx, SCREEN_WIDTH - 1].min
+
+        (minx..maxx).each do |x|
           y1 = plane.top[x]
           y2 = plane.bottom[x]
           next if y1 > y2
 
+          # Clamp y bounds
+          y1 = 0 if y1 < 0
+          y2 = SCREEN_HEIGHT - 1 if y2 >= SCREEN_HEIGHT
+
           # Sky X based on view angle (wraps around 256 degrees)
-          column_angle = @player_angle - Math.atan2(x - HALF_WIDTH, @projection)
-          sky_x = ((column_angle * 256 / Math::PI).to_i & 255) % sky_texture.width
+          column_angle = player_angle - Math.atan2(x - HALF_WIDTH, projection)
+          sky_x = ((column_angle * 256 / Math::PI).to_i & 255) % sky_width
           column = sky_texture.column_pixels(sky_x)
           next unless column
 
           (y1..y2).each do |y|
-            next if y < 0 || y >= SCREEN_HEIGHT
-            color = column[y % sky_texture.height] || 0
-            set_pixel(x, y, color)
+            color = column[y % sky_height] || 0
+            framebuffer[y * SCREEN_WIDTH + x] = color
           end
         end
       end
@@ -355,9 +375,16 @@ module Doom
       end
 
       def fill_uncovered_with_sector(default_sector)
-        # Column data is precomputed in precompute_column_data()
+        # Cache all instance variables as locals for faster access
+        framebuffer = @framebuffer
+        column_cos = @column_cos
+        column_sin = @column_sin
+        column_distscale = @column_distscale
+        projection = @projection
+        player_angle = @player_angle
+        player_x = @player_x
+        neg_player_y = -@player_y
 
-        # Cache frequently used values
         ceil_height = (default_sector.ceiling_height - @player_z).abs
         floor_height = (default_sector.floor_height - @player_z).abs
         ceil_flat = @flats[default_sector.ceiling_texture]
@@ -366,73 +393,79 @@ module Doom
         sky_texture = is_sky ? @textures['SKY1'] : nil
         light_level = default_sector.light_level
         colormap_maps = @colormap.maps
-        player_x = @player_x
-        neg_player_y = -@player_y
 
         # Precompute y_slope for each row (perpendicular distance)
-        # perp_dist = plane_height * projection / dy
-        @y_slope_ceil = Array.new(HALF_HEIGHT + 1, 0.0)
-        @y_slope_floor = Array.new(HALF_HEIGHT + 1, 0.0)
+        y_slope_ceil = Array.new(HALF_HEIGHT + 1, 0.0)
+        y_slope_floor = Array.new(HALF_HEIGHT + 1, 0.0)
         (1..HALF_HEIGHT).each do |dy|
-          @y_slope_ceil[dy] = ceil_height * @projection / dy.to_f
-          @y_slope_floor[dy] = floor_height * @projection / dy.to_f
+          y_slope_ceil[dy] = ceil_height * projection / dy.to_f
+          y_slope_floor[dy] = floor_height * projection / dy.to_f
         end
 
-        # Draw ceiling (rows 0 to HALF_HEIGHT-1)
-        (0...HALF_HEIGHT).each do |y|
+        # Draw ceiling (rows 0 to HALF_HEIGHT-1) using while loops for speed
+        y = 0
+        while y < HALF_HEIGHT
           dy = HALF_HEIGHT - y
-          next if dy == 0
+          if dy > 0
+            perp_dist = y_slope_ceil[dy]
+            if perp_dist > 0
+              light = calculate_flat_light(light_level, perp_dist)
+              cmap = colormap_maps[light]
+              row_offset = y * SCREEN_WIDTH
 
-          perp_dist = @y_slope_ceil[dy]
-          next if perp_dist <= 0
-
-          light = calculate_flat_light(light_level, perp_dist)
-          cmap = colormap_maps[light]
-
-          if is_sky && sky_texture
-            sky_y = y % sky_texture.height
-            SCREEN_WIDTH.times do |x|
-              column_angle = @player_angle - Math.atan2(x - HALF_WIDTH, @projection)
-              sky_angle = (column_angle * 256 / Math::PI).to_i & 255
-              sky_x = sky_angle % sky_texture.width
-              color = sky_texture.column_pixels(sky_x)[sky_y] || 0
-              set_pixel(x, y, color)
-            end
-          elsif ceil_flat
-            SCREEN_WIDTH.times do |x|
-              ray_dist = perp_dist * @column_distscale[x]
-              cos_a = @column_cos[x]
-              sin_a = @column_sin[x]
-              tex_x = (player_x + ray_dist * cos_a).to_i & 63
-              tex_y = (neg_player_y - ray_dist * sin_a).to_i & 63
-              color = ceil_flat[tex_x, tex_y] || 0
-              set_pixel(x, y, cmap[color])
+              if is_sky && sky_texture
+                sky_height = sky_texture.height
+                sky_width = sky_texture.width
+                sky_y = y % sky_height
+                x = 0
+                while x < SCREEN_WIDTH
+                  column_angle = player_angle - Math.atan2(x - HALF_WIDTH, projection)
+                  sky_x = ((column_angle * 256 / Math::PI).to_i & 255) % sky_width
+                  color = sky_texture.column_pixels(sky_x)[sky_y] || 0
+                  framebuffer[row_offset + x] = color
+                  x += 1
+                end
+              elsif ceil_flat
+                x = 0
+                while x < SCREEN_WIDTH
+                  ray_dist = perp_dist * column_distscale[x]
+                  tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
+                  tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
+                  color = ceil_flat[tex_x, tex_y] || 0
+                  framebuffer[row_offset + x] = cmap[color]
+                  x += 1
+                end
+              end
             end
           end
+          y += 1
         end
 
         # Draw floor (rows HALF_HEIGHT to SCREEN_HEIGHT-1)
-        (HALF_HEIGHT...SCREEN_HEIGHT).each do |y|
+        y = HALF_HEIGHT
+        while y < SCREEN_HEIGHT
           dy = y - HALF_HEIGHT
-          next if dy == 0
+          if dy > 0
+            perp_dist = y_slope_floor[dy]
+            if perp_dist > 0
+              light = calculate_flat_light(light_level, perp_dist)
+              cmap = colormap_maps[light]
+              row_offset = y * SCREEN_WIDTH
 
-          perp_dist = @y_slope_floor[dy]
-          next if perp_dist <= 0
-
-          light = calculate_flat_light(light_level, perp_dist)
-          cmap = colormap_maps[light]
-
-          if floor_flat
-            SCREEN_WIDTH.times do |x|
-              ray_dist = perp_dist * @column_distscale[x]
-              cos_a = @column_cos[x]
-              sin_a = @column_sin[x]
-              tex_x = (player_x + ray_dist * cos_a).to_i & 63
-              tex_y = (neg_player_y - ray_dist * sin_a).to_i & 63
-              color = floor_flat[tex_x, tex_y] || 0
-              set_pixel(x, y, cmap[color])
+              if floor_flat
+                x = 0
+                while x < SCREEN_WIDTH
+                  ray_dist = perp_dist * column_distscale[x]
+                  tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
+                  tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
+                  color = floor_flat[tex_x, tex_y] || 0
+                  framebuffer[row_offset + x] = cmap[color]
+                  x += 1
+                end
+              end
             end
           end
+          y += 1
         end
       end
 
@@ -866,7 +899,6 @@ module Doom
         return if texture_name.nil? || texture_name.empty? || texture_name == '-'
 
         # Clip to visible range (ceiling_clip/floor_clip)
-        # This ensures distant walls don't overdraw closer walls
         clip_top = @ceiling_clip[x] + 1
         clip_bottom = @floor_clip[x] - 1
         y1 = [y1, clip_top].max
@@ -877,37 +909,42 @@ module Doom
         return unless texture
 
         light = calculate_light(light_level, dist)
+        cmap = @colormap.maps[light]
+        framebuffer = @framebuffer
+        tex_width = texture.width
+        tex_height = texture.height
 
         # Texture X coordinate (wrap around texture width)
-        tex_x = tex_col.to_i % texture.width
-        tex_x = texture.width + tex_x if tex_x < 0
+        tex_x = tex_col.to_i % tex_width
+        tex_x += tex_width if tex_x < 0
 
         # Get the column of pixels
         column = texture.column_pixels(tex_x)
         return unless column
 
-        # Texture step per screen pixel: 1 texture pixel = 1 world unit
-        # tex_step = world_units_per_screen_pixel = 1 / scale
-        # This is independent of clipping!
+        # Texture step per screen pixel
         tex_step = 1.0 / scale
 
         # Calculate where the unclipped wall top would be on screen
         unclipped_y1 = HALF_HEIGHT - (world_top - @player_z) * scale
 
         # Adjust tex_y_start for any clipping at the top
-        # If y1 > unclipped_y1, we've clipped the top, so advance tex_y accordingly
         tex_y_at_y1 = tex_y_start + (y1 - unclipped_y1) * tex_step
 
-        (y1..y2).each do |y|
-          next if y < 0 || y >= SCREEN_HEIGHT
+        # Clamp to screen bounds
+        y1 = 0 if y1 < 0
+        y2 = SCREEN_HEIGHT - 1 if y2 >= SCREEN_HEIGHT
 
+        # Draw wall column using while loop
+        y = y1
+        while y <= y2
           screen_offset = y - y1
-          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % texture.height
-          tex_y = texture.height + tex_y if tex_y < 0
+          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
+          tex_y += tex_height if tex_y < 0
 
           color = column[tex_y] || 0
-          color = @colormap.maps[light][color]
-          set_pixel(x, y, color)
+          framebuffer[y * SCREEN_WIDTH + x] = cmap[color]
+          y += 1
         end
       end
 
@@ -1131,6 +1168,12 @@ module Doom
         sprite_top_screen = (HALF_HEIGHT - sprite_top_world * sprite_scale).to_i
         sprite_bottom_screen = (HALF_HEIGHT - sprite_bottom_world * sprite_scale).to_i
 
+        # Cache for inner loop
+        framebuffer = @framebuffer
+        cmap = @colormap.maps[light]
+        sprite_width = sprite.width
+        sprite_height = sprite.height
+
         # Draw each column of the sprite
         (x1..x2).each do |x|
           # Get clip bounds for this column
@@ -1140,8 +1183,8 @@ module Doom
           next if top_clip > bottom_clip
 
           # Calculate which texture column to use
-          tex_x = ((x - sprite_left) * sprite.width / sprite_screen_width).to_i
-          tex_x = tex_x.clamp(0, sprite.width - 1)
+          tex_x = ((x - sprite_left) * sprite_width / sprite_screen_width).to_i
+          tex_x = tex_x.clamp(0, sprite_width - 1)
 
           # Get column pixels
           column = sprite.column_pixels(tex_x)
@@ -1153,16 +1196,15 @@ module Doom
 
           (y_start..y_end).each do |y|
             # Calculate texture Y
-            tex_y = ((y - sprite_top_screen) * sprite.height / sprite_screen_height).to_i
-            tex_y = tex_y.clamp(0, sprite.height - 1)
+            tex_y = ((y - sprite_top_screen) * sprite_height / sprite_screen_height).to_i
+            tex_y = tex_y.clamp(0, sprite_height - 1)
 
             # Get pixel (nil = transparent)
             color = column[tex_y]
             next unless color
 
-            # Apply lighting
-            color = @colormap.maps[light][color]
-            set_pixel(x, y, color)
+            # Apply lighting and write directly to framebuffer
+            framebuffer[y * SCREEN_WIDTH + x] = cmap[color]
           end
         end
       end
