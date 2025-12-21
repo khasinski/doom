@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
-require_relative '../lib/doom'
+# Load core modules without platform-specific code (Gosu)
+require_relative '../lib/doom/version'
 require_relative '../lib/doom/wad/reader'
 require_relative '../lib/doom/wad/palette'
 require_relative '../lib/doom/wad/colormap'

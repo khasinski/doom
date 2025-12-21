@@ -1,19 +1,54 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require_relative '../lib/doom'
-
-if ARGV.empty?
-  puts "Usage: doom <path-to-wad>"
-  puts "       doom doom1.wad"
-  exit 1
-end
-
+# Parse arguments before loading heavy dependencies
 wad_path = ARGV[0]
 
-unless File.exist?(wad_path)
-  puts "Error: WAD file not found: #{wad_path}"
-  exit 1
+# Show help (before loading anything)
+if wad_path == '-h' || wad_path == '--help'
+  puts "DOOM - Ruby port of the classic 1993 game"
+  puts
+  puts "Usage: doom [OPTIONS] [WAD_FILE]"
+  puts
+  puts "Options:"
+  puts "  -h, --help     Show this help message"
+  puts "  -v, --version  Show version"
+  puts
+  puts "If no WAD file is specified, doom will look for doom1.wad in:"
+  puts "  1. Current directory"
+  puts "  2. ~/.doom/"
+  puts
+  puts "If not found, you'll be prompted to download the shareware version."
+  puts
+  puts "Controls:"
+  puts "  W/Up      - Move forward"
+  puts "  S/Down    - Move backward"
+  puts "  A         - Strafe left"
+  puts "  D         - Strafe right"
+  puts "  Left      - Turn left"
+  puts "  Right     - Turn right"
+  puts "  Mouse     - Look around (click to capture)"
+  puts "  Escape    - Release mouse / Quit"
+  exit 0
 end
 
-Doom.run(wad_path)
+if wad_path == '-v' || wad_path == '--version'
+  require_relative '../lib/doom/version'
+  puts "DOOM Ruby v#{Doom::VERSION}"
+  exit 0
+end
+
+# Now load the full library
+require_relative '../lib/doom'
+
+begin
+  # Find or download WAD
+  wad_path = Doom::WadDownloader.ensure_wad_available(wad_path)
+  Doom.run(wad_path)
+rescue Doom::WadDownloader::DownloadError => e
+  puts "Error: #{e.message}"
+  exit 1
+rescue Interrupt
+  puts "\nQuitting..."
+  exit 0
+end

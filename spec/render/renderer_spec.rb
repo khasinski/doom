@@ -28,7 +28,7 @@ RSpec.describe Doom::Render::Renderer do
     end
 
     it 'has framebuffer of correct size' do
-      expect(@renderer.framebuffer.size).to eq(320 * 200)
+      expect(@renderer.framebuffer.size).to eq(Doom::Render::SCREEN_WIDTH * Doom::Render::SCREEN_HEIGHT)
     end
 
     it 'initializes framebuffer to zeros' do
@@ -65,9 +65,12 @@ RSpec.describe Doom::Render::Renderer do
     end
 
     it 'renders floor and ceiling' do
+      w = Doom::Render::SCREEN_WIDTH
+      h = Doom::Render::SCREEN_HEIGHT
+
       # Check that we have pixels in both top and bottom halves
-      top_half = @renderer.framebuffer[0, 320 * 100]
-      bottom_half = @renderer.framebuffer[320 * 100, 320 * 100]
+      top_half = @renderer.framebuffer[0, w * (h / 2)]
+      bottom_half = @renderer.framebuffer[w * (h / 2), w * (h / 2)]
 
       top_non_zero = top_half.count { |p| p != 0 }
       bottom_non_zero = bottom_half.count { |p| p != 0 }
@@ -77,9 +80,12 @@ RSpec.describe Doom::Render::Renderer do
     end
 
     it 'renders walls (non-uniform columns)' do
+      w = Doom::Render::SCREEN_WIDTH
+      h = Doom::Render::SCREEN_HEIGHT
+
       # Check that different columns have different patterns
-      columns = (0...320).map do |x|
-        (0...200).map { |y| @renderer.framebuffer[y * 320 + x] }
+      columns = (0...w).map do |x|
+        (0...h).map { |y| @renderer.framebuffer[y * w + x] }
       end
 
       unique_columns = columns.uniq.size
@@ -104,13 +110,14 @@ end
 
 RSpec.describe 'Doom::Render constants' do
   it 'has correct screen dimensions' do
-    expect(Doom::Render::SCREEN_WIDTH).to eq(320)
-    expect(Doom::Render::SCREEN_HEIGHT).to eq(200)
+    # Using 288x144 to match Chocolate Doom's low-detail mode
+    expect(Doom::Render::SCREEN_WIDTH).to eq(288)
+    expect(Doom::Render::SCREEN_HEIGHT).to eq(144)
   end
 
   it 'has correct half dimensions' do
-    expect(Doom::Render::HALF_WIDTH).to eq(160)
-    expect(Doom::Render::HALF_HEIGHT).to eq(100)
+    expect(Doom::Render::HALF_WIDTH).to eq(Doom::Render::SCREEN_WIDTH / 2)
+    expect(Doom::Render::HALF_HEIGHT).to eq(Doom::Render::SCREEN_HEIGHT / 2)
   end
 
   it 'has 90 degree FOV' do

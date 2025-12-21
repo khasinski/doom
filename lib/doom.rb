@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'doom/version'
+require_relative 'doom/wad_downloader'
 require_relative 'doom/wad/reader'
 require_relative 'doom/wad/palette'
 require_relative 'doom/wad/colormap'
