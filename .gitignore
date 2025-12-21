@@ -1,7 +1,10 @@
 *.wad
 *.WAD
 *.png
+*.ppm
 reference/
 Gemfile.lock
 .bundle/
 vendor/
+.idea/
+plan.md

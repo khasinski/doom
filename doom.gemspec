@@ -7,7 +7,7 @@ Gem::Specification.new do |s|
   s.version     = Doom::VERSION
   s.summary     = 'Doom engine port in pure Ruby'
   s.description = 'A faithful port of the Doom (1993) rendering engine to Ruby. ' \
-                  'Supports original WAD files with pixel-perfect BSP rendering.'
+                  'Supports original WAD files with near pixel-perfect BSP rendering.'
   s.authors     = ['Chris Hasinski']
   s.email       = ['krzysztof.hasinski@gmail.com']
   s.homepage    = 'https://github.com/khasinski/doom-rb'

@@ -436,137 +436,6 @@ module Doom
         end
       end
 
-      def draw_visplane(plane)
-        texture_name = plane.texture
-        is_sky = texture_name == 'F_SKY1'
-        flat = is_sky ? nil : @flats[texture_name]
-        sky_texture = is_sky ? @textures['SKY1'] : nil
-        plane_height = plane.height
-
-        SCREEN_WIDTH.times do |x|
-          y1 = plane.top[x]
-          y2 = plane.bottom[x]
-          next if y1 > y2
-
-          column_angle = @player_angle - Math.atan2(x - HALF_WIDTH, @projection)
-
-          (y1..y2).each do |y|
-            next if y < 0 || y >= SCREEN_HEIGHT
-
-            if is_sky && sky_texture
-              # Sky rendering
-              sky_angle = (column_angle * 256 / Math::PI).to_i & 255
-              sky_x = sky_angle % sky_texture.width
-              sky_y = y % sky_texture.height
-              color = sky_texture.column_pixels(sky_x)[sky_y] || 0
-              set_pixel(x, y, color)
-            else
-              dy = y - HALF_HEIGHT
-              next if dy == 0
-
-              # distance = |height| * projection / |dy|
-              row_distance = (plane_height.abs * @projection / dy.abs).to_f
-
-              if flat && row_distance > 0
-                # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
-                tex_x = (@player_x + row_distance * Math.cos(column_angle)).to_i & 63
-                tex_y = (-@player_y - row_distance * Math.sin(column_angle)).to_i & 63
-                color = flat[tex_x, tex_y] || 0
-              else
-                color = plane.is_ceiling ? 0 : 96
-              end
-
-              light = calculate_light(plane.light_level, row_distance)
-              color = @colormap.maps[light][color]
-              set_pixel(x, y, color)
-            end
-          end
-        end
-      end
-
-      def draw_background
-        # Get player's sector for correct textures
-        player_sector = @map.sector_at(@player_x, @player_y)
-
-        if player_sector
-          floor_tex = player_sector.floor_texture
-          ceil_tex = player_sector.ceiling_texture
-          floor_height = player_sector.floor_height
-          ceil_height = player_sector.ceiling_height
-          light_level = player_sector.light_level
-        else
-          floor_tex = 'FLOOR4_8'
-          ceil_tex = 'CEIL3_5'
-          floor_height = 0
-          ceil_height = 72
-          light_level = 160
-        end
-
-        floor_flat = @flats[floor_tex]
-        ceil_flat = @flats[ceil_tex]
-        is_sky = ceil_tex == 'F_SKY1'
-
-        # Load sky texture if needed
-        sky_texture = is_sky ? @textures['SKY1'] : nil
-
-        SCREEN_WIDTH.times do |x|
-          column_angle = @player_angle - Math.atan2(x - HALF_WIDTH, @projection)
-
-          # Ceiling (top half)
-          (0...HALF_HEIGHT).each do |y|
-            if is_sky && sky_texture
-              # Sky texture - use view angle for horizontal, fixed for vertical
-              sky_angle = (column_angle * 256 / Math::PI).to_i & 255
-              sky_x = sky_angle % sky_texture.width
-              sky_y = y % sky_texture.height
-              color = sky_texture.column_pixels(sky_x)[sky_y] || 0
-              set_pixel(x, y, color)
-            else
-              dy = HALF_HEIGHT - y
-              next if dy == 0
-
-              ceil_rel = ceil_height - @player_z
-              row_distance = (ceil_rel.abs * @projection / dy.to_f).abs
-
-              if ceil_flat && row_distance > 0
-                # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
-                tex_x = (@player_x + row_distance * Math.cos(column_angle)).to_i & 63
-                tex_y = (-@player_y - row_distance * Math.sin(column_angle)).to_i & 63
-                color = ceil_flat[tex_x, tex_y] || 100
-              else
-                color = 100
-              end
-
-              light = calculate_light(light_level, row_distance)
-              color = @colormap.maps[light][color]
-              set_pixel(x, y, color)
-            end
-          end
-
-          # Floor (bottom half)
-          (HALF_HEIGHT...SCREEN_HEIGHT).each do |y|
-            dy = y - HALF_HEIGHT
-            next if dy == 0
-
-            floor_rel = floor_height - @player_z
-            row_distance = (floor_rel.abs * @projection / dy.to_f).abs
-
-            if floor_flat && row_distance > 0
-              # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
-              tex_x = (@player_x + row_distance * Math.cos(column_angle)).to_i & 63
-              tex_y = (-@player_y - row_distance * Math.sin(column_angle)).to_i & 63
-              color = floor_flat[tex_x, tex_y] || 96
-            else
-              color = 96
-            end
-
-            light = calculate_light(light_level, row_distance)
-            color = @colormap.maps[light][color]
-            set_pixel(x, y, color)
-          end
-        end
-      end
-
       private
 
       def clear_framebuffer
@@ -987,32 +856,7 @@ module Doom
         end
       end
 
-      # Legacy wall column drawing (for compatibility)
-      def draw_wall_column(x, y1, y2, texture_name, dist, light_level, tex_x_offset = 0, tex_y_offset = 0, wall_height = nil)
-        return if y1 > y2
-        return if texture_name.nil? || texture_name.empty? || texture_name == '-'
-
-        texture = @textures[texture_name]
-        light = calculate_light(light_level, dist)
-
-        (y1..y2).each do |y|
-          next if y < 0 || y >= SCREEN_HEIGHT
-
-          if texture
-            tex_x = (x + tex_x_offset) % texture.width
-            column_height = y2 - y1 + 1
-            tex_y = ((y - y1) * texture.height / column_height + tex_y_offset) % texture.height
-            color = texture.column_pixels(tex_x)[tex_y] || 0
-          else
-            color = 96
-          end
-
-          color = @colormap.maps[light][color]
-          set_pixel(x, y, color)
-        end
-      end
-
-      # Enhanced wall column drawing with proper texture mapping
+      # Wall column drawing with proper texture mapping
       # tex_col: texture column (X coordinate in texture)
       # tex_y_start: starting Y coordinate in texture (accounts for pegging)
       # scale: projection scale for this column (projection / distance)
@@ -1062,47 +906,6 @@ module Doom
           tex_y = texture.height + tex_y if tex_y < 0
 
           color = column[tex_y] || 0
-          color = @colormap.maps[light][color]
-          set_pixel(x, y, color)
-        end
-      end
-
-      def draw_flat_column(x, y1, y2, texture_name, light_level, is_ceiling, plane_height = nil)
-        return if y1 > y2
-
-        flat = @flats[texture_name]
-
-        # Calculate angle for this screen column
-        # tan(angle) = (x - HALF_WIDTH) / projection
-        column_angle = @player_angle + Math.atan2(x - HALF_WIDTH, @projection)
-
-        (y1..y2).each do |y|
-          next if y < 0 || y >= SCREEN_HEIGHT
-
-          # Calculate distance to this floor/ceiling pixel
-          # For floor: y > HALF_HEIGHT, plane is below eye (negative height)
-          # For ceiling: y < HALF_HEIGHT, plane is above eye (positive height)
-          dy = y - HALF_HEIGHT
-          next if dy == 0  # At horizon
-
-          # Use provided plane_height or estimate from y position
-          height = plane_height || (is_ceiling ? 31.0 : -41.0)
-
-          # distance = |height| * projection / |dy|
-          row_distance = (height.abs * @projection / dy.abs).to_f
-
-          if flat && row_distance > 0
-            # Doom's texture coord convention: xfrac = viewx + cos*len, yfrac = -viewy - sin*len
-            tex_x = (@player_x + row_distance * Math.cos(column_angle)).to_i & 63
-            tex_y = (-@player_y - row_distance * Math.sin(column_angle)).to_i & 63
-            color = flat[tex_x, tex_y] || 0
-          elsif is_ceiling
-            color = 0  # Sky/black
-          else
-            color = 96  # Gray floor
-          end
-
-          light = calculate_light(light_level, row_distance)
           color = @colormap.maps[light][color]
           set_pixel(x, y, color)
         end
