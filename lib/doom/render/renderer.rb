@@ -1072,16 +1072,17 @@ module Doom
         # lightnum from sector light level (0-15)
         lightnum = (light_level >> LIGHTSEGSHIFT).clamp(0, LIGHTLEVELS - 1)
 
-        # startmap = (15 - lightnum) * 4
+        # startmap = (LIGHTLEVELS-1-lightnum)*2*NUMCOLORMAPS/LIGHTLEVELS
         startmap = ((LIGHTLEVELS - 1 - lightnum) * 2 * NUMCOLORMAPS) / LIGHTLEVELS
 
         # z_index = distance (in fixed point) >> LIGHTZSHIFT
         # Our float distance * FRACUNIT >> LIGHTZSHIFT = distance * 65536 / 1048576 = distance / 16
         z_index = (distance / 16.0).to_i.clamp(0, MAXLIGHTZ - 1)
 
-        # From R_InitLightTables: scale = FixedDiv(160*FRACUNIT, (j+1)<<LIGHTZSHIFT) >> LIGHTSCALESHIFT
-        # Simplifies to: diminish = 80 / (z_index + 1)
-        diminish = 80.0 / (z_index + 1)
+        # From R_InitLightTables: scale = FixedDiv(160*FRACUNIT, (j+1)<<LIGHTZSHIFT)
+        #   = (160*65536*65536) / ((j+1)*1048576) = 655360 / (j+1)
+        # level = startmap - scale/FRACUNIT = startmap - 655360/65536/(j+1) = startmap - 10/(j+1)
+        diminish = 10.0 / (z_index + 1)
 
         level = startmap - diminish
         level.to_i.clamp(0, NUMCOLORMAPS - 1)
