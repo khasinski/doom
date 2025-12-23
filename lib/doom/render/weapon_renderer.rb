@@ -31,17 +31,18 @@ module Doom
         bob_x = @player.weapon_bob_x.to_i
         bob_y = @player.weapon_bob_y.to_i
 
-        # Center weapon horizontally using left_offset
-        # Position weapon at bottom of screen (above status bar) using top_offset
-        x = (SCREEN_WIDTH / 2) - sprite.left_offset + bob_x
-        y = WEAPON_AREA_HEIGHT - sprite.top_offset + bob_y
+        # Center weapon horizontally (sprite width / 2 from center)
+        # Position weapon at bottom of view area
+        # Weapon offsets in DOOM are negative, meaning the sprite draws UP and LEFT from origin
+        x = (SCREEN_WIDTH / 2) - (sprite.width / 2) + bob_x
+        y = WEAPON_AREA_HEIGHT - sprite.height + bob_y
 
         # Add some vertical offset during attack (recoil effect)
         if @player.attacking
           recoil = case @player.attack_frame
-                   when 0 then -4
-                   when 1 then -2
-                   when 2 then 2
+                   when 0 then -6
+                   when 1 then -3
+                   when 2 then 3
                    else 0
                    end
           y += recoil

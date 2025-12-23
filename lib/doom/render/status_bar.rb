@@ -7,13 +7,22 @@ module Doom
       STATUS_BAR_HEIGHT = 32
       STATUS_BAR_Y = SCREEN_HEIGHT - STATUS_BAR_HEIGHT
 
-      # X positions for status bar elements (based on 320px width)
-      AMMO_X = 44        # Ammo count position
-      HEALTH_X = 90      # Health count position
-      FACE_X = 143       # Face position (center of face area)
-      ARMS_X = 104       # Arms area start
-      ARMOR_X = 221      # Armor count position
-      KEYS_X = 239       # Keys area start
+      # DOOM status bar layout (from st_stuff.c):
+      # Ammo: x=2, 3-digit number ending at ~x=43
+      # Health: x=50, 3-digit number ending at ~x=90, then % at x=90
+      # Face: x=143 (center), actual background area is 104-167
+      # Armor: x=179, 3-digit number, then %
+      # Keys: x=239, y=3/13/23 for blue/yellow/red
+
+      # Number positions (right edge of the number area)
+      AMMO_X = 2
+      HEALTH_X = 50
+      ARMOR_X = 179
+      FACE_X = 144       # Center of face background (143-144)
+      KEYS_X = 239
+
+      NUM_WIDTH = 14     # Width of each digit
+      NUM_HEIGHT = 16
 
       def initialize(hud_graphics, player_state)
         @gfx = hud_graphics
@@ -26,25 +35,25 @@ module Doom
         # Draw status bar background
         draw_sprite(framebuffer, @gfx.status_bar, 0, STATUS_BAR_Y) if @gfx.status_bar
 
-        # Draw ammo count
-        draw_number(framebuffer, @player.current_ammo, AMMO_X, STATUS_BAR_Y + 3, 3) if @player.current_ammo
+        # Y position for numbers (3 pixels from top of status bar)
+        num_y = STATUS_BAR_Y + 3
 
-        # Draw health
-        draw_number(framebuffer, @player.health, HEALTH_X, STATUS_BAR_Y + 3, 3)
-        draw_percent(framebuffer, HEALTH_X + 42, STATUS_BAR_Y + 3)
+        # Draw ammo count (left side)
+        draw_number_left(framebuffer, @player.current_ammo, AMMO_X, num_y, 3) if @player.current_ammo
+
+        # Draw health with percent
+        draw_number_left(framebuffer, @player.health, HEALTH_X, num_y, 3)
+        draw_percent(framebuffer, HEALTH_X + NUM_WIDTH * 3, num_y)
 
         # Draw face
         draw_face(framebuffer)
 
-        # Draw armor
-        draw_number(framebuffer, @player.armor, ARMOR_X, STATUS_BAR_Y + 3, 3)
-        draw_percent(framebuffer, ARMOR_X + 42, STATUS_BAR_Y + 3)
+        # Draw armor with percent
+        draw_number_left(framebuffer, @player.armor, ARMOR_X, num_y, 3)
+        draw_percent(framebuffer, ARMOR_X + NUM_WIDTH * 3, num_y)
 
-        # Draw keys
+        # Draw keys (right side)
         draw_keys(framebuffer)
-
-        # Draw arms indicators (which weapons player has)
-        draw_arms(framebuffer)
       end
 
       def update
@@ -79,36 +88,26 @@ module Doom
         end
       end
 
-      def draw_number(framebuffer, value, x, y, digits)
+      # Draw number left-to-right starting at x position
+      def draw_number_left(framebuffer, value, x, y, max_digits)
         return unless value
 
-        value = value.to_i.clamp(-99, 999)
-        str = value.abs.to_s.rjust(digits, ' ')
+        value = value.to_i.clamp(-999, 999)
+        str = value.to_s
 
-        # Draw from right to left
-        offset = 0
-        str.reverse.each_char do |char|
-          digit_sprite = nil
-          if char == ' '
-            offset += 14  # Number width
-            next
-          elsif char == '-'
-            digit_sprite = @gfx.numbers['-']
-          else
-            digit_sprite = @gfx.numbers[char.to_i]
-          end
+        # Draw each digit
+        current_x = x
+        str.each_char do |char|
+          digit_sprite = if char == '-'
+                           @gfx.numbers['-']
+                         else
+                           @gfx.numbers[char.to_i]
+                         end
 
           if digit_sprite
-            draw_x = x + (digits * 14) - offset - digit_sprite.width
-            draw_sprite(framebuffer, digit_sprite, draw_x, y)
-            offset += 14
+            draw_sprite(framebuffer, digit_sprite, current_x, y)
+            current_x += NUM_WIDTH
           end
-        end
-
-        # Draw minus sign if negative
-        if value < 0
-          minus = @gfx.numbers['-']
-          draw_sprite(framebuffer, minus, x - 14, y) if minus
         end
       end
 
@@ -118,8 +117,9 @@ module Doom
       end
 
       def draw_face(framebuffer)
-        health_level = @player.health_level
-        faces = @gfx.faces[health_level]
+        # In DOOM, face sprite health levels are inverted: 0 = full health, 4 = dying
+        sprite_health = 4 - @player.health_level
+        faces = @gfx.faces[sprite_health]
         return unless faces
 
         # Get current face sprite
@@ -133,48 +133,36 @@ module Doom
 
         return unless face
 
-        # Center face in its area
-        face_x = FACE_X - face.width / 2
-        face_y = STATUS_BAR_Y + 3
+        # Center face in its background area (face bg is roughly 104-167, center ~143)
+        face_x = FACE_X - (face.width / 2)
+        face_y = STATUS_BAR_Y + 1  # Face is positioned near top of status bar
         draw_sprite(framebuffer, face, face_x, face_y)
       end
 
       def draw_keys(framebuffer)
-        key_y = STATUS_BAR_Y + 3
+        key_x = KEYS_X
         key_spacing = 10
 
         # Blue keys (top row)
         if @player.keys[:blue_card]
-          sprite = @gfx.keys[:blue_card]
-          draw_sprite(framebuffer, sprite, KEYS_X, key_y) if sprite
+          draw_sprite(framebuffer, @gfx.keys[:blue_card], key_x, STATUS_BAR_Y + 3)
         elsif @player.keys[:blue_skull]
-          sprite = @gfx.keys[:blue_skull]
-          draw_sprite(framebuffer, sprite, KEYS_X, key_y) if sprite
+          draw_sprite(framebuffer, @gfx.keys[:blue_skull], key_x, STATUS_BAR_Y + 3)
         end
 
         # Yellow keys (middle row)
         if @player.keys[:yellow_card]
-          sprite = @gfx.keys[:yellow_card]
-          draw_sprite(framebuffer, sprite, KEYS_X, key_y + key_spacing) if sprite
+          draw_sprite(framebuffer, @gfx.keys[:yellow_card], key_x, STATUS_BAR_Y + 13)
         elsif @player.keys[:yellow_skull]
-          sprite = @gfx.keys[:yellow_skull]
-          draw_sprite(framebuffer, sprite, KEYS_X, key_y + key_spacing) if sprite
+          draw_sprite(framebuffer, @gfx.keys[:yellow_skull], key_x, STATUS_BAR_Y + 13)
         end
 
         # Red keys (bottom row)
         if @player.keys[:red_card]
-          sprite = @gfx.keys[:red_card]
-          draw_sprite(framebuffer, sprite, KEYS_X, key_y + key_spacing * 2) if sprite
+          draw_sprite(framebuffer, @gfx.keys[:red_card], key_x, STATUS_BAR_Y + 23)
         elsif @player.keys[:red_skull]
-          sprite = @gfx.keys[:red_skull]
-          draw_sprite(framebuffer, sprite, KEYS_X, key_y + key_spacing * 2) if sprite
+          draw_sprite(framebuffer, @gfx.keys[:red_skull], key_x, STATUS_BAR_Y + 23)
         end
-      end
-
-      def draw_arms(framebuffer)
-        # Arms area shows which weapons player has (2-7, fist/pistol not shown)
-        # This is simplified - original has a more complex layout
-        # For now just skip this as it requires additional graphics
       end
     end
   end
