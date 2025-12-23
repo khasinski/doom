@@ -9,8 +9,12 @@ require_relative 'doom/wad/flat'
 require_relative 'doom/wad/patch'
 require_relative 'doom/wad/texture'
 require_relative 'doom/wad/sprite'
+require_relative 'doom/wad/hud_graphics'
 require_relative 'doom/map/data'
+require_relative 'doom/game/player_state'
 require_relative 'doom/render/renderer'
+require_relative 'doom/render/status_bar'
+require_relative 'doom/render/weapon_renderer'
 require_relative 'doom/platform/gosu_window'
 
 module Doom
@@ -39,6 +43,9 @@ module Doom
       puts 'Loading sprites...'
       sprites = Wad::SpriteManager.new(wad)
 
+      puts 'Loading HUD graphics...'
+      hud_graphics = Wad::HudGraphics.new(wad)
+
       puts "Loading map #{map_name}..."
       map = Map::MapData.load(wad, map_name)
       puts "  #{map.vertices.size} vertices, #{map.linedefs.size} linedefs"
@@ -57,8 +64,13 @@ module Doom
       renderer = Render::Renderer.new(wad, map, textures, palette, colormap, flats, sprites)
       renderer.set_player(player_start.x, player_start.y, 41, player_start.angle)
 
+      puts 'Setting up player state and HUD...'
+      player_state = Game::PlayerState.new
+      status_bar = Render::StatusBar.new(hud_graphics, player_state)
+      weapon_renderer = Render::WeaponRenderer.new(hud_graphics, player_state)
+
       puts 'Starting game window...'
-      window = Platform::GosuWindow.new(renderer, palette, map)
+      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer)
       window.show
     end
   end

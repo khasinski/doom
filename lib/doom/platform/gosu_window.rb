@@ -13,24 +13,52 @@ module Doom
       MOUSE_SENSITIVITY = 0.15  # Mouse look sensitivity
       PLAYER_RADIUS = 16.0   # Collision radius
 
-      def initialize(renderer, palette, map)
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil)
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, false)
         self.caption = 'Doom Ruby'
 
         @renderer = renderer
         @palette = palette
         @map = map
+        @player_state = player_state
+        @status_bar = status_bar
+        @weapon_renderer = weapon_renderer
         @screen_image = nil
         @mouse_captured = false
         @last_mouse_x = nil
+        @last_update_time = Time.now
 
         # Pre-build palette lookup for speed
         @palette_rgba = palette.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
       end
 
       def update
+        # Calculate delta time for smooth animations
+        now = Time.now
+        delta_time = now - @last_update_time
+        @last_update_time = now
+
         handle_input
+
+        # Update player state
+        if @player_state
+          @player_state.update_attack
+          @player_state.update_bob(delta_time)
+        end
+
+        # Update HUD animations
+        @status_bar&.update
+
+        # Render the 3D world
         @renderer.render_frame
+
+        # Render HUD on top
+        if @weapon_renderer
+          @weapon_renderer.render(@renderer.framebuffer)
+        end
+        if @status_bar
+          @status_bar.render(@renderer.framebuffer)
+        end
       end
 
       def handle_input
@@ -68,9 +96,39 @@ module Doom
           move_y += @renderer.cos_angle * MOVE_SPEED
         end
 
+        # Track if player is moving (for weapon bob)
+        is_moving = move_x != 0.0 || move_y != 0.0
+        @player_state.is_moving = is_moving if @player_state
+
         # Apply movement with collision detection
-        if move_x != 0.0 || move_y != 0.0
+        if is_moving
           try_move(move_x, move_y)
+        end
+
+        # Handle firing
+        if @player_state && @mouse_captured && Gosu.button_down?(Gosu::MS_LEFT)
+          @player_state.start_attack
+        end
+
+        # Handle weapon switching with number keys
+        handle_weapon_switch if @player_state
+      end
+
+      def handle_weapon_switch
+        if Gosu.button_down?(Gosu::KB_1)
+          @player_state.switch_weapon(Game::PlayerState::WEAPON_FIST)
+        elsif Gosu.button_down?(Gosu::KB_2)
+          @player_state.switch_weapon(Game::PlayerState::WEAPON_PISTOL)
+        elsif Gosu.button_down?(Gosu::KB_3)
+          @player_state.switch_weapon(Game::PlayerState::WEAPON_SHOTGUN)
+        elsif Gosu.button_down?(Gosu::KB_4)
+          @player_state.switch_weapon(Game::PlayerState::WEAPON_CHAINGUN)
+        elsif Gosu.button_down?(Gosu::KB_5)
+          @player_state.switch_weapon(Game::PlayerState::WEAPON_ROCKET)
+        elsif Gosu.button_down?(Gosu::KB_6)
+          @player_state.switch_weapon(Game::PlayerState::WEAPON_PLASMA)
+        elsif Gosu.button_down?(Gosu::KB_7)
+          @player_state.switch_weapon(Game::PlayerState::WEAPON_BFG)
         end
       end
 
