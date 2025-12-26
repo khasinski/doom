@@ -54,7 +54,10 @@ module Doom
         @status_bar&.update
 
         # Update sector actions (doors, lifts, etc.)
-        @sector_actions&.update
+        if @sector_actions
+          @sector_actions.update_player_position(@renderer.player_x, @renderer.player_y)
+          @sector_actions.update
+        end
 
         # Render the 3D world
         @renderer.render_frame

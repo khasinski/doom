@@ -13,10 +13,18 @@ module Doom
       # Door speeds (units per tic, 35 tics/sec)
       DOOR_SPEED = 2
       DOOR_WAIT = 150  # Tics to wait when open (~4 seconds)
+      PLAYER_HEIGHT = 56  # Player height for door collision
 
       def initialize(map)
         @map = map
         @active_doors = {}  # sector_index => door_state
+        @player_x = 0
+        @player_y = 0
+      end
+
+      def update_player_position(x, y)
+        @player_x = x
+        @player_y = y
       end
 
       def update
@@ -108,6 +116,14 @@ module Doom
             end
 
           when DOOR_CLOSING
+            # Check if player is in the door sector
+            player_sector = @map.sector_at(@player_x, @player_y)
+            if player_sector == door[:sector]
+              # Player is in door - reopen it
+              door[:state] = DOOR_OPENING
+              next
+            end
+
             door[:sector].ceiling_height -= DOOR_SPEED
             if door[:sector].ceiling_height <= door[:original_height]
               door[:sector].ceiling_height = door[:original_height]
