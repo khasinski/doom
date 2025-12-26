@@ -7,22 +7,19 @@ module Doom
       STATUS_BAR_HEIGHT = 32
       STATUS_BAR_Y = SCREEN_HEIGHT - STATUS_BAR_HEIGHT
 
-      # DOOM status bar layout (from st_stuff.c):
-      # Ammo: x=2, 3-digit number ending at ~x=43
-      # Health: x=50, 3-digit number ending at ~x=90, then % at x=90
-      # Face: x=143 (center), actual background area is 104-167
-      # Armor: x=179, 3-digit number, then %
-      # Keys: x=239, y=3/13/23 for blue/yellow/red
+      # DOOM status bar layout (from st_stuff.c)
+      # X positions are RIGHT EDGE of each number area (numbers are right-aligned)
+      # Y positions relative to status bar top
 
-      # Number positions (right edge of the number area)
-      AMMO_X = 2
-      HEALTH_X = 50
-      ARMOR_X = 179
-      FACE_X = 144       # Center of face background (143-144)
-      KEYS_X = 239
+      # Right edge X positions for numbers
+      AMMO_RIGHT_X = 44      # ST_AMMOX - right edge of 3-digit ammo
+      HEALTH_RIGHT_X = 90    # ST_HEALTHX - right edge of 3-digit health
+      ARMOR_RIGHT_X = 221    # ST_ARMORX - right edge of 3-digit armor
 
-      NUM_WIDTH = 14     # Width of each digit
-      NUM_HEIGHT = 16
+      FACE_X = 149           # Adjusted for proper centering in face background
+      KEYS_X = 239           # ST_KEY0X
+
+      NUM_WIDTH = 14         # Width of each digit
 
       def initialize(hud_graphics, player_state)
         @gfx = hud_graphics
@@ -38,21 +35,21 @@ module Doom
         # Y position for numbers (3 pixels from top of status bar)
         num_y = STATUS_BAR_Y + 3
 
-        # Draw ammo count (left side)
-        draw_number_left(framebuffer, @player.current_ammo, AMMO_X, num_y, 3) if @player.current_ammo
+        # Draw ammo count (right-aligned ending at AMMO_RIGHT_X)
+        draw_number_right(framebuffer, @player.current_ammo, AMMO_RIGHT_X, num_y) if @player.current_ammo
 
-        # Draw health with percent
-        draw_number_left(framebuffer, @player.health, HEALTH_X, num_y, 3)
-        draw_percent(framebuffer, HEALTH_X + NUM_WIDTH * 3, num_y)
+        # Draw health with percent (right-aligned ending at HEALTH_RIGHT_X)
+        draw_number_right(framebuffer, @player.health, HEALTH_RIGHT_X, num_y)
+        draw_percent(framebuffer, HEALTH_RIGHT_X, num_y)
 
         # Draw face
         draw_face(framebuffer)
 
-        # Draw armor with percent
-        draw_number_left(framebuffer, @player.armor, ARMOR_X, num_y, 3)
-        draw_percent(framebuffer, ARMOR_X + NUM_WIDTH * 3, num_y)
+        # Draw armor with percent (right-aligned ending at ARMOR_RIGHT_X)
+        draw_number_right(framebuffer, @player.armor, ARMOR_RIGHT_X, num_y)
+        draw_percent(framebuffer, ARMOR_RIGHT_X, num_y)
 
-        # Draw keys (right side)
+        # Draw keys
         draw_keys(framebuffer)
       end
 
@@ -88,16 +85,16 @@ module Doom
         end
       end
 
-      # Draw number left-to-right starting at x position
-      def draw_number_left(framebuffer, value, x, y, max_digits)
+      # Draw number right-aligned with right edge at right_x
+      def draw_number_right(framebuffer, value, right_x, y)
         return unless value
 
         value = value.to_i.clamp(-999, 999)
         str = value.to_s
 
-        # Draw each digit
-        current_x = x
-        str.each_char do |char|
+        # Draw from right to left, starting from right edge
+        current_x = right_x
+        str.reverse.each_char do |char|
           digit_sprite = if char == '-'
                            @gfx.numbers['-']
                          else
@@ -105,8 +102,8 @@ module Doom
                          end
 
           if digit_sprite
+            current_x -= NUM_WIDTH
             draw_sprite(framebuffer, digit_sprite, current_x, y)
-            current_x += NUM_WIDTH
           end
         end
       end
@@ -133,9 +130,9 @@ module Doom
 
         return unless face
 
-        # Center face in its background area (face bg is roughly 104-167, center ~143)
-        face_x = FACE_X - (face.width / 2)
-        face_y = STATUS_BAR_Y + 1  # Face is positioned near top of status bar
+        # Position face in the background area
+        face_x = FACE_X
+        face_y = STATUS_BAR_Y + 2  # Slightly below top of status bar
         draw_sprite(framebuffer, face, face_x, face_y)
       end
 
