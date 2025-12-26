@@ -33,9 +33,10 @@ module Doom
 
         # Center weapon horizontally (sprite width / 2 from center)
         # Position weapon at bottom of view area
-        # Weapon offsets in DOOM are negative, meaning the sprite draws UP and LEFT from origin
         x = (SCREEN_WIDTH / 2) - (sprite.width / 2) + bob_x
-        y = WEAPON_AREA_HEIGHT - sprite.height + bob_y
+        # Only allow downward bob (positive values) to keep weapon bottom at status bar
+        clamped_bob_y = [bob_y, 0].max
+        y = WEAPON_AREA_HEIGHT - sprite.height + clamped_bob_y
 
         # Add some vertical offset during attack (recoil effect)
         if @player.attacking
