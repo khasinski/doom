@@ -13,7 +13,9 @@ module Doom
       MOUSE_SENSITIVITY = 0.15  # Mouse look sensitivity
       PLAYER_RADIUS = 16.0   # Collision radius
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil)
+      USE_DISTANCE = 64.0  # Max distance to use a linedef
+
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil)
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, false)
         self.caption = 'Doom Ruby'
 
@@ -23,10 +25,12 @@ module Doom
         @player_state = player_state
         @status_bar = status_bar
         @weapon_renderer = weapon_renderer
+        @sector_actions = sector_actions
         @screen_image = nil
         @mouse_captured = false
         @last_mouse_x = nil
         @last_update_time = Time.now
+        @use_pressed = false
 
         # Pre-build palette lookup for speed
         @palette_rgba = palette.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
@@ -48,6 +52,9 @@ module Doom
 
         # Update HUD animations
         @status_bar&.update
+
+        # Update sector actions (doors, lifts, etc.)
+        @sector_actions&.update
 
         # Render the 3D world
         @renderer.render_frame
@@ -112,6 +119,115 @@ module Doom
 
         # Handle weapon switching with number keys
         handle_weapon_switch if @player_state
+
+        # Handle use key (spacebar or E)
+        handle_use_key if @sector_actions
+      end
+
+      def handle_use_key
+        use_down = Gosu.button_down?(Gosu::KB_SPACE) || Gosu.button_down?(Gosu::KB_E)
+
+        if use_down && !@use_pressed
+          @use_pressed = true
+          try_use_linedef
+        elsif !use_down
+          @use_pressed = false
+        end
+      end
+
+      def try_use_linedef
+        # Cast a ray forward to find a usable linedef
+        player_x = @renderer.player_x
+        player_y = @renderer.player_y
+        cos_angle = @renderer.cos_angle
+        sin_angle = @renderer.sin_angle
+
+        # Check point in front of player
+        use_x = player_x + cos_angle * USE_DISTANCE
+        use_y = player_y + sin_angle * USE_DISTANCE
+
+        # Find the closest linedef the player is facing
+        best_linedef = nil
+        best_idx = nil
+        best_dist = Float::INFINITY
+
+        @map.linedefs.each_with_index do |linedef, idx|
+          next if linedef.special == 0  # Skip non-special linedefs
+
+          v1 = @map.vertices[linedef.v1]
+          v2 = @map.vertices[linedef.v2]
+
+          # Check if player is close enough to the linedef
+          dist = point_to_line_distance(player_x, player_y, v1.x, v1.y, v2.x, v2.y)
+          next if dist > USE_DISTANCE
+          next if dist >= best_dist
+
+          # Check if player is facing the linedef (on the front side)
+          next unless facing_linedef?(player_x, player_y, cos_angle, sin_angle, v1, v2)
+
+          best_linedef = linedef
+          best_idx = idx
+          best_dist = dist
+        end
+
+        if best_linedef
+          @sector_actions.use_linedef(best_linedef, best_idx)
+        end
+      end
+
+      def point_to_line_distance(px, py, x1, y1, x2, y2)
+        # Vector from line start to point
+        dx = px - x1
+        dy = py - y1
+
+        # Line direction vector
+        line_dx = x2 - x1
+        line_dy = y2 - y1
+        line_len_sq = line_dx * line_dx + line_dy * line_dy
+
+        return Math.sqrt(dx * dx + dy * dy) if line_len_sq == 0
+
+        # Project point onto line, clamped to segment
+        t = ((dx * line_dx) + (dy * line_dy)) / line_len_sq
+        t = [[t, 0.0].max, 1.0].min
+
+        # Closest point on line segment
+        closest_x = x1 + t * line_dx
+        closest_y = y1 + t * line_dy
+
+        # Distance from point to closest point on segment
+        dist_x = px - closest_x
+        dist_y = py - closest_y
+        Math.sqrt(dist_x * dist_x + dist_y * dist_y)
+      end
+
+      def facing_linedef?(px, py, cos_angle, sin_angle, v1, v2)
+        # Calculate linedef normal (perpendicular to line, pointing to front side)
+        line_dx = v2.x - v1.x
+        line_dy = v2.y - v1.y
+
+        # Normal points to the right of the line direction
+        normal_x = -line_dy
+        normal_y = line_dx
+
+        # Normalize
+        len = Math.sqrt(normal_x * normal_x + normal_y * normal_y)
+        return false if len == 0
+
+        normal_x /= len
+        normal_y /= len
+
+        # Check if player is on the front side (normal side) of the line
+        to_player_x = px - v1.x
+        to_player_y = py - v1.y
+        dot_player = to_player_x * normal_x + to_player_y * normal_y
+
+        # Player must be on front side
+        return false if dot_player < 0
+
+        # Check if player is facing toward the line
+        dot_facing = cos_angle * (-normal_x) + sin_angle * (-normal_y)
+        dot_facing > 0.5  # Must be roughly facing the line
       end
 
       def handle_weapon_switch
