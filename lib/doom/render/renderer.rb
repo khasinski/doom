@@ -18,7 +18,8 @@ module Doom
     # Matches Chocolate Doom's drawseg_t structure
     Drawseg = Struct.new(:x1, :x2, :scale1, :scale2,
                          :silhouette, :bsilheight, :tsilheight,
-                         :sprtopclip, :sprbottomclip)
+                         :sprtopclip, :sprbottomclip,
+                         :curline)  # seg for point-on-side test
 
     # Visplane stores floor/ceiling rendering info for a sector
     # Matches Chocolate Doom's visplane_t structure from r_plane.c
@@ -641,6 +642,35 @@ module Doom
         [x, y]
       end
 
+      # Determine which side of a seg a point is on (R_PointOnSegSide from Chocolate Doom)
+      # Returns true if point is on back side, false if on front side
+      def point_on_seg_side(x, y, seg)
+        v1 = @map.vertices[seg.v1]
+        v2 = @map.vertices[seg.v2]
+
+        lx = v1.x
+        ly = v1.y
+        ldx = v2.x - lx
+        ldy = v2.y - ly
+
+        # Handle axis-aligned lines
+        if ldx == 0
+          return x <= lx ? ldy > 0 : ldy < 0
+        end
+        if ldy == 0
+          return y <= ly ? ldx < 0 : ldx > 0
+        end
+
+        dx = x - lx
+        dy = y - ly
+
+        # Cross product to determine side
+        left = ldy * dx
+        right = dy * ldx
+
+        right >= left
+      end
+
       def draw_seg_range(x1, x2, sx1, sx2, dist1, dist2, sector, back_sector, sidedef, linedef, seg, seg_length)
         # Get seg vertices in world space for texture coordinate calculation
         seg_v1 = @map.vertices[seg.v1]
@@ -883,7 +913,8 @@ module Doom
             scale1, scale2,
             silhouette,
             bsilheight, tsilheight,
-            sprtopclip, sprbottomclip
+            sprtopclip, sprbottomclip,
+            seg
           )
           @drawsegs << drawseg
         end
@@ -1120,12 +1151,14 @@ module Doom
           lowscale = [ds.scale1, ds.scale2].min
           highscale = [ds.scale1, ds.scale2].max
 
-          # If drawseg is behind sprite, skip (seg must be closer to clip)
+          # Chocolate Doom logic: skip if seg is behind sprite
+          # If highscale < sprite_scale: wall entirely behind sprite
+          # OR if lowscale < sprite_scale AND sprite is on front side of wall
           if highscale < sprite_scale
             next
           elsif lowscale < sprite_scale
-            # Seg partially overlaps in depth - would need point-on-seg test
-            # For simplicity, we'll clip if any part of seg is closer
+            # Partial overlap - check if sprite is in front of the seg
+            next unless point_on_seg_side(thing.x, thing.y, ds.curline)
           end
 
           # Determine which silhouettes apply based on sprite Z
