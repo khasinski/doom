@@ -128,6 +128,7 @@ module Doom
 
         # Initialize visplanes for tracking visible floor/ceiling spans
         @visplanes = []
+        @visplane_hash = {}  # Hash for O(1) lookup by (height, texture, light_level, is_ceiling)
 
         # Initialize drawsegs for sprite clipping
         @drawsegs = []
@@ -315,17 +316,14 @@ module Doom
       end
 
       def find_or_create_visplane(sector, height, texture, light_level, is_ceiling)
-        # Find existing visplane with matching properties
-        plane = @visplanes.find do |vp|
-          vp.height == height &&
-          vp.texture == texture &&
-          vp.light_level == light_level &&
-          vp.is_ceiling == is_ceiling
-        end
+        # O(1) hash lookup instead of O(n) linear search
+        key = [height, texture, light_level, is_ceiling]
+        plane = @visplane_hash[key]
 
         unless plane
           plane = Visplane.new(sector, height, texture, light_level, is_ceiling)
           @visplanes << plane
+          @visplane_hash[key] = plane
         end
 
         plane
@@ -382,6 +380,11 @@ module Doom
         new_plane.minx = start_x
         new_plane.maxx = stop_x
         @visplanes << new_plane
+
+        # Update hash to point to the new plane (for subsequent lookups)
+        key = [plane.height, plane.texture, plane.light_level, plane.is_ceiling]
+        @visplane_hash[key] = new_plane
+
         new_plane
       end
 
