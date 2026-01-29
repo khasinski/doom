@@ -68,6 +68,17 @@ module Doom
         # Projection constant - distance to projection plane
         @projection = HALF_WIDTH / Math.tan(FOV * Math::PI / 360.0)
 
+        # Precomputed column data (cached based on player angle)
+        @column_cos = Array.new(SCREEN_WIDTH)
+        @column_sin = Array.new(SCREEN_WIDTH)
+        @cached_player_angle = nil
+
+        # Column distance scale is constant (doesn't depend on player angle)
+        @column_distscale = Array.new(SCREEN_WIDTH) do |x|
+          dx = x - HALF_WIDTH
+          Math.sqrt(dx * dx + @projection * @projection) / @projection
+        end
+
         # Clipping arrays
         @ceiling_clip = Array.new(SCREEN_WIDTH, -1)
         @floor_clip = Array.new(SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -137,17 +148,16 @@ module Doom
       end
 
       # Precompute column-based data for floor/ceiling rendering (R_InitLightTables-like)
+      # Cached: only recomputes sin/cos when player angle changes
       def precompute_column_data
-        @column_cos ||= Array.new(SCREEN_WIDTH)
-        @column_sin ||= Array.new(SCREEN_WIDTH)
-        @column_distscale ||= Array.new(SCREEN_WIDTH)
+        return if @cached_player_angle == @player_angle
+
+        @cached_player_angle = @player_angle
 
         SCREEN_WIDTH.times do |x|
-          dx = x - HALF_WIDTH
-          column_angle = @player_angle - Math.atan2(dx, @projection)
+          column_angle = @player_angle - Math.atan2(x - HALF_WIDTH, @projection)
           @column_cos[x] = Math.cos(column_angle)
           @column_sin[x] = Math.sin(column_angle)
-          @column_distscale[x] = Math.sqrt(dx * dx + @projection * @projection) / @projection
         end
       end
 
@@ -778,6 +788,12 @@ module Doom
             high_ceil = [ceil_y, back_ceil_y].max
             low_floor = [floor_y, back_floor_y].min
 
+            # Check for closed door (no opening between sectors)
+            # Matches Chocolate Doom: backsector->ceilingheight <= frontsector->floorheight
+            #                      || backsector->floorheight >= frontsector->ceilingheight
+            closed_door = back_sector.ceiling_height <= sector.floor_height ||
+                          back_sector.floor_height >= sector.ceiling_height
+
             # Mark ceiling visplane - mark front sector's ceiling for two-sided lines
             # Matches Chocolate Doom: mark from ceilingclip+1 to yl-1 (front ceiling)
             # (yl is clamped to ceilingclip+1, so we use ceil_y which is already clamped)
@@ -841,30 +857,37 @@ module Doom
             end
 
             # Update clip bounds after marking
-            # Ceiling clip increases (moves down) as ceiling is marked
-            if sector.ceiling_height > back_sector.ceiling_height
-              # Upper wall drawn - clip ceiling to back ceiling
-              @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
-            elsif sector.ceiling_height < back_sector.ceiling_height
-              # Ceiling step up - clip to front ceiling
-              @ceiling_clip[x] = [ceil_y, @ceiling_clip[x]].max
-            elsif should_mark_ceiling
-              # Same height but different texture/light - still update clip
-              # Matches Chocolate Doom: if (markceiling) ceilingclip[rw_x] = yl-1;
-              @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
-            end
+            if closed_door
+              # Closed door - fully occlude this column
+              @wall_depth[x] = [@wall_depth[x], dist].min
+              @ceiling_clip[x] = SCREEN_HEIGHT
+              @floor_clip[x] = -1
+            else
+              # Ceiling clip increases (moves down) as ceiling is marked
+              if sector.ceiling_height > back_sector.ceiling_height
+                # Upper wall drawn - clip ceiling to back ceiling
+                @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
+              elsif sector.ceiling_height < back_sector.ceiling_height
+                # Ceiling step up - clip to front ceiling
+                @ceiling_clip[x] = [ceil_y, @ceiling_clip[x]].max
+              elsif should_mark_ceiling
+                # Same height but different texture/light - still update clip
+                # Matches Chocolate Doom: if (markceiling) ceilingclip[rw_x] = yl-1;
+                @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
+              end
 
-            # Floor clip decreases (moves up) as floor is marked
-            if sector.floor_height < back_sector.floor_height
-              # Lower wall drawn - clip floor to back floor
-              @floor_clip[x] = [back_floor_y, @floor_clip[x]].min
-            elsif sector.floor_height > back_sector.floor_height
-              # Floor step down - clip to front floor to allow back sector to mark later
-              @floor_clip[x] = [floor_y, @floor_clip[x]].min
-            elsif should_mark_floor
-              # Same height but different texture/light - still update clip
-              # Matches Chocolate Doom: if (markfloor) floorclip[rw_x] = yh+1;
-              @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
+              # Floor clip decreases (moves up) as floor is marked
+              if sector.floor_height < back_sector.floor_height
+                # Lower wall drawn - clip floor to back floor
+                @floor_clip[x] = [back_floor_y, @floor_clip[x]].min
+              elsif sector.floor_height > back_sector.floor_height
+                # Floor step down - clip to front floor to allow back sector to mark later
+                @floor_clip[x] = [floor_y, @floor_clip[x]].min
+              elsif should_mark_floor
+                # Same height but different texture/light - still update clip
+                # Matches Chocolate Doom: if (markfloor) floorclip[rw_x] = yh+1;
+                @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
+              end
             end
           else
             # One-sided (solid) wall
