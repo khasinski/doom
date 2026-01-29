@@ -287,8 +287,8 @@ module Doom
         framebuffer = @framebuffer
         player_angle = @player_angle
         projection = @projection
-        sky_width = sky_texture.width
-        sky_height = sky_texture.height
+        sky_width_mask = sky_texture.width - 1    # Power-of-2 textures: & is faster than %
+        sky_height_mask = sky_texture.height - 1
 
         # Clamp to screen bounds
         minx = [plane.minx, 0].max
@@ -305,12 +305,12 @@ module Doom
 
           # Sky X based on view angle (wraps around 256 degrees)
           column_angle = player_angle - Math.atan2(x - HALF_WIDTH, projection)
-          sky_x = ((column_angle * 256 / Math::PI).to_i & 255) % sky_width
+          sky_x = (column_angle * 256 / Math::PI).to_i & sky_width_mask
           column = sky_texture.column_pixels(sky_x)
           next unless column
 
           (y1..y2).each do |y|
-            color = column[y % sky_height] || 0
+            color = column[y & sky_height_mask] || 0
             framebuffer[y * SCREEN_WIDTH + x] = color
           end
         end
@@ -429,13 +429,13 @@ module Doom
               row_offset = y * SCREEN_WIDTH
 
               if is_sky && sky_texture
-                sky_height = sky_texture.height
-                sky_width = sky_texture.width
-                sky_y = y % sky_height
+                sky_height_mask = sky_texture.height - 1
+                sky_width_mask = sky_texture.width - 1
+                sky_y = y & sky_height_mask
                 x = 0
                 while x < SCREEN_WIDTH
                   column_angle = player_angle - Math.atan2(x - HALF_WIDTH, projection)
-                  sky_x = ((column_angle * 256 / Math::PI).to_i & 255) % sky_width
+                  sky_x = (column_angle * 256 / Math::PI).to_i & sky_width_mask
                   color = sky_texture.column_pixels(sky_x)[sky_y] || 0
                   framebuffer[row_offset + x] = color
                   x += 1
@@ -969,12 +969,11 @@ module Doom
         light = calculate_light(light_level, dist)
         cmap = @colormap.maps[light]
         framebuffer = @framebuffer
-        tex_width = texture.width
-        tex_height = texture.height
+        tex_width_mask = texture.width - 1   # For power-of-2 textures: & mask is faster than %
+        tex_height_mask = texture.height - 1
 
-        # Texture X coordinate (wrap around texture width)
-        tex_x = tex_col.to_i % tex_width
-        tex_x += tex_width if tex_x < 0
+        # Texture X coordinate (wrap around texture width using bitwise AND)
+        tex_x = tex_col.to_i & tex_width_mask
 
         # Get the column of pixels
         column = texture.column_pixels(tex_x)
@@ -997,8 +996,7 @@ module Doom
         y = y1
         while y <= y2
           screen_offset = y - y1
-          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
-          tex_y += tex_height if tex_y < 0
+          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i & tex_height_mask
 
           color = column[tex_y] || 0
           framebuffer[y * SCREEN_WIDTH + x] = cmap[color]
