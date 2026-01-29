@@ -89,6 +89,7 @@ module Doom
 
         # Wall depth array - tracks distance to nearest wall at each column
         @wall_depth = Array.new(SCREEN_WIDTH, Float::INFINITY)
+        @sprite_wall_depth = Array.new(SCREEN_WIDTH, Float::INFINITY)
       end
 
       attr_reader :player_x, :player_y, :player_z, :sin_angle, :cos_angle
@@ -139,10 +140,10 @@ module Doom
         # Draw visplanes for sectors different from background
         draw_all_visplanes
 
-        # Save wall clip arrays for sprite clipping
-        @sprite_ceiling_clip = @ceiling_clip.dup
-        @sprite_floor_clip = @floor_clip.dup
-        @sprite_wall_depth = @wall_depth.dup
+        # Save wall clip arrays for sprite clipping (reuse preallocated arrays)
+        @sprite_ceiling_clip.replace(@ceiling_clip)
+        @sprite_floor_clip.replace(@floor_clip)
+        @sprite_wall_depth.replace(@wall_depth)
 
         # Render sprites
         render_sprites if @sprites
