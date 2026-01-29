@@ -281,7 +281,7 @@ module Doom
           ray_dist = perp_dist * column_distscale[x]
           tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
           tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
-          color = flat[tex_x, tex_y] || 0
+          color = flat[tex_x, tex_y]
           framebuffer[row_offset + x] = cmap[color]
           x += 1
         end
@@ -318,7 +318,7 @@ module Doom
           next unless column
 
           (y1..y2).each do |y|
-            color = column[y & sky_height_mask] || 0
+            color = column[y & sky_height_mask]
             framebuffer[y * SCREEN_WIDTH + x] = color
           end
         end
@@ -444,7 +444,7 @@ module Doom
                 while x < SCREEN_WIDTH
                   column_angle = player_angle - Math.atan2(x - HALF_WIDTH, projection)
                   sky_x = (column_angle * 256 / Math::PI).to_i & sky_width_mask
-                  color = sky_texture.column_pixels(sky_x)[sky_y] || 0
+                  color = sky_texture.column_pixels(sky_x)[sky_y]
                   framebuffer[row_offset + x] = color
                   x += 1
                 end
@@ -454,7 +454,7 @@ module Doom
                   ray_dist = perp_dist * column_distscale[x]
                   tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
                   tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
-                  color = ceil_flat[tex_x, tex_y] || 0
+                  color = ceil_flat[tex_x, tex_y]
                   framebuffer[row_offset + x] = cmap[color]
                   x += 1
                 end
@@ -481,7 +481,7 @@ module Doom
                   ray_dist = perp_dist * column_distscale[x]
                   tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
                   tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
-                  color = floor_flat[tex_x, tex_y] || 0
+                  color = floor_flat[tex_x, tex_y]
                   framebuffer[row_offset + x] = cmap[color]
                   x += 1
                 end
@@ -1006,7 +1006,7 @@ module Doom
           screen_offset = y - y1
           tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i & tex_height_mask
 
-          color = column[tex_y] || 0
+          color = column[tex_y]
           framebuffer[y * SCREEN_WIDTH + x] = cmap[color]
           y += 1
         end
