@@ -94,6 +94,10 @@ module Doom
         # Wall depth array - tracks distance to nearest wall at each column
         @wall_depth = Array.new(SCREEN_WIDTH, Float::INFINITY)
         @sprite_wall_depth = Array.new(SCREEN_WIDTH, Float::INFINITY)
+
+        # Preallocated y_slope arrays for floor/ceiling rendering (avoids per-frame allocation)
+        @y_slope_ceil = Array.new(HALF_HEIGHT + 1, 0.0)
+        @y_slope_floor = Array.new(HALF_HEIGHT + 1, 0.0)
       end
 
       attr_reader :player_x, :player_y, :player_z, :sin_angle, :cos_angle
@@ -413,9 +417,9 @@ module Doom
         light_level = default_sector.light_level
         colormap_maps = @colormap.maps
 
-        # Precompute y_slope for each row (perpendicular distance)
-        y_slope_ceil = Array.new(HALF_HEIGHT + 1, 0.0)
-        y_slope_floor = Array.new(HALF_HEIGHT + 1, 0.0)
+        # Compute y_slope for each row (perpendicular distance) - reuse preallocated arrays
+        y_slope_ceil = @y_slope_ceil
+        y_slope_floor = @y_slope_floor
         (1..HALF_HEIGHT).each do |dy|
           y_slope_ceil[dy] = ceil_height * projection / dy.to_f
           y_slope_floor[dy] = floor_height * projection / dy.to_f
