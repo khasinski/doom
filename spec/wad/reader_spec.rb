@@ -18,8 +18,8 @@ RSpec.describe Doom::Wad::Reader do
     end
 
     it 'reads the correct number of lumps' do
-      # DOOM1.WAD (shareware) has 2306 lumps
-      expect(@wad.num_lumps).to be > 2000
+      # DOOM1.WAD v1.9 (shareware) has 1264 lumps
+      expect(@wad.num_lumps).to eq(1264)
     end
 
     it 'populates the directory' do
