@@ -21,6 +21,10 @@ module Doom
                          :sprtopclip, :sprbottomclip,
                          :curline)  # seg for point-on-side test
 
+    # VisibleSprite stores sprite data for sorting and rendering
+    # Struct is faster than Hash for fixed-field data
+    VisibleSprite = Struct.new(:thing, :sprite, :view_x, :view_y, :dist, :screen_x)
+
     # Visplane stores floor/ceiling rendering info for a sector
     # Matches Chocolate Doom's visplane_t structure from r_plane.c
     Visplane = Struct.new(:sector, :height, :texture, :light_level, :is_ceiling,
@@ -1103,18 +1107,11 @@ module Doom
           next if screen_x + sprite_half_width < 0
           next if screen_x - sprite_half_width >= SCREEN_WIDTH
 
-          visible_sprites << {
-            thing: thing,
-            sprite: sprite,
-            view_x: view_x,
-            view_y: view_y,
-            dist: dist,
-            screen_x: screen_x
-          }
+          visible_sprites << VisibleSprite.new(thing, sprite, view_x, view_y, dist, screen_x)
         end
 
         # Sort by distance (back to front for proper overdraw)
-        visible_sprites.sort_by! { |s| -s[:dist] }
+        visible_sprites.sort_by! { |s| -s.dist }
 
         # Draw each sprite
         visible_sprites.each do |vs|
@@ -1123,10 +1120,10 @@ module Doom
       end
 
       def draw_sprite(vs)
-        sprite = vs[:sprite]
-        dist = vs[:dist]
-        screen_x = vs[:screen_x]
-        thing = vs[:thing]
+        sprite = vs.sprite
+        dist = vs.dist
+        screen_x = vs.screen_x
+        thing = vs.thing
 
         # Calculate scale (inverse of distance, used for depth comparison)
         sprite_scale = @projection / dist
