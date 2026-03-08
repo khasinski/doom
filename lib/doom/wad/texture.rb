@@ -132,21 +132,29 @@ module Doom
         @width = width
         @height = height
         @columns = columns
+        @column_cache = Array.new(width)
+        precompute_columns
       end
 
-      def column_pixels(x, height_needed = nil)
-        x = x % @width
-        posts = @columns[x]
-        height_needed ||= @height
+      def column_pixels(x, _height_needed = nil)
+        @column_cache[x & (@width - 1)]
+      end
 
-        pixels = Array.new(height_needed, 0)
-        posts.each do |post|
-          post.pixels.each_with_index do |color, i|
-            y = (post.top_delta + i) % @height
-            pixels[y] = color if y < height_needed
+      private
+
+      def precompute_columns
+        @width.times do |x|
+          posts = @columns[x]
+          pixels = Array.new(@height, 0)
+          posts.each do |post|
+            td = post.top_delta
+            post.pixels.each_with_index do |color, i|
+              y = (td + i) % @height
+              pixels[y] = color
+            end
           end
+          @column_cache[x] = pixels.freeze
         end
-        pixels
       end
     end
   end

@@ -270,6 +270,7 @@ module Doom
         player_x = @player_x
         neg_player_y = -@player_y
         row_offset = y * SCREEN_WIDTH
+        flat_pixels = flat.pixels
 
         # Clamp to screen bounds
         x1 = 0 if x1 < 0
@@ -281,7 +282,7 @@ module Doom
           ray_dist = perp_dist * column_distscale[x]
           tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
           tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
-          color = flat[tex_x, tex_y]
+          color = flat_pixels[tex_y * 64 + tex_x]
           framebuffer[row_offset + x] = cmap[color]
           x += 1
         end
@@ -412,6 +413,8 @@ module Doom
         floor_height = (default_sector.floor_height - @player_z).abs
         ceil_flat = @flats[default_sector.ceiling_texture]
         floor_flat = @flats[default_sector.floor_texture]
+        ceil_pixels = ceil_flat&.pixels
+        floor_pixels = floor_flat&.pixels
         is_sky = default_sector.ceiling_texture == 'F_SKY1'
         sky_texture = is_sky ? @textures['SKY1'] : nil
         light_level = default_sector.light_level
@@ -454,7 +457,7 @@ module Doom
                   ray_dist = perp_dist * column_distscale[x]
                   tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
                   tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
-                  color = ceil_flat[tex_x, tex_y]
+                  color = ceil_pixels[tex_y * 64 + tex_x]
                   framebuffer[row_offset + x] = cmap[color]
                   x += 1
                 end
@@ -481,7 +484,7 @@ module Doom
                   ray_dist = perp_dist * column_distscale[x]
                   tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
                   tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
-                  color = floor_flat[tex_x, tex_y]
+                  color = floor_pixels[tex_y * 64 + tex_x]
                   framebuffer[row_offset + x] = cmap[color]
                   x += 1
                 end
