@@ -518,11 +518,56 @@ module Doom
 
         if side == 0
           render_bsp_node(node.child_right)
-          render_bsp_node(node.child_left)
+          back_bbox = node.bbox_left
+          render_bsp_node(node.child_left) if check_bbox(back_bbox)
         else
           render_bsp_node(node.child_left)
-          render_bsp_node(node.child_right)
+          back_bbox = node.bbox_right
+          render_bsp_node(node.child_right) if check_bbox(back_bbox)
         end
+      end
+
+      # R_CheckBBox - check if a bounding box is potentially visible.
+      # Projects the bbox corners to screen columns and checks if any
+      # column in that range is not fully occluded.
+      def check_bbox(bbox)
+        # Transform all 4 corners to view space
+        near = 1.0
+        all_in_front = true
+        min_sx = SCREEN_WIDTH
+        max_sx = -1
+
+        [[bbox.left, bbox.bottom], [bbox.right, bbox.bottom],
+         [bbox.left, bbox.top], [bbox.right, bbox.top]].each do |wx, wy|
+          vx, vy = transform_point(wx, wy)
+
+          if vy < near
+            # Any corner behind the near plane - bbox is too close to cull safely
+            all_in_front = false
+          else
+            sx = HALF_WIDTH + (vx * @projection / vy)
+            sx_i = sx.to_i
+            min_sx = sx_i if sx_i < min_sx
+            max_sx = sx_i if sx_i > max_sx
+          end
+        end
+
+        # If any corner is behind the near plane, conservatively assume visible.
+        # Only cull when all 4 corners are cleanly in front and we can check occlusion.
+        return true unless all_in_front
+
+        min_sx = 0 if min_sx < 0
+        max_sx = SCREEN_WIDTH - 1 if max_sx >= SCREEN_WIDTH
+        return false if min_sx > max_sx
+
+        # Check if any column in the range is not fully occluded
+        x = min_sx
+        while x <= max_sx
+          return true if @ceiling_clip[x] < @floor_clip[x] - 1
+          x += 1
+        end
+
+        false
       end
 
       def point_on_side(x, y, node)
@@ -697,9 +742,36 @@ module Doom
       end
 
       def draw_seg_range(x1, x2, sx1, sx2, dist1, dist2, sector, back_sector, sidedef, linedef, seg, seg_length)
-        # Get seg vertices in world space for texture coordinate calculation
         seg_v1 = @map.vertices[seg.v1]
         seg_v2 = @map.vertices[seg.v2]
+
+        # Precompute ray-seg intersection coefficients for per-column texture mapping.
+        # For screen column x, the view ray direction in world space is:
+        #   ray = (sin_a * dx_col + cos_a * proj, -cos_a * dx_col + sin_a * proj)
+        # where dx_col = x - HALF_WIDTH.
+        # The ray-seg intersection parameter s (position along seg) is:
+        #   s = (E * x + F) / (A * x + B)
+        # where A, B, E, F are precomputed per-seg constants.
+        seg_dx = (seg_v2.x - seg_v1.x).to_f
+        seg_dy = (seg_v2.y - seg_v1.y).to_f
+        px = @player_x - seg_v1.x.to_f
+        py = @player_y - seg_v1.y.to_f
+        sin_a = @sin_angle
+        cos_a = @cos_angle
+        proj = @projection
+
+        c1 = cos_a * proj - sin_a * HALF_WIDTH
+        c2 = sin_a * proj + cos_a * HALF_WIDTH
+
+        # denom(x) = seg_dy * ray_dx - seg_dx * ray_dy = A * x + B
+        tex_a = seg_dy * sin_a + seg_dx * cos_a
+        tex_b = seg_dy * c1 - seg_dx * c2
+
+        # numer(x) = py * ray_dx - px * ray_dy = E * x + F
+        tex_e = py * sin_a + px * cos_a
+        tex_f = py * c1 - px * c2
+
+        tex_offset = seg.offset + sidedef.x_offset
 
         # Calculate scales for drawseg (scale = projection / distance)
         scale1 = dist1 > 0 ? @projection / dist1 : Float::INFINITY
@@ -746,11 +818,10 @@ module Doom
         (x1..x2).each do |x|
           next if @ceiling_clip[x] >= @floor_clip[x] - 1
 
-          # Screen-space interpolation factor for distance only
+          # Screen-space interpolation for distance
           t = sx2 != sx1 ? (x - sx1) / (sx2 - sx1) : 0
           t = t.clamp(0.0, 1.0)
 
-          # Perspective-correct interpolation for distance
           if dist1 > 0 && dist2 > 0
             inv_dist = (1.0 - t) / dist1 + t / dist2
             dist = 1.0 / inv_dist
@@ -758,18 +829,15 @@ module Doom
             dist = dist1 > 0 ? dist1 : dist2
           end
 
-          # Texture column using perspective-correct interpolation
-          # tex_col_1 is texture coordinate at seg v1, tex_col_2 at v2
-          tex_col_1 = seg.offset + sidedef.x_offset
-          tex_col_2 = seg.offset + seg_length + sidedef.x_offset
-
-          # Perspective-correct interpolation: interpolate tex/z, then multiply by z
-          if dist1 > 0 && dist2 > 0
-            tex_col = ((tex_col_1 / dist1) * (1.0 - t) + (tex_col_2 / dist2) * t) / inv_dist
+          # Ray-seg intersection for texture column
+          # s = (E * x + F) / (A * x + B) gives position along seg in world units
+          denom = tex_a * x + tex_b
+          if denom.abs < 0.001
+            s = 0.0
           else
-            tex_col = tex_col_1 * (1.0 - t) + tex_col_2 * t
+            s = (tex_e * x + tex_f) / denom
           end
-          tex_col = tex_col.to_i
+          tex_col = (tex_offset + s * seg_length).to_i
 
           # Skip if too close
           next if dist < 1

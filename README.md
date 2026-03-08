@@ -2,7 +2,7 @@
 
 A faithful ruby port of the DOOM (1993) rendering engine to Ruby.
 
-![DOOM Ruby Screenshot](screenshot.png)
+![DOOM Ruby](demo.gif)
 
 ## Features
 

@@ -31,6 +31,8 @@ module Doom
         @last_mouse_x = nil
         @last_update_time = Time.now
         @use_pressed = false
+        @show_debug = false
+        @debug_font = Gosu::Font.new(16)
 
         # Pre-build palette lookup for speed
         @palette_rgba = palette.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
@@ -386,6 +388,31 @@ module Doom
         )
 
         @screen_image.draw(0, 0, 0, SCALE, SCALE)
+
+        draw_debug_overlay if @show_debug
+      end
+
+      def draw_debug_overlay
+        sector = @map.sector_at(@renderer.player_x, @renderer.player_y)
+        return unless sector
+
+        # Find sector index
+        sector_idx = @map.sectors.index(sector)
+
+        lines = [
+          "Sector #{sector_idx}",
+          "Floor: #{sector.floor_height} (#{sector.floor_texture})",
+          "Ceil:  #{sector.ceiling_height} (#{sector.ceiling_texture})",
+          "Light: #{sector.light_level}",
+          "Pos: #{@renderer.player_x.round}, #{@renderer.player_y.round}",
+        ]
+
+        y = 4
+        lines.each do |line|
+          @debug_font.draw_text(line, 6, y + 1, 1, 1, 1, Gosu::Color::BLACK)
+          @debug_font.draw_text(line, 5, y, 1, 1, 1, Gosu::Color::WHITE)
+          y += 18
+        end
       end
 
       def button_down(id)
@@ -403,6 +430,8 @@ module Doom
             @mouse_captured = true
             @last_mouse_x = mouse_x
           end
+        when Gosu::KB_Z
+          @show_debug = !@show_debug
         end
       end
 
