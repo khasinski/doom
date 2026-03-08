@@ -907,14 +907,23 @@ module Doom
           else
             # One-sided (solid) wall
             # Mark ceiling visplane (from previous clip to wall's ceiling)
-            if @current_ceiling_plane && @ceiling_clip[x] + 1 <= ceil_y - 1
-              @current_ceiling_plane.mark(x, @ceiling_clip[x] + 1, ceil_y - 1)
+            # Clamp to floor_clip to prevent ceiling bleeding through portal openings
+            if @current_ceiling_plane
+              mark_top = @ceiling_clip[x] + 1
+              mark_bottom = [ceil_y - 1, @floor_clip[x] - 1].min
+              if mark_top <= mark_bottom
+                @current_ceiling_plane.mark(x, mark_top, mark_bottom)
+              end
             end
 
             # Mark floor visplane (from wall's floor to previous floor clip)
-            # Floor is visible BELOW the wall (from floor_y+1 to floor_clip-1)
-            if @current_floor_plane && floor_y + 1 <= @floor_clip[x] - 1
-              @current_floor_plane.mark(x, floor_y + 1, @floor_clip[x] - 1)
+            # Clamp to ceiling_clip to prevent floor bleeding through portal openings
+            if @current_floor_plane
+              mark_top = [floor_y + 1, @ceiling_clip[x] + 1].max
+              mark_bottom = @floor_clip[x] - 1
+              if mark_top <= mark_bottom
+                @current_floor_plane.mark(x, mark_top, mark_bottom)
+              end
             end
 
             # Draw wall (from clipped ceiling to clipped floor)
