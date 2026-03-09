@@ -100,7 +100,95 @@ module Doom
         @y_slope_floor = Array.new(HALF_HEIGHT + 1, 0.0)
       end
 
-      attr_reader :player_x, :player_y, :player_z, :sin_angle, :cos_angle
+      attr_reader :player_x, :player_y, :player_z, :sin_angle, :cos_angle, :framebuffer
+
+      # Diagnostic: returns info about all sprites and why they are/aren't visible
+      def sprite_diagnostics
+        return [] unless @sprites
+
+        results = []
+        @map.things.each do |thing|
+          prefix = @sprites.prefix_for(thing.type)
+          next unless prefix
+
+          info = { type: thing.type, x: thing.x, y: thing.y, prefix: prefix }
+
+          view_x, view_y = transform_point(thing.x, thing.y)
+          info[:view_x] = view_x.round(1)
+          info[:view_y] = view_y.round(1)
+
+          if view_y <= 0
+            info[:status] = "behind_player"
+            results << info
+            next
+          end
+
+          dist = view_y
+          screen_x = HALF_WIDTH + (view_x * @projection / view_y)
+          info[:screen_x] = screen_x.round(1)
+          info[:dist] = dist.round(1)
+
+          dx = thing.x - @player_x
+          dy = thing.y - @player_y
+          angle_to_thing = Math.atan2(dy, dx)
+          sprite = @sprites.get_rotated(thing.type, angle_to_thing, thing.angle)
+          unless sprite
+            info[:status] = "no_sprite_frame"
+            results << info
+            next
+          end
+
+          sprite_scale = @projection / dist
+          sprite_half_width = (sprite.width * @projection / dist / 2).to_i
+          info[:sprite_scale] = sprite_scale.round(3)
+
+          if screen_x + sprite_half_width < 0
+            info[:status] = "off_screen_left"
+          elsif screen_x - sprite_half_width >= SCREEN_WIDTH
+            info[:status] = "off_screen_right"
+          else
+            # Check drawseg clipping
+            sprite_left = (screen_x - sprite.left_offset * sprite_scale).to_i
+            sprite_right = sprite_left + (sprite.width * sprite_scale).to_i - 1
+            x1 = [sprite_left, 0].max
+            x2 = [sprite_right, SCREEN_WIDTH - 1].min
+
+            sector = @map.sector_at(thing.x, thing.y)
+            thing_floor = sector ? sector.floor_height : 0
+            sprite_gz = thing_floor
+            sprite_gzt = thing_floor + sprite.top_offset
+
+            clipping_segs = []
+            @drawsegs.reverse_each do |ds|
+              next if ds.x1 > x2 || ds.x2 < x1
+              next if ds.silhouette == SIL_NONE
+
+              lowscale = [ds.scale1, ds.scale2].min
+              highscale = [ds.scale1, ds.scale2].max
+
+              if highscale < sprite_scale
+                next
+              elsif lowscale < sprite_scale
+                next unless point_on_seg_side(thing.x, thing.y, ds.curline)
+              end
+
+              clipping_segs << {
+                x1: ds.x1, x2: ds.x2,
+                scale: "#{ds.scale1.round(3)}..#{ds.scale2.round(3)}",
+                sil: ds.silhouette
+              }
+            end
+
+            info[:screen_range] = "#{x1}..#{x2}"
+            info[:clipping_segs] = clipping_segs.size
+            info[:clipping_detail] = clipping_segs
+            info[:status] = "visible"
+          end
+
+          results << info
+        end
+        results
+      end
 
       def set_player(x, y, z, angle)
         @player_x = x.to_f

@@ -32,7 +32,11 @@ module Doom
         @last_update_time = Time.now
         @use_pressed = false
         @show_debug = false
+        @show_map = false
         @debug_font = Gosu::Font.new(16)
+
+        # Precompute sector colors for automap
+        @sector_colors = build_sector_colors
 
         # Pre-build palette lookup for speed
         @palette_rgba = palette.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
@@ -378,18 +382,22 @@ module Doom
       end
 
       def draw
-        # Fast RGBA conversion using pre-built palette
-        rgba = @renderer.framebuffer.map { |idx| @palette_rgba[idx] }.join
+        if @show_map
+          draw_automap
+        else
+          # Fast RGBA conversion using pre-built palette
+          rgba = @renderer.framebuffer.map { |idx| @palette_rgba[idx] }.join
 
-        @screen_image = Gosu::Image.from_blob(
-          Render::SCREEN_WIDTH,
-          Render::SCREEN_HEIGHT,
-          rgba
-        )
+          @screen_image = Gosu::Image.from_blob(
+            Render::SCREEN_WIDTH,
+            Render::SCREEN_HEIGHT,
+            rgba
+          )
 
-        @screen_image.draw(0, 0, 0, SCALE, SCALE)
+          @screen_image.draw(0, 0, 0, SCALE, SCALE)
 
-        draw_debug_overlay if @show_debug
+          draw_debug_overlay if @show_debug
+        end
       end
 
       def draw_debug_overlay
@@ -432,8 +440,209 @@ module Doom
           end
         when Gosu::KB_Z
           @show_debug = !@show_debug
+        when Gosu::KB_M
+          @show_map = !@show_map
+        when Gosu::KB_F12
+          capture_debug_snapshot
         end
       end
+
+      def needs_cursor?
+        !@mouse_captured
+      end
+
+      # --- Debug Snapshot ---
+
+      def capture_debug_snapshot
+        dir = File.join(File.expand_path('../..', __dir__), '..', 'screenshots')
+        FileUtils.mkdir_p(dir)
+
+        ts = Time.now.strftime('%Y%m%d_%H%M%S_%L')
+        prefix = File.join(dir, ts)
+
+        # Save framebuffer as PNG
+        require 'chunky_png' unless defined?(ChunkyPNG)
+        w = Render::SCREEN_WIDTH
+        h = Render::SCREEN_HEIGHT
+        img = ChunkyPNG::Image.new(w, h)
+        fb = @renderer.framebuffer
+        colors = @palette.colors
+        h.times do |y|
+          row = y * w
+          w.times do |x|
+            r, g, b = colors[fb[row + x]]
+            img[x, y] = ChunkyPNG::Color.rgb(r, g, b)
+          end
+        end
+        img.save("#{prefix}.png")
+
+        # Save player state and sector info
+        sector = @map.sector_at(@renderer.player_x, @renderer.player_y)
+        sector_idx = sector ? @map.sectors.index(sector) : nil
+        angle_deg = Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI
+
+        # Sprite diagnostics
+        sprites_info = @renderer.sprite_diagnostics
+        nearby = sprites_info.select { |s| s[:dist] && s[:dist] < 1500 }
+                             .sort_by { |s| s[:dist] }
+
+        sprite_lines = nearby.map do |s|
+          "  #{s[:prefix]} type=#{s[:type]} pos=(#{s[:x]},#{s[:y]}) dist=#{s[:dist]} " \
+          "screen_x=#{s[:screen_x]} scale=#{s[:sprite_scale]} " \
+          "range=#{s[:screen_range]} status=#{s[:status]} " \
+          "clip_segs=#{s[:clipping_segs]}" \
+          "#{s[:clipping_detail]&.any? ? "\n    clips: #{s[:clipping_detail].map { |c| "ds[#{c[:x1]}..#{c[:x2]}] scale=#{c[:scale]} sil=#{c[:sil]}" }.join(', ')}" : ''}"
+        end
+
+        File.write("#{prefix}.txt", <<~INFO)
+          pos: #{@renderer.player_x.round(1)}, #{@renderer.player_y.round(1)}, #{@renderer.player_z.round(1)}
+          angle: #{angle_deg.round(1)}
+          sector: #{sector_idx}
+          floor: #{sector&.floor_height} (#{sector&.floor_texture})
+          ceil: #{sector&.ceiling_height} (#{sector&.ceiling_texture})
+          light: #{sector&.light_level}
+
+          nearby sprites (#{nearby.size}):
+          #{sprite_lines.join("\n")}
+        INFO
+
+        puts "Snapshot saved: #{prefix}.png + .txt"
+      end
+
+      # --- Automap ---
+
+      MAP_MARGIN = 20
+
+      def build_sector_colors
+        # Generate distinct colors for each sector using golden ratio hue spacing
+        num_sectors = @map.sectors.size
+        colors = Array.new(num_sectors)
+        phi = (1 + Math.sqrt(5)) / 2.0
+
+        num_sectors.times do |i|
+          hue = (i * phi * 360) % 360
+          colors[i] = hsv_to_gosu(hue, 0.6, 0.85)
+        end
+        colors
+      end
+
+      def hsv_to_gosu(h, s, v)
+        c = v * s
+        x = c * (1 - ((h / 60.0) % 2 - 1).abs)
+        m = v - c
+
+        r, g, b = case (h / 60).to_i % 6
+                  when 0 then [c, x, 0]
+                  when 1 then [x, c, 0]
+                  when 2 then [0, c, x]
+                  when 3 then [0, x, c]
+                  when 4 then [x, 0, c]
+                  when 5 then [c, 0, x]
+                  end
+
+        Gosu::Color.new(255, ((r + m) * 255).to_i, ((g + m) * 255).to_i, ((b + m) * 255).to_i)
+      end
+
+      def draw_automap
+        # Black background
+        Gosu.draw_rect(0, 0, width, height, Gosu::Color::BLACK, 0)
+
+        # Compute map bounds
+        verts = @map.vertices
+        min_x = min_y = Float::INFINITY
+        max_x = max_y = -Float::INFINITY
+        verts.each do |v|
+          min_x = v.x if v.x < min_x
+          max_x = v.x if v.x > max_x
+          min_y = v.y if v.y < min_y
+          max_y = v.y if v.y > max_y
+        end
+
+        map_w = max_x - min_x
+        map_h = max_y - min_y
+        return if map_w == 0 || map_h == 0
+
+        # Scale to fit screen with margin
+        draw_w = width - MAP_MARGIN * 2
+        draw_h = height - MAP_MARGIN * 2
+        scale = [draw_w.to_f / map_w, draw_h.to_f / map_h].min
+
+        # Center the map
+        offset_x = MAP_MARGIN + (draw_w - map_w * scale) / 2.0
+        offset_y = MAP_MARGIN + (draw_h - map_h * scale) / 2.0
+
+        # World to screen coordinate transform (Y flipped: world Y+ is up, screen Y+ is down)
+        to_sx = ->(wx) { offset_x + (wx - min_x) * scale }
+        to_sy = ->(wy) { offset_y + (max_y - wy) * scale }
+
+        # Draw linedefs colored by front sector
+        two_sided_color = Gosu::Color.new(100, 80, 80, 80)
+
+        @map.linedefs.each do |linedef|
+          v1 = verts[linedef.v1]
+          v2 = verts[linedef.v2]
+          sx1 = to_sx.call(v1.x)
+          sy1 = to_sy.call(v1.y)
+          sx2 = to_sx.call(v2.x)
+          sy2 = to_sy.call(v2.y)
+
+          if linedef.two_sided?
+            # Two-sided: dim line, colored by front sector
+            front_sd = @map.sidedefs[linedef.sidedef_right]
+            color = @sector_colors[front_sd.sector]
+            dim = Gosu::Color.new(100, color.red, color.green, color.blue)
+            Gosu.draw_line(sx1, sy1, dim, sx2, sy2, dim, 1)
+          else
+            # One-sided: solid wall, bright sector color
+            front_sd = @map.sidedefs[linedef.sidedef_right]
+            color = @sector_colors[front_sd.sector]
+            Gosu.draw_line(sx1, sy1, color, sx2, sy2, color, 1)
+          end
+        end
+
+        # Draw player
+        px = to_sx.call(@renderer.player_x)
+        py = to_sy.call(@renderer.player_y)
+
+        cos_a = @renderer.cos_angle
+        sin_a = @renderer.sin_angle
+
+        # FOV cone
+        fov_len = 40.0
+        half_fov = Math::PI / 4.0 # 45 deg half = 90 deg total
+
+        # Cone edges (in world space, Y+ is up; on screen Y is flipped via to_sy)
+        left_dx = Math.cos(half_fov) * cos_a - Math.sin(half_fov) * sin_a
+        left_dy = Math.cos(half_fov) * sin_a + Math.sin(half_fov) * cos_a
+        right_dx = Math.cos(-half_fov) * cos_a - Math.sin(-half_fov) * sin_a
+        right_dy = Math.cos(-half_fov) * sin_a + Math.sin(-half_fov) * cos_a
+
+        # Screen positions for cone tips
+        lx = px + left_dx * fov_len
+        ly = py - left_dy * fov_len  # negate because screen Y is flipped
+        rx = px + right_dx * fov_len
+        ry = py - right_dy * fov_len
+
+        cone_color = Gosu::Color.new(60, 0, 255, 0)
+        Gosu.draw_triangle(px, py, cone_color, lx, ly, cone_color, rx, ry, cone_color, 2)
+
+        # Cone edge lines
+        edge_color = Gosu::Color.new(180, 0, 255, 0)
+        Gosu.draw_line(px, py, edge_color, lx, ly, edge_color, 3)
+        Gosu.draw_line(px, py, edge_color, rx, ry, edge_color, 3)
+
+        # Player dot
+        dot_size = 4
+        Gosu.draw_rect(px - dot_size, py - dot_size, dot_size * 2, dot_size * 2, Gosu::Color::GREEN, 3)
+
+        # Direction line
+        dir_len = 12.0
+        dx = px + cos_a * dir_len
+        dy = py - sin_a * dir_len
+        Gosu.draw_line(px, py, Gosu::Color::WHITE, dx, dy, Gosu::Color::WHITE, 3)
+      end
+
+      # --- End Automap ---
 
       def needs_cursor?
         !@mouse_captured

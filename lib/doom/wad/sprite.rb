@@ -140,6 +140,11 @@ module Doom
         @wad = wad
         @cache = {}
         @rotation_cache = {}
+
+        # Build sprite lump index: maps "PREFIXframe_rotation" -> [lump_name, mirrored?]
+        # Handles combined lumps like SPOSA2A8 (rotation 2 normal, rotation 8 mirrored)
+        @sprite_index = {}
+        build_sprite_index
       end
 
       # Get default sprite (rotation 0 or 1)
@@ -149,9 +154,8 @@ module Doom
         prefix = THING_SPRITES[thing_type]
         return nil unless prefix
 
-        # Try to find sprite with A0 (all angles) or A1 (front facing)
-        sprite = Sprite.load(@wad, "#{prefix}A0") ||
-                 Sprite.load(@wad, "#{prefix}A1")
+        sprite = load_sprite_frame(prefix, 'A', 0) ||
+                 load_sprite_frame(prefix, 'A', 1)
 
         @cache[thing_type] = sprite
         sprite
@@ -169,36 +173,87 @@ module Doom
         prefix = THING_SPRITES[thing_type]
         return nil unless prefix
 
-        # Check cache for rotation 0 (all angles) sprite
-        cache_key = "#{prefix}A0"
-        if @rotation_cache.key?(cache_key)
-          return @rotation_cache[cache_key] if @rotation_cache[cache_key]
-        else
-          sprite = Sprite.load(@wad, cache_key)
-          @rotation_cache[cache_key] = sprite
-          return sprite if sprite
-        end
+        # Check for rotation 0 (all angles) sprite first
+        sprite = load_sprite_frame(prefix, 'A', 0)
+        return sprite if sprite
 
         # Calculate rotation frame (1-8)
         # Doom rotations: 1=front, 2=front-right, 3=right, etc. (clockwise)
-        # The angle we need is: viewer's angle to sprite - sprite's facing angle
         angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0)
-
-        # Normalize to 0-2π
         angle_diff = angle_diff % (2 * Math::PI)
         angle_diff += 2 * Math::PI if angle_diff < 0
-
-        # Convert to rotation frame (1-8)
-        # Each rotation covers 45 degrees (π/4 radians)
-        # Add π/8 to center the ranges
         rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1
 
-        cache_key = "#{prefix}A#{rotation}"
-        unless @rotation_cache.key?(cache_key)
-          @rotation_cache[cache_key] = Sprite.load(@wad, cache_key)
+        load_sprite_frame(prefix, 'A', rotation) || @cache[thing_type]
+      end
+
+      private
+
+      def build_sprite_index
+        @wad.directory.each do |entry|
+          name = entry.name
+          next if name.length < 6
+
+          prefix = name[0, 4]
+          frame1 = name[4]
+          rot1 = name[5].to_i
+
+          # Register first frame+rotation
+          key = "#{prefix}#{frame1}#{rot1}"
+          @sprite_index[key] = [name, false]
+
+          # Check for mirrored second rotation (e.g., SPOSA2A8)
+          if name.length >= 8
+            frame2 = name[6]
+            rot2 = name[7].to_i
+            key2 = "#{prefix}#{frame2}#{rot2}"
+            @sprite_index[key2] = [name, true]
+          end
+        end
+      end
+
+      def load_sprite_frame(prefix, frame, rotation)
+        key = "#{prefix}#{frame}#{rotation}"
+        return @rotation_cache[key] if @rotation_cache.key?(key)
+
+        index_entry = @sprite_index[key]
+        unless index_entry
+          @rotation_cache[key] = nil
+          return nil
         end
 
-        @rotation_cache[cache_key] || @cache[thing_type]
+        lump_name, mirrored = index_entry
+        # Load the base sprite (may be shared by mirrored pair)
+        base = load_or_cache_lump(lump_name)
+        unless base
+          @rotation_cache[key] = nil
+          return nil
+        end
+
+        sprite = mirrored ? mirror_sprite(base) : base
+        @rotation_cache[key] = sprite
+        sprite
+      end
+
+      def load_or_cache_lump(lump_name)
+        cache_key = "_lump_#{lump_name}"
+        return @rotation_cache[cache_key] if @rotation_cache.key?(cache_key)
+
+        sprite = Sprite.load(@wad, lump_name)
+        @rotation_cache[cache_key] = sprite
+        sprite
+      end
+
+      def mirror_sprite(sprite)
+        # Flip columns horizontally, adjust left_offset
+        mirrored_columns = sprite.instance_variable_get(:@columns).reverse
+        mirrored_left = sprite.width - sprite.left_offset
+        Sprite.new(
+          "#{sprite.name}_M",
+          sprite.width, sprite.height,
+          mirrored_left, sprite.top_offset,
+          mirrored_columns
+        )
       end
     end
   end
