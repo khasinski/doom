@@ -258,22 +258,24 @@ module Doom
       end
 
       def try_move(dx, dy)
-        new_x = @renderer.player_x + dx
-        new_y = @renderer.player_y + dy
+        old_x = @renderer.player_x
+        old_y = @renderer.player_y
+        new_x = old_x + dx
+        new_y = old_y + dy
 
-        # Check if new position is valid (simple collision detection)
-        if valid_position?(new_x, new_y)
+        # Check if new position is valid and path doesn't cross blocking linedefs
+        if valid_move?(old_x, old_y, new_x, new_y)
           @renderer.move_to(new_x, new_y)
           update_player_height(new_x, new_y)
         else
           # Try sliding along walls - try X movement only
-          if valid_position?(new_x, @renderer.player_y)
-            @renderer.move_to(new_x, @renderer.player_y)
-            update_player_height(new_x, @renderer.player_y)
+          if dx != 0.0 && valid_move?(old_x, old_y, new_x, old_y)
+            @renderer.move_to(new_x, old_y)
+            update_player_height(new_x, old_y)
           # Try Y movement only
-          elsif valid_position?(@renderer.player_x, new_y)
-            @renderer.move_to(@renderer.player_x, new_y)
-            update_player_height(@renderer.player_x, new_y)
+          elsif dy != 0.0 && valid_move?(old_x, old_y, old_x, new_y)
+            @renderer.move_to(old_x, new_y)
+            update_player_height(old_x, new_y)
           end
         end
       end
@@ -287,22 +289,79 @@ module Doom
         @renderer.set_z(target_z)
       end
 
-      def valid_position?(x, y)
-        # Check if position is inside a valid sector
-        sector = @map.sector_at(x, y)
+      def valid_move?(old_x, old_y, new_x, new_y)
+        # Check if destination is inside a valid sector
+        sector = @map.sector_at(new_x, new_y)
         return false unless sector
 
-        # Check floor height - can't walk into walls
+        # Check floor height - can't step up too high
         floor_height = sector.floor_height
         return false if floor_height > @renderer.player_z + 24  # Max step height
 
-        # Check against blocking linedefs
+        # Check against blocking linedefs: both circle intersection and path crossing
         @map.linedefs.each do |linedef|
-          next unless linedef_blocks?(linedef, x, y)
-          return false
+          # Circle intersection at destination
+          if linedef_blocks?(linedef, new_x, new_y)
+            return false
+          end
+
+          # Path crossing check: does the movement line cross a blocking linedef?
+          if crosses_blocking_linedef?(old_x, old_y, new_x, new_y, linedef)
+            return false
+          end
         end
 
         true
+      end
+
+      # Check if movement from (x1,y1) to (x2,y2) crosses a blocking linedef
+      def crosses_blocking_linedef?(x1, y1, x2, y2, linedef)
+        v1 = @map.vertices[linedef.v1]
+        v2 = @map.vertices[linedef.v2]
+
+        # One-sided linedef always blocks crossing
+        if linedef.sidedef_left == 0xFFFF
+          return segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
+        end
+
+        # BLOCKING flag blocks crossing even on two-sided linedefs
+        if (linedef.flags & 0x0001) != 0
+          return segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
+        end
+
+        # Two-sided: check if impassable (high step OR low ceiling)
+        front_side = @map.sidedefs[linedef.sidedef_right]
+        back_side = @map.sidedefs[linedef.sidedef_left]
+        front_sector = @map.sectors[front_side.sector]
+        back_sector = @map.sectors[back_side.sector]
+
+        step = (back_sector.floor_height - front_sector.floor_height).abs
+        min_ceiling = [front_sector.ceiling_height, back_sector.ceiling_height].min
+        max_floor = [front_sector.floor_height, back_sector.floor_height].max
+
+        # Passable if step is small AND enough headroom
+        return false if step <= 24 && (min_ceiling - max_floor) >= 56
+
+        segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
+      end
+
+      # Test if line segment (ax1,ay1)-(ax2,ay2) intersects (bx1,by1)-(bx2,by2)
+      def segments_intersect?(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2)
+        d1x = ax2 - ax1
+        d1y = ay2 - ay1
+        d2x = bx2 - bx1
+        d2y = by2 - by1
+
+        denom = d1x * d2y - d1y * d2x
+        return false if denom.abs < 0.001  # Parallel
+
+        dx = bx1 - ax1
+        dy = by1 - ay1
+
+        t = (dx * d2y - dy * d2x).to_f / denom
+        u = (dx * d1y - dy * d1x).to_f / denom
+
+        t > 0.0 && t < 1.0 && u >= 0.0 && u <= 1.0
       end
 
       def linedef_blocks?(linedef, x, y)
@@ -315,23 +374,22 @@ module Doom
         # One-sided linedef (wall) always blocks
         return true if linedef.sidedef_left == 0xFFFF
 
-        # Two-sided: check if passable
+        # BLOCKING flag (0x0001) blocks even on two-sided linedefs (e.g., windows)
+        return true if (linedef.flags & 0x0001) != 0
+
+        # Two-sided: check if impassable (high step OR low ceiling)
         front_side = @map.sidedefs[linedef.sidedef_right]
         back_side = @map.sidedefs[linedef.sidedef_left]
 
         front_sector = @map.sectors[front_side.sector]
         back_sector = @map.sectors[back_side.sector]
 
-        # Check step height
-        step = back_sector.floor_height - front_sector.floor_height
-        return true if step.abs > 24
-
-        # Check ceiling clearance
+        step = (back_sector.floor_height - front_sector.floor_height).abs
         min_ceiling = [front_sector.ceiling_height, back_sector.ceiling_height].min
         max_floor = [front_sector.floor_height, back_sector.floor_height].max
-        return true if min_ceiling - max_floor < 56  # Player height
 
-        false
+        # Block if step too high OR not enough headroom
+        step > 24 || (min_ceiling - max_floor) < 56
       end
 
       def line_circle_intersect?(x1, y1, x2, y2, cx, cy, radius)
