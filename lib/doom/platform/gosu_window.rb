@@ -476,6 +476,7 @@ module Doom
           "Ceil:  #{sector.ceiling_height} (#{sector.ceiling_texture})",
           "Light: #{sector.light_level}",
           "Pos: #{@renderer.player_x.round}, #{@renderer.player_y.round}",
+          "Heading: #{(Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)}",
         ]
 
         y = 4

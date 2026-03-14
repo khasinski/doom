@@ -1007,7 +1007,7 @@ module Doom
                 tex_height = texture ? texture.height : 128
                 upper_tex_y = sidedef.y_offset + back_sector.ceiling_height - sector.ceiling_height + tex_height
               end
-              draw_wall_column_ex(x, ceil_y, back_ceil_y - 1, sidedef.upper_texture, dist,
+              draw_wall_column_ex(x, ceil_y, back_ceil_y, sidedef.upper_texture, dist,
                                   sector.light_level, tex_col, upper_tex_y, scale, sector.ceiling_height, back_sector.ceiling_height)
               # Note: Upper walls don't fully occlude - sprites can be visible through openings
             end
@@ -1022,7 +1022,7 @@ module Doom
               else
                 lower_tex_y = sidedef.y_offset
               end
-              draw_wall_column_ex(x, back_floor_y + 1, floor_y, sidedef.lower_texture, dist,
+              draw_wall_column_ex(x, back_floor_y, floor_y, sidedef.lower_texture, dist,
                                   sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height, sector.floor_height)
               # Note: Lower walls don't fully occlude - sprites can be visible through openings
             end
@@ -1039,8 +1039,9 @@ module Doom
                 # Upper wall drawn - clip ceiling to back ceiling
                 @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
               elsif sector.ceiling_height < back_sector.ceiling_height
-                # Ceiling step up - clip to front ceiling
-                @ceiling_clip[x] = [ceil_y, @ceiling_clip[x]].max
+                # No upper wall - clip to front ceiling - 1 so back sector can mark ceil_y
+                # Matches Chocolate Doom: else if (markceiling) ceilingclip[rw_x] = yl-1;
+                @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
               elsif should_mark_ceiling
                 # Same height but different texture/light - still update clip
                 # Matches Chocolate Doom: if (markceiling) ceilingclip[rw_x] = yl-1;
@@ -1052,8 +1053,9 @@ module Doom
                 # Lower wall drawn - clip floor to back floor
                 @floor_clip[x] = [back_floor_y, @floor_clip[x]].min
               elsif sector.floor_height > back_sector.floor_height
-                # Floor step down - clip to front floor to allow back sector to mark later
-                @floor_clip[x] = [floor_y, @floor_clip[x]].min
+                # No lower wall - clip to front floor + 1 so back sector can mark floor_y
+                # Matches Chocolate Doom: else if (markfloor) floorclip[rw_x] = yh+1;
+                @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
               elsif should_mark_floor
                 # Same height but different texture/light - still update clip
                 # Matches Chocolate Doom: if (markfloor) floorclip[rw_x] = yh+1;
