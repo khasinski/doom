@@ -54,6 +54,7 @@ module Doom
         if @player_state
           @player_state.update_attack
           @player_state.update_bob(delta_time)
+          @player_state.update_view_bob(delta_time)
         end
 
         # Update HUD animations
@@ -112,9 +113,12 @@ module Doom
           move_y += @renderer.cos_angle * MOVE_SPEED
         end
 
-        # Track if player is moving (for weapon bob)
+        # Track movement state for weapon/view bob
         is_moving = move_x != 0.0 || move_y != 0.0
-        @player_state.is_moving = is_moving if @player_state
+        if @player_state
+          @player_state.is_moving = is_moving
+          @player_state.set_thrust(move_x, move_y)
+        end
 
         # Apply movement with collision detection
         if is_moving
@@ -284,8 +288,9 @@ module Doom
         sector = @map.sector_at(x, y)
         return unless sector
 
-        # Player view height is 41 units above floor
-        target_z = sector.floor_height + 41
+        # Player view height is 41 units above floor + view bob
+        view_bob = @player_state ? @player_state.view_bob_offset : 0.0
+        target_z = sector.floor_height + 41 + view_bob
         @renderer.set_z(target_z)
       end
 
