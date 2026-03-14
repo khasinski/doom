@@ -220,9 +220,6 @@ module Doom
         # Precompute column angles for floor/ceiling rendering
         precompute_column_data
 
-        # Draw floor/ceiling background first (will be partially overwritten by walls)
-        draw_floor_ceiling_background
-
         # Initialize visplanes for tracking visible floor/ceiling spans
         @visplanes = []
         @visplane_hash = {}  # Hash for O(1) lookup by (height, texture, light_level, is_ceiling)
@@ -968,7 +965,10 @@ module Doom
             # Mark ceiling visplane - mark front sector's ceiling for two-sided lines
             # Matches Chocolate Doom: mark from ceilingclip+1 to yl-1 (front ceiling)
             # (yl is clamped to ceilingclip+1, so we use ceil_y which is already clamped)
-            should_mark_ceiling = sector.ceiling_height != back_sector.ceiling_height ||
+            # Chocolate Doom R_StoreWallRange: closed doors force both marks true,
+            # otherwise mark only when properties differ between front and back.
+            should_mark_ceiling = closed_door ||
+                                  sector.ceiling_height != back_sector.ceiling_height ||
                                   sector.ceiling_texture != back_sector.ceiling_texture ||
                                   sector.light_level != back_sector.light_level
             if @current_ceiling_plane && should_mark_ceiling
@@ -983,7 +983,8 @@ module Doom
             # Mark floor visplane - mark front sector's floor for two-sided lines
             # Matches Chocolate Doom: mark from yh+1 (front floor) to floorclip-1
             # (yh is clamped to floorclip-1, so we use floor_y which is already clamped)
-            should_mark_floor = sector.floor_height != back_sector.floor_height ||
+            should_mark_floor = closed_door ||
+                                sector.floor_height != back_sector.floor_height ||
                                 sector.floor_texture != back_sector.floor_texture ||
                                 sector.light_level != back_sector.light_level
             if @current_floor_plane && should_mark_floor
