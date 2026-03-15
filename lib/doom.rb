@@ -13,6 +13,8 @@ require_relative 'doom/wad/hud_graphics'
 require_relative 'doom/map/data'
 require_relative 'doom/game/player_state'
 require_relative 'doom/game/sector_actions'
+require_relative 'doom/game/animations'
+require_relative 'doom/game/sector_effects'
 require_relative 'doom/render/renderer'
 require_relative 'doom/render/status_bar'
 require_relative 'doom/render/weapon_renderer'
@@ -61,8 +63,12 @@ module Doom
         player_start = Map::Thing.new(0, 0, 90, 1, 0)
       end
 
+      puts 'Initializing animations...'
+      flat_names = flats.map(&:name)
+      animations = Game::Animations.new(textures.texture_names, flat_names)
+
       puts 'Creating renderer...'
-      renderer = Render::Renderer.new(wad, map, textures, palette, colormap, flats, sprites)
+      renderer = Render::Renderer.new(wad, map, textures, palette, colormap, flats, sprites, animations)
       renderer.set_player(player_start.x, player_start.y, 41, player_start.angle)
 
       puts 'Setting up player state and HUD...'
@@ -70,9 +76,10 @@ module Doom
       status_bar = Render::StatusBar.new(hud_graphics, player_state)
       weapon_renderer = Render::WeaponRenderer.new(hud_graphics, player_state)
       sector_actions = Game::SectorActions.new(map)
+      sector_effects = Game::SectorEffects.new(map)
 
       puts 'Starting game window...'
-      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions)
+      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects)
       window.show
     end
   end

@@ -53,7 +53,7 @@ module Doom
     class Renderer
       attr_reader :framebuffer
 
-      def initialize(wad, map, textures, palette, colormap, flats, sprites = nil)
+      def initialize(wad, map, textures, palette, colormap, flats, sprites = nil, animations = nil)
         @wad = wad
         @map = map
         @textures = textures
@@ -61,6 +61,7 @@ module Doom
         @colormap = colormap
         @flats = flats.to_h { |f| [f.name, f] }
         @sprites = sprites
+        @animations = animations
 
         @framebuffer = Array.new(SCREEN_WIDTH * SCREEN_HEIGHT, 0)
 
@@ -220,6 +221,12 @@ module Doom
         # Precompute column angles for floor/ceiling rendering
         precompute_column_data
 
+        # Draw player's sector floor/ceiling as background fallback.
+        # Visplanes (with correct per-sector lighting) overwrite this for sectors
+        # with different properties. This only remains visible at gaps between
+        # same-property sectors where the light level matches anyway.
+        draw_floor_ceiling_background
+
         # Initialize visplanes for tracking visible floor/ceiling spans
         @visplanes = []
         @visplane_hash = {}  # Hash for O(1) lookup by (height, texture, light_level, is_ceiling)
@@ -329,7 +336,7 @@ module Doom
       def draw_span(plane, y, x1, x2)
         return if x1.nil? || x1 > x2 || y < 0 || y >= SCREEN_HEIGHT
 
-        flat = @flats[plane.texture]
+        flat = @flats[anim_flat(plane.texture)]
         return unless flat
 
         # Distance from horizon (y=100 for 200-high screen)
@@ -496,8 +503,8 @@ module Doom
 
         ceil_height = (default_sector.ceiling_height - @player_z).abs
         floor_height = (default_sector.floor_height - @player_z).abs
-        ceil_flat = @flats[default_sector.ceiling_texture]
-        floor_flat = @flats[default_sector.floor_texture]
+        ceil_flat = @flats[anim_flat(default_sector.ceiling_texture)]
+        floor_flat = @flats[anim_flat(default_sector.floor_texture)]
         ceil_pixels = ceil_flat&.pixels
         floor_pixels = floor_flat&.pixels
         is_sky = default_sector.ceiling_texture == 'F_SKY1'
@@ -581,6 +588,15 @@ module Doom
       end
 
       private
+
+      # Translate flat/texture names through animation system
+      def anim_flat(name)
+        @animations ? @animations.translate_flat(name) : name
+      end
+
+      def anim_texture(name)
+        @animations ? @animations.translate_texture(name) : name
+      end
 
       def clear_framebuffer
         @framebuffer.fill(0)
@@ -962,16 +978,11 @@ module Doom
             closed_door = back_sector.ceiling_height <= sector.floor_height ||
                           back_sector.floor_height >= sector.ceiling_height
 
-            # Mark ceiling visplane - mark front sector's ceiling for two-sided lines
-            # Matches Chocolate Doom: mark from ceilingclip+1 to yl-1 (front ceiling)
-            # (yl is clamped to ceilingclip+1, so we use ceil_y which is already clamped)
-            # Chocolate Doom R_StoreWallRange: closed doors force both marks true,
-            # otherwise mark only when properties differ between front and back.
-            should_mark_ceiling = closed_door ||
-                                  sector.ceiling_height != back_sector.ceiling_height ||
-                                  sector.ceiling_texture != back_sector.ceiling_texture ||
-                                  sector.light_level != back_sector.light_level
-            if @current_ceiling_plane && should_mark_ceiling
+            # Always mark ceiling/floor visplanes for two-sided lines.
+            # Chocolate Doom only marks when properties differ (relying on adjacent
+            # sectors to cover shared-property boundaries). Without a background fill,
+            # we must always mark to guarantee full coverage with correct per-sector lighting.
+            if @current_ceiling_plane
               mark_top = @ceiling_clip[x] + 1
               mark_bottom = ceil_y - 1
               mark_bottom = [@floor_clip[x] - 1, mark_bottom].min
@@ -980,14 +991,8 @@ module Doom
               end
             end
 
-            # Mark floor visplane - mark front sector's floor for two-sided lines
-            # Matches Chocolate Doom: mark from yh+1 (front floor) to floorclip-1
-            # (yh is clamped to floorclip-1, so we use floor_y which is already clamped)
-            should_mark_floor = closed_door ||
-                                sector.floor_height != back_sector.floor_height ||
-                                sector.floor_texture != back_sector.floor_texture ||
-                                sector.light_level != back_sector.light_level
-            if @current_floor_plane && should_mark_floor
+            # Mark floor visplane
+            if @current_floor_plane
               mark_top = floor_y + 1
               mark_bottom = @floor_clip[x] - 1
               mark_top = [@ceiling_clip[x] + 1, mark_top].max
@@ -996,8 +1001,13 @@ module Doom
               end
             end
 
-            # Upper wall (ceiling step down)
-            if sector.ceiling_height > back_sector.ceiling_height
+            # Sky hack: when both sectors have sky ceiling, don't draw upper wall.
+            # This allows the sky to extend continuously across outdoor areas with
+            # varying ceiling heights. Matches Chocolate Doom R_StoreWallRange.
+            both_sky = sector.ceiling_texture == 'F_SKY1' && back_sector.ceiling_texture == 'F_SKY1'
+
+            # Upper wall (ceiling step down) - skip if both sectors have sky
+            if !both_sky && sector.ceiling_height > back_sector.ceiling_height
               # Upper texture Y offset depends on DONTPEGTOP flag
               # With DONTPEGTOP: texture top aligns with front ceiling
               # Without: texture bottom aligns with back ceiling (for doors opening)
@@ -1036,18 +1046,20 @@ module Doom
               @floor_clip[x] = -1
             else
               # Ceiling clip increases (moves down) as ceiling is marked
-              if sector.ceiling_height > back_sector.ceiling_height
+              if both_sky
+                # Sky hack: don't update ceiling clip - sky extends across both sectors
+              elsif sector.ceiling_height > back_sector.ceiling_height
                 # Upper wall drawn - clip ceiling to back ceiling
                 @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
               elsif sector.ceiling_height < back_sector.ceiling_height
                 # No upper wall - clip to front ceiling - 1 so back sector can mark ceil_y
-                # Matches Chocolate Doom: else if (markceiling) ceilingclip[rw_x] = yl-1;
                 @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
-              elsif should_mark_ceiling
-                # Same height but different texture/light - still update clip
-                # Matches Chocolate Doom: if (markceiling) ceilingclip[rw_x] = yl-1;
+              elsif sector.ceiling_texture != back_sector.ceiling_texture ||
+                    sector.light_level != back_sector.light_level
+                # Same height but different properties - update clip
                 @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
               end
+              # Same height, same properties: do NOT update clip (back sector needs to mark too)
 
               # Floor clip decreases (moves up) as floor is marked
               if sector.floor_height < back_sector.floor_height
@@ -1055,13 +1067,13 @@ module Doom
                 @floor_clip[x] = [back_floor_y, @floor_clip[x]].min
               elsif sector.floor_height > back_sector.floor_height
                 # No lower wall - clip to front floor + 1 so back sector can mark floor_y
-                # Matches Chocolate Doom: else if (markfloor) floorclip[rw_x] = yh+1;
                 @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
-              elsif should_mark_floor
-                # Same height but different texture/light - still update clip
-                # Matches Chocolate Doom: if (markfloor) floorclip[rw_x] = yh+1;
+              elsif sector.floor_texture != back_sector.floor_texture ||
+                    sector.light_level != back_sector.light_level
+                # Same height but different properties - update clip
                 @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
               end
+              # Same height, same properties: do NOT update clip (back sector needs to mark too)
             end
           else
             # One-sided (solid) wall
@@ -1142,7 +1154,7 @@ module Doom
         y2 = [y2, clip_bottom].min
         return if y1 > y2
 
-        texture = @textures[texture_name]
+        texture = @textures[anim_texture(texture_name)]
         return unless texture
 
         light = calculate_light(light_level, dist)

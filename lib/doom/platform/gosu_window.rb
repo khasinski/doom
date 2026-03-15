@@ -15,7 +15,7 @@ module Doom
 
       USE_DISTANCE = 64.0  # Max distance to use a linedef
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil)
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil)
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, false)
         self.caption = 'Doom Ruby'
 
@@ -26,6 +26,10 @@ module Doom
         @status_bar = status_bar
         @weapon_renderer = weapon_renderer
         @sector_actions = sector_actions
+        @animations = animations
+        @sector_effects = sector_effects
+        @leveltime = 0
+        @tic_accumulator = 0.0
         @screen_image = nil
         @mouse_captured = false
         @last_mouse_x = nil
@@ -56,6 +60,15 @@ module Doom
           @player_state.update_bob(delta_time)
           @player_state.update_view_bob(delta_time)
         end
+
+        # Advance game tics at 35/sec (DOOM's tic rate)
+        @tic_accumulator += delta_time * 35.0
+        while @tic_accumulator >= 1.0
+          @leveltime += 1
+          @tic_accumulator -= 1.0
+          @sector_effects&.update
+        end
+        @animations&.update(@leveltime)
 
         # Update HUD animations
         @status_bar&.update

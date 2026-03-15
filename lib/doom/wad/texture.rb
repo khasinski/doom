@@ -17,6 +17,7 @@ module Doom
       def self.load_all(wad)
         pnames = load_pnames(wad)
         textures = {}
+        texture_names = []
 
         %w[TEXTURE1 TEXTURE2].each do |lump_name|
           data = wad.read_lump(lump_name)
@@ -24,10 +25,11 @@ module Doom
 
           parse_texture_lump(data).each do |tex|
             textures[tex.name] = tex
+            texture_names << tex.name
           end
         end
 
-        { textures: textures, pnames: pnames }
+        { textures: textures, pnames: pnames, texture_names: texture_names }
       end
 
       def self.load_pnames(wad)
@@ -71,13 +73,14 @@ module Doom
     end
 
     class TextureManager
-      attr_reader :textures, :pnames, :patches
+      attr_reader :textures, :pnames, :patches, :texture_names
 
       def initialize(wad)
         @wad = wad
         result = Texture.load_all(wad)
         @textures = result[:textures]
         @pnames = result[:pnames]
+        @texture_names = result[:texture_names]
         @patches = {}
         @composite_cache = {}
       end
