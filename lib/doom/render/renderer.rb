@@ -1052,12 +1052,12 @@ module Doom
               @floor_clip[x] = -1
             else
               # Ceiling clip
-              if both_sky
-                # Sky hack: don't update ceiling clip
+              if both_sky && sector.ceiling_height > back_sector.ceiling_height
+                # Sky hack: no upper wall drawn, update clip for sky continuity
+                @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
               elsif sector.ceiling_height > back_sector.ceiling_height
                 @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
               elsif sector.ceiling_height < back_sector.ceiling_height
-                # Chocolate Doom: else if (markceiling) ceilingclip = yl - 1
                 @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
               elsif sector.ceiling_texture != back_sector.ceiling_texture ||
                     sector.light_level != back_sector.light_level
