@@ -28,6 +28,7 @@ module Doom
         @sector_actions = sector_actions
         @animations = animations
         @sector_effects = sector_effects
+        @last_floor_height = nil
         @leveltime = 0
         @tic_accumulator = 0.0
         @screen_image = nil
@@ -67,6 +68,7 @@ module Doom
           @leveltime += 1
           @tic_accumulator -= 1.0
           @sector_effects&.update
+          @player_state&.update_viewheight
         end
         @animations&.update(@leveltime)
 
@@ -301,10 +303,21 @@ module Doom
         sector = @map.sector_at(x, y)
         return unless sector
 
-        # Player view height is 41 units above floor + view bob
-        view_bob = @player_state ? @player_state.view_bob_offset : 0.0
-        target_z = sector.floor_height + 41 + view_bob
-        @renderer.set_z(target_z)
+        new_floor = sector.floor_height
+
+        if @player_state
+          # Detect step: floor height changed since last move
+          if @last_floor_height && @last_floor_height != new_floor
+            step = new_floor - @last_floor_height
+            @player_state.notify_step(step) if step.abs <= 24
+          end
+          @last_floor_height = new_floor
+
+          view_bob = @player_state.view_bob_offset
+          @renderer.set_z(new_floor + @player_state.viewheight + view_bob)
+        else
+          @renderer.set_z(new_floor + 41)
+        end
       end
 
       def valid_move?(old_x, old_y, new_x, new_y)

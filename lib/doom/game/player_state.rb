@@ -47,6 +47,12 @@ module Doom
       attr_accessor :bob_angle, :bob_amount
       attr_accessor :is_moving
 
+      # Smooth step-up/down (matching Chocolate Doom's P_CalcHeight / P_ZMovement)
+      VIEWHEIGHT = 41.0
+      VIEWHEIGHT_HALF = VIEWHEIGHT / 2.0
+      DELTA_ACCEL = 0.25        # deltaviewheight += FRACUNIT/4 per tic
+      attr_reader :viewheight, :deltaviewheight
+
       # View bob (camera bounce when walking, matching Chocolate Doom's
       # P_CalcHeight + P_XYMovement + P_Thrust from p_user.c / p_mobj.c)
       MAXBOB = 16.0           # Maximum bob amplitude (0x100000 in fixed-point = 16 map units)
@@ -105,6 +111,10 @@ module Doom
         @bob_angle = 0.0
         @bob_amount = 0.0
         @is_moving = false
+
+        # Smooth step height (P_CalcHeight viewheight/deltaviewheight)
+        @viewheight = VIEWHEIGHT
+        @deltaviewheight = 0.0
 
         # View bob (camera bounce) - simulated momentum for P_CalcHeight
         @view_bob_offset = 0.0
@@ -209,6 +219,38 @@ module Doom
         else
           # Decay bob when stopped
           @bob_amount = [@bob_amount - delta_time * 12.0, 0.0].max
+        end
+      end
+
+      # Called when player moves onto a different floor height.
+      # Matches Chocolate Doom P_ZMovement: reduce viewheight by the step amount
+      # so the camera doesn't snap, then let P_CalcHeight recover it smoothly.
+      def notify_step(step_amount)
+        return if step_amount == 0
+        @viewheight -= step_amount
+        @deltaviewheight = (VIEWHEIGHT - @viewheight) / 8.0
+      end
+
+      # Gradually restore viewheight to VIEWHEIGHT (called each tic).
+      # Matches Chocolate Doom P_CalcHeight viewheight recovery loop.
+      # For step-up: viewheight < 41, delta > 0, accelerates upward.
+      # For step-down: viewheight > 41, delta < 0, decelerates then recovers.
+      def update_viewheight
+        @viewheight += @deltaviewheight
+
+        if @viewheight > VIEWHEIGHT && @deltaviewheight >= 0
+          @viewheight = VIEWHEIGHT
+          @deltaviewheight = 0.0
+        end
+
+        if @viewheight < VIEWHEIGHT_HALF
+          @viewheight = VIEWHEIGHT_HALF
+          @deltaviewheight = 1.0 if @deltaviewheight <= 0
+        end
+
+        if @deltaviewheight != 0
+          @deltaviewheight += DELTA_ACCEL
+          @deltaviewheight = 0.0 if @deltaviewheight.abs < 0.01 && (@viewheight - VIEWHEIGHT).abs < 0.5
         end
       end
 
