@@ -1160,11 +1160,11 @@ module Doom
         light = calculate_light(light_level, dist)
         cmap = @colormap.maps[light]
         framebuffer = @framebuffer
-        tex_width_mask = texture.width - 1   # For power-of-2 textures: & mask is faster than %
-        tex_height_mask = texture.height - 1
+        tex_width = texture.width
+        tex_height = texture.height
 
-        # Texture X coordinate (wrap around texture width using bitwise AND)
-        tex_x = tex_col.to_i & tex_width_mask
+        # Texture X coordinate (wrap around texture width)
+        tex_x = tex_col.to_i % tex_width
 
         # Get the column of pixels
         column = texture.column_pixels(tex_x)
@@ -1187,7 +1187,7 @@ module Doom
         y = y1
         while y <= y2
           screen_offset = y - y1
-          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i & tex_height_mask
+          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
 
           color = column[tex_y]
           framebuffer[y * SCREEN_WIDTH + x] = cmap[color]
