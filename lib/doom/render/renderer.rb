@@ -381,6 +381,15 @@ module Doom
       end
 
       # Render sky ceiling as columns (column-based like walls, not spans)
+      # Sky texture mid-point: texel row at screen center.
+      # Chocolate Doom: skytexturemid = SCREENHEIGHT/2 = 100 (for 200px screen).
+      # Scale factor: our 240px screen maps to DOOM's 200px sky coordinates.
+      SKY_TEXTUREMID = 100.0
+      SKY_YSCALE = 200.0 / SCREEN_HEIGHT  # 0.833 - maps our pixels to DOOM's 200px space
+      # Chocolate Doom: ANGLETOSKYSHIFT=22 gives 4 sky repetitions per 360 degrees.
+      # Full circle (2pi) * 512/pi = 1024 columns, masked to 256 = 4 repetitions.
+      SKY_XSCALE = 512.0 / Math::PI
+
       def draw_sky_plane(plane)
         sky_texture = @textures['SKY1']
         return unless sky_texture
@@ -388,8 +397,8 @@ module Doom
         framebuffer = @framebuffer
         player_angle = @player_angle
         projection = @projection
-        sky_width_mask = sky_texture.width - 1    # Power-of-2 textures: & is faster than %
-        sky_height_mask = sky_texture.height - 1
+        sky_width = sky_texture.width
+        sky_height = sky_texture.height
 
         # Clamp to screen bounds
         minx = [plane.minx, 0].max
@@ -404,14 +413,17 @@ module Doom
           y1 = 0 if y1 < 0
           y2 = SCREEN_HEIGHT - 1 if y2 >= SCREEN_HEIGHT
 
-          # Sky X based on view angle (wraps around 256 degrees)
+          # Sky X: 4 repetitions per 360 degrees (matching ANGLETOSKYSHIFT=22)
           column_angle = player_angle - Math.atan2(x - HALF_WIDTH, projection)
-          sky_x = (column_angle * 256 / Math::PI).to_i & sky_width_mask
+          sky_x = (column_angle * SKY_XSCALE).to_i % sky_width
           column = sky_texture.column_pixels(sky_x)
           next unless column
 
+          # Sky Y: texel = skytexturemid + (y - centery) * scale
+          # Maps texel 0 to screen top, texel 100 to horizon (1:1 for DOOM's 200px)
           (y1..y2).each do |y|
-            color = column[y & sky_height_mask]
+            tex_y = (SKY_TEXTUREMID + (y - HALF_HEIGHT) * SKY_YSCALE).to_i % sky_height
+            color = column[tex_y]
             framebuffer[y * SCREEN_WIDTH + x] = color
           end
         end
@@ -532,13 +544,13 @@ module Doom
               row_offset = y * SCREEN_WIDTH
 
               if is_sky && sky_texture
-                sky_height_mask = sky_texture.height - 1
-                sky_width_mask = sky_texture.width - 1
-                sky_y = y & sky_height_mask
+                sky_w = sky_texture.width
+                sky_h = sky_texture.height
+                sky_y = (SKY_TEXTUREMID + (y - HALF_HEIGHT) * SKY_YSCALE).to_i % sky_h
                 x = 0
                 while x < SCREEN_WIDTH
                   column_angle = player_angle - Math.atan2(x - HALF_WIDTH, projection)
-                  sky_x = (column_angle * 256 / Math::PI).to_i & sky_width_mask
+                  sky_x = (column_angle * SKY_XSCALE).to_i % sky_w
                   color = sky_texture.column_pixels(sky_x)[sky_y]
                   framebuffer[row_offset + x] = color
                   x += 1
