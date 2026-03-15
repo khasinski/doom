@@ -951,7 +951,10 @@ module Doom
           front_ceil = sector.ceiling_height - @player_z
 
           # Project to screen Y (Y increases downward on screen)
-          front_ceil_y = (HALF_HEIGHT - front_ceil * scale).to_i
+          # Chocolate Doom rounds ceiling UP and floor DOWN to avoid 1-pixel gaps:
+          #   yl = (topfrac+HEIGHTUNIT-1)>>HEIGHTBITS  (ceil for front ceiling)
+          #   yh = bottomfrac>>HEIGHTBITS              (floor for front floor)
+          front_ceil_y = (HALF_HEIGHT - front_ceil * scale).ceil
           front_floor_y = (HALF_HEIGHT - front_floor * scale).to_i
 
           # Clamp to current clip bounds
@@ -963,8 +966,11 @@ module Doom
             back_floor = back_sector.floor_height - @player_z
             back_ceil = back_sector.ceiling_height - @player_z
 
+            # Chocolate Doom rounding:
+            #   pixhigh>>HEIGHTBITS (truncate for back ceiling / upper wall end)
+            #   (pixlow+HEIGHTUNIT-1)>>HEIGHTBITS (ceil for back floor / lower wall start)
             back_ceil_y = (HALF_HEIGHT - back_ceil * scale).to_i
-            back_floor_y = (HALF_HEIGHT - back_floor * scale).to_i
+            back_floor_y = (HALF_HEIGHT - back_floor * scale).ceil
 
             # Determine visible ceiling/floor boundaries (the opening between sectors)
             # high_ceil = top of the opening on screen (max Y = lower world ceiling)
@@ -978,11 +984,25 @@ module Doom
             closed_door = back_sector.ceiling_height <= sector.floor_height ||
                           back_sector.floor_height >= sector.ceiling_height
 
-            # Always mark ceiling/floor visplanes for two-sided lines.
-            # Chocolate Doom only marks when properties differ (relying on adjacent
-            # sectors to cover shared-property boundaries). Without a background fill,
-            # we must always mark to guarantee full coverage with correct per-sector lighting.
-            if @current_ceiling_plane
+            both_sky = sector.ceiling_texture == 'F_SKY1' && back_sector.ceiling_texture == 'F_SKY1'
+
+            # Determine whether to mark ceiling/floor visplanes.
+            # Match Chocolate Doom: only mark when properties differ, plus force
+            # for closed doors. The background fill covers same-property gaps.
+            if closed_door
+              should_mark_ceiling = true
+              should_mark_floor = true
+            else
+              should_mark_ceiling = sector.ceiling_height != back_sector.ceiling_height ||
+                                    sector.ceiling_texture != back_sector.ceiling_texture ||
+                                    sector.light_level != back_sector.light_level
+              should_mark_floor = sector.floor_height != back_sector.floor_height ||
+                                  sector.floor_texture != back_sector.floor_texture ||
+                                  sector.light_level != back_sector.light_level
+            end
+
+            # Mark ceiling visplane
+            if @current_ceiling_plane && should_mark_ceiling
               mark_top = @ceiling_clip[x] + 1
               mark_bottom = ceil_y - 1
               mark_bottom = [@floor_clip[x] - 1, mark_bottom].min
@@ -992,7 +1012,7 @@ module Doom
             end
 
             # Mark floor visplane
-            if @current_floor_plane
+            if @current_floor_plane && should_mark_floor
               mark_top = floor_y + 1
               mark_bottom = @floor_clip[x] - 1
               mark_top = [@ceiling_clip[x] + 1, mark_top].max
@@ -1001,16 +1021,8 @@ module Doom
               end
             end
 
-            # Sky hack: when both sectors have sky ceiling, don't draw upper wall.
-            # This allows the sky to extend continuously across outdoor areas with
-            # varying ceiling heights. Matches Chocolate Doom R_StoreWallRange.
-            both_sky = sector.ceiling_texture == 'F_SKY1' && back_sector.ceiling_texture == 'F_SKY1'
-
             # Upper wall (ceiling step down) - skip if both sectors have sky
             if !both_sky && sector.ceiling_height > back_sector.ceiling_height
-              # Upper texture Y offset depends on DONTPEGTOP flag
-              # With DONTPEGTOP: texture top aligns with front ceiling
-              # Without: texture bottom aligns with back ceiling (for doors opening)
               if linedef.upper_unpegged?
                 upper_tex_y = sidedef.y_offset
               else
@@ -1020,14 +1032,10 @@ module Doom
               end
               draw_wall_column_ex(x, ceil_y, back_ceil_y, sidedef.upper_texture, dist,
                                   sector.light_level, tex_col, upper_tex_y, scale, sector.ceiling_height, back_sector.ceiling_height)
-              # Note: Upper walls don't fully occlude - sprites can be visible through openings
             end
 
             # Lower wall (floor step up)
             if sector.floor_height < back_sector.floor_height
-              # Lower texture Y offset depends on DONTPEGBOTTOM flag
-              # With DONTPEGBOTTOM: texture bottom aligns with lower floor
-              # Without: texture top aligns with higher floor
               if linedef.lower_unpegged?
                 lower_tex_y = sidedef.y_offset + sector.ceiling_height - back_sector.floor_height
               else
@@ -1035,45 +1043,37 @@ module Doom
               end
               draw_wall_column_ex(x, back_floor_y, floor_y, sidedef.lower_texture, dist,
                                   sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height, sector.floor_height)
-              # Note: Lower walls don't fully occlude - sprites can be visible through openings
             end
 
-            # Update clip bounds after marking
+            # Update clip bounds
             if closed_door
-              # Closed door - fully occlude this column
               @wall_depth[x] = [@wall_depth[x], dist].min
               @ceiling_clip[x] = SCREEN_HEIGHT
               @floor_clip[x] = -1
             else
-              # Ceiling clip increases (moves down) as ceiling is marked
+              # Ceiling clip
               if both_sky
-                # Sky hack: don't update ceiling clip - sky extends across both sectors
+                # Sky hack: don't update ceiling clip
               elsif sector.ceiling_height > back_sector.ceiling_height
-                # Upper wall drawn - clip ceiling to back ceiling
                 @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
               elsif sector.ceiling_height < back_sector.ceiling_height
-                # No upper wall - clip to front ceiling - 1 so back sector can mark ceil_y
+                # Chocolate Doom: else if (markceiling) ceilingclip = yl - 1
                 @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
               elsif sector.ceiling_texture != back_sector.ceiling_texture ||
                     sector.light_level != back_sector.light_level
-                # Same height but different properties - update clip
                 @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
               end
-              # Same height, same properties: do NOT update clip (back sector needs to mark too)
 
-              # Floor clip decreases (moves up) as floor is marked
+              # Floor clip
               if sector.floor_height < back_sector.floor_height
-                # Lower wall drawn - clip floor to back floor
                 @floor_clip[x] = [back_floor_y, @floor_clip[x]].min
               elsif sector.floor_height > back_sector.floor_height
-                # No lower wall - clip to front floor + 1 so back sector can mark floor_y
+                # Chocolate Doom: else if (markfloor) floorclip = yh + 1
                 @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
               elsif sector.floor_texture != back_sector.floor_texture ||
                     sector.light_level != back_sector.light_level
-                # Same height but different properties - update clip
                 @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
               end
-              # Same height, same properties: do NOT update clip (back sector needs to mark too)
             end
           else
             # One-sided (solid) wall
