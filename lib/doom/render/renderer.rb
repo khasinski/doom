@@ -989,11 +989,16 @@ module Doom
             # Determine whether to mark ceiling/floor visplanes.
             # Match Chocolate Doom: only mark when properties differ, plus force
             # for closed doors. The background fill covers same-property gaps.
+            # Chocolate Doom sky hack: "worldtop = worldhigh" makes the front
+            # ceiling equal to the back ceiling when both are sky. This prevents
+            # the low sky ceiling from clipping walls in adjacent sectors.
+            effective_front_ceil = both_sky ? back_sector.ceiling_height : sector.ceiling_height
+
             if closed_door
               should_mark_ceiling = true
               should_mark_floor = true
             else
-              should_mark_ceiling = sector.ceiling_height != back_sector.ceiling_height ||
+              should_mark_ceiling = effective_front_ceil != back_sector.ceiling_height ||
                                     sector.ceiling_texture != back_sector.ceiling_texture ||
                                     sector.light_level != back_sector.light_level
               should_mark_floor = sector.floor_height != back_sector.floor_height ||
@@ -1051,13 +1056,10 @@ module Doom
               @ceiling_clip[x] = SCREEN_HEIGHT
               @floor_clip[x] = -1
             else
-              # Ceiling clip
-              if both_sky && sector.ceiling_height > back_sector.ceiling_height
-                # Sky hack: no upper wall drawn, update clip for sky continuity
-                @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
-              elsif sector.ceiling_height > back_sector.ceiling_height
+              # Ceiling clip (uses effective_front_ceil for sky hack)
+              if effective_front_ceil > back_sector.ceiling_height
                 @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
-              elsif sector.ceiling_height < back_sector.ceiling_height
+              elsif effective_front_ceil < back_sector.ceiling_height
                 @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
               elsif sector.ceiling_texture != back_sector.ceiling_texture ||
                     sector.light_level != back_sector.light_level
