@@ -306,16 +306,78 @@ module Doom
           @renderer.move_to(new_x, new_y)
           update_player_height(new_x, new_y)
         else
-          # Try sliding along walls - try X movement only
+          # Wall sliding: project movement along the blocking wall
+          slide_x, slide_y = compute_slide(old_x, old_y, dx, dy)
+          if slide_x && (slide_x != 0.0 || slide_y != 0.0)
+            sx = old_x + slide_x
+            sy = old_y + slide_y
+            if valid_move?(old_x, old_y, sx, sy)
+              @renderer.move_to(sx, sy)
+              update_player_height(sx, sy)
+              # Redirect momentum along the wall
+              @move_momx = slide_x / ([dx.abs, dy.abs].max.nonzero? || 1) * @move_momx.abs
+              @move_momy = slide_y / ([dx.abs, dy.abs].max.nonzero? || 1) * @move_momy.abs
+              return
+            end
+          end
+
+          # Fallback: try axis-aligned sliding
           if dx != 0.0 && valid_move?(old_x, old_y, new_x, old_y)
             @renderer.move_to(new_x, old_y)
             update_player_height(new_x, old_y)
-          # Try Y movement only
+            @move_momy *= 0.0
           elsif dy != 0.0 && valid_move?(old_x, old_y, old_x, new_y)
             @renderer.move_to(old_x, new_y)
             update_player_height(old_x, new_y)
+            @move_momx *= 0.0
+          else
+            # Fully blocked - kill momentum
+            @move_momx = 0.0
+            @move_momy = 0.0
           end
         end
+      end
+
+      # Find the blocking linedef and project movement along it
+      def compute_slide(px, py, dx, dy)
+        best_wall = nil
+        best_dist = Float::INFINITY
+
+        @map.linedefs.each do |linedef|
+          v1 = @map.vertices[linedef.v1]
+          v2 = @map.vertices[linedef.v2]
+
+          # Only check linedefs near the player
+          next unless line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, px + dx, py + dy, PLAYER_RADIUS)
+
+          # Check if this linedef actually blocks
+          next unless linedef_blocks?(linedef, px + dx, py + dy) ||
+                      crosses_blocking_linedef?(px, py, px + dx, py + dy, linedef)
+
+          # Distance from player to this linedef
+          dist = point_to_line_distance(px, py, v1.x, v1.y, v2.x, v2.y)
+          if dist < best_dist
+            best_dist = dist
+            best_wall = linedef
+          end
+        end
+
+        return nil unless best_wall
+
+        # Get wall direction vector
+        v1 = @map.vertices[best_wall.v1]
+        v2 = @map.vertices[best_wall.v2]
+        wall_dx = (v2.x - v1.x).to_f
+        wall_dy = (v2.y - v1.y).to_f
+        wall_len = Math.sqrt(wall_dx * wall_dx + wall_dy * wall_dy)
+        return nil if wall_len == 0
+
+        wall_dx /= wall_len
+        wall_dy /= wall_len
+
+        # Project movement onto wall direction
+        dot = dx * wall_dx + dy * wall_dy
+        [dot * wall_dx, dot * wall_dy]
       end
 
       def update_player_height(x, y)
