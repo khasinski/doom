@@ -21,6 +21,33 @@ module Doom
 
       USE_DISTANCE = 64.0  # Max distance to use a linedef
 
+      # Solid thing types with their collision radii (from mobjinfo[] MF_SOLID)
+      # Monsters, barrels, pillars, lamps, torches, trees block player movement
+      SOLID_THING_RADIUS = {
+        9 => 20, 65 => 20, 66 => 20, 67 => 20, 68 => 20, # Shotgun Guy variants
+        3004 => 20, 84 => 20,                               # Zombieman
+        3001 => 20,                                          # Imp
+        3002 => 30, 58 => 30,                                # Demon, Spectre
+        3003 => 24, 69 => 24,                                # Baron, Hell Knight
+        3006 => 16,                                          # Lost Soul
+        3005 => 31,                                          # Cacodemon
+        16 => 40,                                            # Cyberdemon
+        7 => 128,                                            # Spider Mastermind
+        64 => 20,                                            # Archvile
+        71 => 31,                                            # Pain Elemental
+        2035 => 10,                                          # Barrel
+        2028 => 16,                                          # Tall lamp
+        48 => 16, 30 => 16, 32 => 16,                       # Tech column, green/red pillars
+        31 => 16, 33 => 16, 36 => 16,                       # Short pillars
+        41 => 16, 43 => 16,                                  # Evil eye, burnt tree
+        54 => 32,                                            # Brown tree
+        44 => 16, 45 => 16, 46 => 16,                       # Tall torches
+        55 => 16, 56 => 16, 57 => 16,                       # Short torches
+        47 => 16, 70 => 16,                                  # Stubs
+        85 => 16, 86 => 16,                                  # Tall tech lamps
+        2046 => 16,                                          # Burning barrel
+      }.freeze
+
       def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil)
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, false)
         self.caption = 'Doom Ruby'
@@ -412,13 +439,24 @@ module Doom
 
         # Check against blocking linedefs: both circle intersection and path crossing
         @map.linedefs.each do |linedef|
-          # Circle intersection at destination
           if linedef_blocks?(linedef, new_x, new_y)
             return false
           end
-
-          # Path crossing check: does the movement line cross a blocking linedef?
           if crosses_blocking_linedef?(old_x, old_y, new_x, new_y, linedef)
+            return false
+          end
+        end
+
+        # Check against solid things (monsters, barrels, pillars, etc.)
+        combined_radius = PLAYER_RADIUS
+        @map.things.each do |thing|
+          thing_radius = SOLID_THING_RADIUS[thing.type]
+          next unless thing_radius
+
+          dx = new_x - thing.x
+          dy = new_y - thing.y
+          min_dist = combined_radius + thing_radius
+          if dx * dx + dy * dy < min_dist * min_dist
             return false
           end
         end
