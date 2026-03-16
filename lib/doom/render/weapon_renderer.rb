@@ -7,6 +7,14 @@ module Doom
       # Weapon is rendered above the status bar
       WEAPON_AREA_HEIGHT = SCREEN_HEIGHT - StatusBar::STATUS_BAR_HEIGHT
 
+      # DOOM positions weapon sprites using their built-in offsets:
+      #   x = SCREENWIDTH/2 - sprite.left_offset
+      #   y = WEAPONTOP + SCREENHEIGHT - 200 - sprite.top_offset
+      # WEAPONTOP = 32 in fixed-point = 32 pixels above the default position
+      # We scale for our 240px screen vs DOOM's 200px.
+      WEAPONTOP = 32
+      SCREEN_Y_OFFSET = SCREEN_HEIGHT - 200  # 40px offset for 240px screen
+
       def initialize(hud_graphics, player_state)
         @gfx = hud_graphics
         @player = player_state
@@ -27,33 +35,21 @@ module Doom
 
         return unless sprite
 
-        # Calculate position with bob offset
-        bob_x = @player.weapon_bob_x.to_i
-        bob_y = @player.weapon_bob_y.to_i
+        # Bob offset (frozen during attack to keep weapon steady)
+        bob_x = @player.attacking ? 0 : @player.weapon_bob_x.to_i
+        bob_y = @player.attacking ? 0 : @player.weapon_bob_y.to_i
 
-        # Center weapon horizontally (sprite width / 2 from center)
-        # Position weapon at bottom of view area
-        x = (SCREEN_WIDTH / 2) - (sprite.width / 2) + bob_x
-        # Only allow downward bob (positive values) to keep weapon bottom at status bar
-        clamped_bob_y = [bob_y, 0].max
-        y = WEAPON_AREA_HEIGHT - sprite.height + clamped_bob_y
-
-        # Add some vertical offset during attack (recoil effect)
-        if @player.attacking
-          recoil = case @player.attack_frame
-                   when 0 then -6
-                   when 1 then -3
-                   when 2 then 3
-                   else 0
-                   end
-          y += recoil
-        end
+        # DOOM's R_DrawPSprite: x1 = centerx + (psp->sx - centerx - spriteoffset)
+        # With psp->sx = 1 (default): x = 1 - left_offset
+        # Uses sprite's built-in offsets for both weapon and flash alignment
+        x = 1 - sprite.left_offset + bob_x
+        y = 1 - sprite.top_offset + SCREEN_Y_OFFSET + bob_y
 
         draw_weapon_sprite(framebuffer, sprite, x, y)
 
-        # Draw muzzle flash for pistol
-        if @player.attacking && @player.attack_frame < 2
-          draw_muzzle_flash(framebuffer, weapon_name, x, y)
+        # Draw muzzle flash only on the first fire frame (the actual shot)
+        if @player.attacking && @player.attack_frame == 0
+          draw_muzzle_flash(framebuffer, weapon_name)
         end
       end
 
@@ -83,7 +79,7 @@ module Doom
         end
       end
 
-      def draw_muzzle_flash(framebuffer, weapon_name, weapon_x, weapon_y)
+      def draw_muzzle_flash(framebuffer, weapon_name)
         weapon_data = @gfx.weapons[weapon_name]
         return unless weapon_data && weapon_data[:flash]
 
@@ -91,9 +87,10 @@ module Doom
         flash_sprite = weapon_data[:flash][flash_frame]
         return unless flash_sprite
 
-        # Flash is drawn at weapon position (sprite handles offset)
-        flash_x = (SCREEN_WIDTH / 2) - flash_sprite.left_offset
-        flash_y = WEAPON_AREA_HEIGHT - flash_sprite.top_offset
+        # Flash uses same positioning as weapon sprite (built-in offsets)
+        # Same positioning formula as weapon sprite
+        flash_x = 1 - flash_sprite.left_offset
+        flash_y = 1 - flash_sprite.top_offset + SCREEN_Y_OFFSET
 
         draw_weapon_sprite(framebuffer, flash_sprite, flash_x, flash_y)
       end

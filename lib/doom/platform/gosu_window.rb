@@ -48,7 +48,7 @@ module Doom
         2046 => 16,                                          # Burning barrel
       }.freeze
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil)
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil)
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, false)
         self.caption = 'Doom Ruby'
 
@@ -62,6 +62,7 @@ module Doom
         @animations = animations
         @sector_effects = sector_effects
         @item_pickup = item_pickup
+        @combat = combat
         @last_floor_height = nil
         @move_momx = 0.0
         @move_momy = 0.0
@@ -91,9 +92,8 @@ module Doom
 
         handle_input(delta_time)
 
-        # Update player state
+        # Update player state (per-frame for smooth bob)
         if @player_state
-          @player_state.update_attack
           @player_state.update_bob(delta_time)
           @player_state.update_view_bob(delta_time)
         end
@@ -105,6 +105,8 @@ module Doom
           @tic_accumulator -= 1.0
           @sector_effects&.update
           @player_state&.update_viewheight
+          @player_state&.update_attack  # Attack timing at 35fps like DOOM
+          @combat&.update
         end
         @animations&.update(@leveltime)
 
@@ -122,6 +124,9 @@ module Doom
           @item_pickup.update(@renderer.player_x, @renderer.player_y)
           @renderer.hidden_things = @item_pickup.picked_up
         end
+
+        # Pass combat state to renderer for death frame rendering
+        @renderer.combat = @combat
 
         # Render the 3D world
         @renderer.render_frame
@@ -162,13 +167,13 @@ module Doom
           has_input = true
         end
         if Gosu.button_down?(Gosu::KB_A)
-          @move_momx += @renderer.sin_angle * thrust
-          @move_momy -= @renderer.cos_angle * thrust
+          @move_momx -= @renderer.sin_angle * thrust
+          @move_momy += @renderer.cos_angle * thrust
           has_input = true
         end
         if Gosu.button_down?(Gosu::KB_D)
-          @move_momx -= @renderer.sin_angle * thrust
-          @move_momy += @renderer.cos_angle * thrust
+          @move_momx += @renderer.sin_angle * thrust
+          @move_momy -= @renderer.cos_angle * thrust
           has_input = true
         end
 
@@ -193,9 +198,17 @@ module Doom
           try_move(@move_momx * delta_time, @move_momy * delta_time)
         end
 
-        # Handle firing
-        if @player_state && @mouse_captured && Gosu.button_down?(Gosu::MS_LEFT)
+        # Handle firing (left click, Z, or Shift - Ctrl conflicts with macOS spaces)
+        if @player_state && ((@mouse_captured && Gosu.button_down?(Gosu::MS_LEFT)) ||
+            Gosu.button_down?(Gosu::KB_X) || Gosu.button_down?(Gosu::KB_LEFT_SHIFT) ||
+            Gosu.button_down?(Gosu::KB_RIGHT_SHIFT))
+          was_attacking = @player_state.attacking
           @player_state.start_attack
+          # Fire hitscan on the first frame of the attack
+          if @player_state.attacking && !was_attacking && @combat
+            @combat.fire(@renderer.player_x, @renderer.player_y, @renderer.player_z,
+                         @renderer.cos_angle, @renderer.sin_angle, @player_state.weapon)
+          end
         end
 
         # Handle weapon switching with number keys
@@ -459,6 +472,7 @@ module Doom
         picked = @item_pickup&.picked_up
         @map.things.each_with_index do |thing, idx|
           next if picked && picked[idx]
+          next if @combat && @combat.dead?(idx)
           thing_radius = SOLID_THING_RADIUS[thing.type]
           next unless thing_radius
 

@@ -20,8 +20,8 @@ module Doom
       ARMS_XSPACE = 12
       ARMS_YSPACE = 10
 
-      FACE_X = 143           # ST_FACESX
-      FACE_Y = 0             # ST_FACESY
+      FACE_X = 149           # Centered in face background area
+      FACE_Y = 2             # Vertically centered in status bar
 
       KEYS_X = 239           # ST_KEY0X
 

@@ -26,16 +26,16 @@ module Doom
         WEAPON_CHAINSAW => :chainsaw
       }.freeze
 
-      # Attack durations (in frames at 35fps)
+      # Attack durations in tics (at 35fps), matching DOOM's weapon state sequences
       ATTACK_DURATIONS = {
-        WEAPON_FIST => 12,
-        WEAPON_PISTOL => 8,
-        WEAPON_SHOTGUN => 20,
-        WEAPON_CHAINGUN => 4,
-        WEAPON_ROCKET => 16,
-        WEAPON_PLASMA => 6,
-        WEAPON_BFG => 40,
-        WEAPON_CHAINSAW => 4
+        WEAPON_FIST => 14,       # Punch windup + swing
+        WEAPON_PISTOL => 16,     # S_PISTOL: 6+4+5+1 tics
+        WEAPON_SHOTGUN => 40,    # Pump action cycle
+        WEAPON_CHAINGUN => 8,    # Rapid fire (2 shots per cycle)
+        WEAPON_ROCKET => 20,     # Rocket launch + recovery
+        WEAPON_PLASMA => 8,      # Fast energy weapon
+        WEAPON_BFG => 60,        # Long charge + fire
+        WEAPON_CHAINSAW => 6     # Fast melee
       }.freeze
 
       attr_accessor :health, :armor, :max_health, :max_armor

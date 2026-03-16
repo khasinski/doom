@@ -187,6 +187,24 @@ module Doom
         load_sprite_frame(prefix, 'A', rotation) || @cache[thing_type]
       end
 
+      # Get a specific frame (for death animations, etc.)
+      def get_frame(thing_type, frame_letter, viewer_angle, thing_angle)
+        prefix = THING_SPRITES[thing_type]
+        return nil unless prefix
+
+        # Death frames typically use rotation 0 (same from all angles)
+        sprite = load_sprite_frame(prefix, frame_letter, 0)
+        return sprite if sprite
+
+        # Try with calculated rotation
+        angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0)
+        angle_diff = angle_diff % (2 * Math::PI)
+        angle_diff += 2 * Math::PI if angle_diff < 0
+        rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1
+
+        load_sprite_frame(prefix, frame_letter, rotation)
+      end
+
       private
 
       def build_sprite_index
