@@ -7,8 +7,14 @@ module Doom
     class GosuWindow < Gosu::Window
       SCALE = 3
 
-      # Movement constants
-      MOVE_SPEED = 8.0       # Units per frame
+      # Movement constants (matching Chocolate Doom P_Thrust / P_XYMovement)
+      # DOOM: terminal walk speed = 7.55 units/tic = 264 units/sec
+      # Continuous-time: v_terminal = thrust_rate / decay_rate
+      # decay_rate = -ln(0.90625) * 35 = 3.44/sec
+      # thrust_rate = 264 * 3.44 = 908 units/sec^2
+      MOVE_THRUST_RATE = 264.0 * 3.44     # Thrust rate (units/sec^2)
+      FRICTION_DECAY_RATE = 3.44           # Friction decay (1/sec)
+      STOPSPEED = 0.5                      # Snap-to-zero threshold (units/sec)
       TURN_SPEED = 3.0       # Degrees per frame
       MOUSE_SENSITIVITY = 0.15  # Mouse look sensitivity
       PLAYER_RADIUS = 16.0   # Collision radius
@@ -29,6 +35,8 @@ module Doom
         @animations = animations
         @sector_effects = sector_effects
         @last_floor_height = nil
+        @move_momx = 0.0
+        @move_momy = 0.0
         @leveltime = 0
         @tic_accumulator = 0.0
         @screen_image = nil
@@ -53,7 +61,7 @@ module Doom
         delta_time = now - @last_update_time
         @last_update_time = now
 
-        handle_input
+        handle_input(delta_time)
 
         # Update player state
         if @player_state
@@ -93,7 +101,7 @@ module Doom
         end
       end
 
-      def handle_input
+      def handle_input(delta_time)
         # Mouse look
         handle_mouse_look
 
@@ -105,39 +113,50 @@ module Doom
           @renderer.turn(-TURN_SPEED)
         end
 
-        # Forward/backward movement
-        move_x = 0.0
-        move_y = 0.0
+        # Apply thrust from input (P_Thrust: additive, scaled by delta_time)
+        thrust = MOVE_THRUST_RATE * delta_time
+        has_input = false
 
         if Gosu.button_down?(Gosu::KB_UP) || Gosu.button_down?(Gosu::KB_W)
-          move_x += @renderer.cos_angle * MOVE_SPEED
-          move_y += @renderer.sin_angle * MOVE_SPEED
+          @move_momx += @renderer.cos_angle * thrust
+          @move_momy += @renderer.sin_angle * thrust
+          has_input = true
         end
         if Gosu.button_down?(Gosu::KB_DOWN) || Gosu.button_down?(Gosu::KB_S)
-          move_x -= @renderer.cos_angle * MOVE_SPEED
-          move_y -= @renderer.sin_angle * MOVE_SPEED
+          @move_momx -= @renderer.cos_angle * thrust
+          @move_momy -= @renderer.sin_angle * thrust
+          has_input = true
         end
-
-        # Strafe
         if Gosu.button_down?(Gosu::KB_A)
-          move_x += @renderer.sin_angle * MOVE_SPEED
-          move_y -= @renderer.cos_angle * MOVE_SPEED
+          @move_momx += @renderer.sin_angle * thrust
+          @move_momy -= @renderer.cos_angle * thrust
+          has_input = true
         end
         if Gosu.button_down?(Gosu::KB_D)
-          move_x -= @renderer.sin_angle * MOVE_SPEED
-          move_y += @renderer.cos_angle * MOVE_SPEED
+          @move_momx -= @renderer.sin_angle * thrust
+          @move_momy += @renderer.cos_angle * thrust
+          has_input = true
+        end
+
+        # Apply friction (continuous-time equivalent of *= 0.90625 per tic)
+        decay = Math.exp(-FRICTION_DECAY_RATE * delta_time)
+        if !has_input && @move_momx.abs < STOPSPEED && @move_momy.abs < STOPSPEED
+          @move_momx = 0.0
+          @move_momy = 0.0
+        else
+          @move_momx *= decay
+          @move_momy *= decay
         end
 
         # Track movement state for weapon/view bob
-        is_moving = move_x != 0.0 || move_y != 0.0
         if @player_state
-          @player_state.is_moving = is_moving
-          @player_state.set_thrust(move_x, move_y)
+          @player_state.is_moving = has_input
+          @player_state.set_movement_momentum(@move_momx, @move_momy)
         end
 
-        # Apply movement with collision detection
-        if is_moving
-          try_move(move_x, move_y)
+        # Apply momentum with collision detection (scale by delta_time for frame-rate independence)
+        if @move_momx.abs > STOPSPEED || @move_momy.abs > STOPSPEED
+          try_move(@move_momx * delta_time, @move_momy * delta_time)
         end
 
         # Handle firing

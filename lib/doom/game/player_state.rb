@@ -254,47 +254,25 @@ module Doom
         end
       end
 
-      # Set per-frame thrust direction (called from GosuWindow with raw input velocity).
-      def set_thrust(tx, ty)
-        @thrust_x = tx
-        @thrust_y = ty
+      # Set movement momentum directly (called from GosuWindow with actual
+      # movement momentum, which already has thrust + friction applied).
+      def set_movement_momentum(momx, momy)
+        @momx = momx
+        @momy = momy
       end
 
-      # Simulate Chocolate Doom's momentum and view bob, frame-rate independently.
-      #
-      # In Chocolate Doom (per tic at 35 fps):
-      #   P_Thrust:       momx += forwardmove * 2048 * cos(angle)   [additive]
-      #   P_XYMovement:   momx *= FRICTION (0.90625)                [multiplicative]
-      #   P_CalcHeight:   bob = (momx*momx + momy*momy) >> 2        [capped at MAXBOB]
-      #                   viewz += finesine[angle] * bob/2
-      #
-      # We use continuous-time equivalents so the bob feels identical regardless
-      # of frame rate: dv/dt = thrust - decay_rate * v
+      # Compute view bob from actual movement momentum.
+      # Matches Chocolate Doom P_CalcHeight:
+      #   bob = (momx*momx + momy*momy) >> 2, capped at MAXBOB
+      #   viewz += finesine[angle] * bob/2
+      # Momentum is in units/sec; DOOM's bob uses units/tic (divide by 35).
+      BOB_MOM_SCALE = 1.0 / (35.0 * 35.0 * 4.0)  # (mom/35)^2 / 4
+
       def update_view_bob(delta_time)
         dt = delta_time.clamp(0.001, 0.05)
 
-        # P_Thrust: normalize input direction, apply constant walk thrust
-        speed = Math.sqrt(@thrust_x * @thrust_x + @thrust_y * @thrust_y)
-        if speed > 0
-          @momx += (@thrust_x / speed) * BOB_THRUST * dt
-          @momy += (@thrust_y / speed) * BOB_THRUST * dt
-        end
-        @thrust_x = 0.0
-        @thrust_y = 0.0
-
-        # P_XYMovement: exponential friction decay (continuous equivalent of *= 0.90625 per tic)
-        decay = Math.exp(-BOB_DECAY_RATE * dt)
-        @momx *= decay
-        @momy *= decay
-
-        # P_XYMovement STOPSPEED: snap to zero when slow and no input
-        if @momx.abs < STOPSPEED && @momy.abs < STOPSPEED && speed == 0
-          @momx = 0.0
-          @momy = 0.0
-        end
-
-        # P_CalcHeight: bob = (momx^2 + momy^2) / 4, capped at MAXBOB
-        bob = (@momx * @momx + @momy * @momy) / 4.0
+        # P_CalcHeight: bob = (momx_per_tic^2 + momy_per_tic^2) / 4, capped at MAXBOB
+        bob = (@momx * @momx + @momy * @momy) * BOB_MOM_SCALE
         bob = MAXBOB if bob > MAXBOB
 
         # Advance bob sine wave (FINEANGLES/20 per tic = ~11 rad/sec)
