@@ -4,7 +4,7 @@ module Doom
   module Wad
     # Loads HUD graphics (status bar, weapons) from WAD
     class HudGraphics
-      attr_reader :status_bar, :numbers, :weapons, :faces, :keys
+      attr_reader :status_bar, :arms_background, :numbers, :grey_numbers, :yellow_numbers, :weapons, :faces, :keys
 
       def initialize(wad)
         @wad = wad
@@ -84,6 +84,7 @@ module Doom
 
       def load_status_bar
         @status_bar = load_graphic('STBAR')
+        @arms_background = load_graphic('STARMS')
       end
 
       def load_numbers
@@ -95,10 +96,16 @@ module Doom
         @numbers['-'] = load_graphic('STTMINUS')
         @numbers['%'] = load_graphic('STTPRCNT')
 
-        # Small grey numbers for arms
+        # Small grey numbers for arms (weapon not owned)
         @grey_numbers = {}
         (0..9).each do |n|
           @grey_numbers[n] = load_graphic("STGNUM#{n}")
+        end
+
+        # Small yellow numbers for arms (weapon owned) and ammo counts
+        @yellow_numbers = {}
+        (0..9).each do |n|
+          @yellow_numbers[n] = load_graphic("STYSNUM#{n}")
         end
       end
 
@@ -127,6 +134,67 @@ module Doom
             load_graphic('PUNGB0'),
             load_graphic('PUNGC0'),
             load_graphic('PUNGD0')
+          ].compact
+        }
+
+        # Shotgun (SHTG)
+        @weapons[:shotgun] = {
+          idle: load_graphic('SHTGA0'),
+          fire: [
+            load_graphic('SHTGB0'),
+            load_graphic('SHTGC0'),
+            load_graphic('SHTGD0')
+          ].compact,
+          flash: [load_graphic('SHTFA0'), load_graphic('SHTFB0')].compact
+        }
+
+        # Chaingun (CHGG)
+        @weapons[:chaingun] = {
+          idle: load_graphic('CHGGA0'),
+          fire: [
+            load_graphic('CHGGB0'),
+            load_graphic('CHGGC0')
+          ].compact,
+          flash: [load_graphic('CHGFA0'), load_graphic('CHGFB0')].compact
+        }
+
+        # Rocket launcher (MISG)
+        @weapons[:rocket] = {
+          idle: load_graphic('MISGA0'),
+          fire: [
+            load_graphic('MISGB0'),
+            load_graphic('MISGC0'),
+            load_graphic('MISGD0')
+          ].compact,
+          flash: [load_graphic('MISFA0'), load_graphic('MISFB0'), load_graphic('MISFC0')].compact
+        }
+
+        # Plasma rifle (PLSG)
+        @weapons[:plasma] = {
+          idle: load_graphic('PLSGA0'),
+          fire: [
+            load_graphic('PLSGB0')
+          ].compact,
+          flash: [load_graphic('PLSFA0'), load_graphic('PLSFB0')].compact
+        }
+
+        # BFG9000 (BFGG)
+        @weapons[:bfg] = {
+          idle: load_graphic('BFGGA0'),
+          fire: [
+            load_graphic('BFGGB0'),
+            load_graphic('BFGGC0')
+          ].compact,
+          flash: [load_graphic('BFGFA0'), load_graphic('BFGFB0')].compact
+        }
+
+        # Chainsaw (SAWG)
+        @weapons[:chainsaw] = {
+          idle: load_graphic('SAWGA0'),
+          fire: [
+            load_graphic('SAWGB0'),
+            load_graphic('SAWGC0'),
+            load_graphic('SAWGD0')
           ].compact
         }
       end

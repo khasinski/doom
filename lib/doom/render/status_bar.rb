@@ -8,18 +8,30 @@ module Doom
       STATUS_BAR_Y = SCREEN_HEIGHT - STATUS_BAR_HEIGHT
 
       # DOOM status bar layout (from st_stuff.c)
-      # X positions are RIGHT EDGE of each number area (numbers are right-aligned)
-      # Y positions relative to status bar top
-
-      # Right edge X positions for numbers
+      # Positions from Chocolate Doom st_stuff.c (relative to status bar top)
       AMMO_RIGHT_X = 44      # ST_AMMOX - right edge of 3-digit ammo
-      HEALTH_RIGHT_X = 90    # ST_HEALTHX - right edge of 3-digit health
-      ARMOR_RIGHT_X = 221    # ST_ARMORX - right edge of 3-digit armor
+      HEALTH_RIGHT_X = 90    # ST_HEALTHX
+      ARMOR_RIGHT_X = 221    # ST_ARMORX
 
-      FACE_X = 149           # Adjusted for proper centering in face background
+      ARMS_BG_X = 104        # ST_ARMSBGX
+      ARMS_BG_Y = 0          # ST_ARMSBGY (relative to status bar)
+      ARMS_X = 111            # ST_ARMSX
+      ARMS_Y = 4              # ST_ARMSY (relative to status bar)
+      ARMS_XSPACE = 12
+      ARMS_YSPACE = 10
+
+      FACE_X = 143           # ST_FACESX
+      FACE_Y = 0             # ST_FACESY
+
       KEYS_X = 239           # ST_KEY0X
 
-      NUM_WIDTH = 14         # Width of each digit
+      # Small ammo counts (right side of status bar)
+      SMALL_AMMO_X = 288     # Current ammo X
+      SMALL_MAX_X = 314      # Max ammo X
+      SMALL_AMMO_Y = [5, 11, 23, 17]  # Bullets, Shells, Cells, Rockets (relative to bar)
+
+      NUM_WIDTH = 14          # Width of large digit
+      SMALL_NUM_WIDTH = 4     # Width of small digit
 
       def initialize(hud_graphics, player_state)
         @gfx = hud_graphics
@@ -32,25 +44,34 @@ module Doom
         # Draw status bar background
         draw_sprite(framebuffer, @gfx.status_bar, 0, STATUS_BAR_Y) if @gfx.status_bar
 
+        # Draw arms background (single-player only, replaces FRAG area)
+        draw_sprite(framebuffer, @gfx.arms_background, ARMS_BG_X, STATUS_BAR_Y + ARMS_BG_Y) if @gfx.arms_background
+
         # Y position for numbers (3 pixels from top of status bar)
         num_y = STATUS_BAR_Y + 3
 
         # Draw ammo count (right-aligned ending at AMMO_RIGHT_X)
         draw_number_right(framebuffer, @player.current_ammo, AMMO_RIGHT_X, num_y) if @player.current_ammo
 
-        # Draw health with percent (right-aligned ending at HEALTH_RIGHT_X)
+        # Draw health with percent
         draw_number_right(framebuffer, @player.health, HEALTH_RIGHT_X, num_y)
         draw_percent(framebuffer, HEALTH_RIGHT_X, num_y)
+
+        # Draw weapon selector (2-7)
+        draw_arms(framebuffer)
 
         # Draw face
         draw_face(framebuffer)
 
-        # Draw armor with percent (right-aligned ending at ARMOR_RIGHT_X)
+        # Draw armor with percent
         draw_number_right(framebuffer, @player.armor, ARMOR_RIGHT_X, num_y)
         draw_percent(framebuffer, ARMOR_RIGHT_X, num_y)
 
         # Draw keys
         draw_keys(framebuffer)
+
+        # Draw small ammo counts (right side)
+        draw_ammo_counts(framebuffer)
       end
 
       def update
@@ -113,27 +134,58 @@ module Doom
         draw_sprite(framebuffer, percent, x, y) if percent
       end
 
-      def draw_face(framebuffer)
-        # In DOOM, face sprite health levels are inverted: 0 = full health, 4 = dying
-        sprite_health = 4 - @player.health_level
-        faces = @gfx.faces[sprite_health]
-        return unless faces
+      def draw_arms(framebuffer)
+        # Weapon numbers 2-7 in a 3x2 grid
+        6.times do |i|
+          weapon_num = i + 2  # weapons 2-7
+          owned = @player.has_weapons[weapon_num]
+          digit = owned ? @gfx.yellow_numbers[weapon_num] : @gfx.grey_numbers[weapon_num]
+          next unless digit
 
-        # Get current face sprite
+          x = ARMS_X + (i % 3) * ARMS_XSPACE
+          y = STATUS_BAR_Y + ARMS_Y + (i / 3) * ARMS_YSPACE
+          draw_sprite(framebuffer, digit, x, y)
+        end
+      end
+
+      def draw_face(framebuffer)
+        # Pain level: 0 = healthy, 4 = near death
+        health = @player.health.clamp(0, 100)
+        pain_level = ((100 - health) * 5) / 101
+
         face = if @player.health <= 0
                  @gfx.faces[:dead]
-               elsif faces[:straight] && faces[:straight][@face_index]
-                 faces[:straight][@face_index]
                else
-                 faces[:straight]&.first
+                 faces = @gfx.faces[pain_level]
+                 faces[:straight][@face_index] if faces && faces[:straight]
                end
 
         return unless face
+        draw_sprite(framebuffer, face, FACE_X, STATUS_BAR_Y + FACE_Y)
+      end
 
-        # Position face in the background area
-        face_x = FACE_X
-        face_y = STATUS_BAR_Y + 2  # Slightly below top of status bar
-        draw_sprite(framebuffer, face, face_x, face_y)
+      def draw_ammo_counts(framebuffer)
+        ammo_current = [@player.ammo_bullets, @player.ammo_shells, @player.ammo_cells, @player.ammo_rockets]
+        ammo_max = [@player.max_bullets, @player.max_shells, @player.max_cells, @player.max_rockets]
+
+        4.times do |i|
+          y = STATUS_BAR_Y + SMALL_AMMO_Y[i]
+          draw_small_number_right(framebuffer, ammo_current[i], SMALL_AMMO_X, y)
+          draw_small_number_right(framebuffer, ammo_max[i], SMALL_MAX_X, y)
+        end
+      end
+
+      def draw_small_number_right(framebuffer, value, right_x, y)
+        return unless value
+        str = value.to_i.to_s
+        current_x = right_x
+        str.reverse.each_char do |char|
+          digit = @gfx.yellow_numbers[char.to_i]
+          if digit
+            current_x -= SMALL_NUM_WIDTH
+            draw_sprite(framebuffer, digit, current_x, y)
+          end
+        end
       end
 
       def draw_keys(framebuffer)
