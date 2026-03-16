@@ -48,7 +48,7 @@ module Doom
         2046 => 16,                                          # Burning barrel
       }.freeze
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil)
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil)
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, false)
         self.caption = 'Doom Ruby'
 
@@ -61,6 +61,7 @@ module Doom
         @sector_actions = sector_actions
         @animations = animations
         @sector_effects = sector_effects
+        @item_pickup = item_pickup
         @last_floor_height = nil
         @move_momx = 0.0
         @move_momy = 0.0
@@ -114,6 +115,12 @@ module Doom
         if @sector_actions
           @sector_actions.update_player_position(@renderer.player_x, @renderer.player_y)
           @sector_actions.update
+        end
+
+        # Check item pickups
+        if @item_pickup
+          @item_pickup.update(@renderer.player_x, @renderer.player_y)
+          @renderer.hidden_things = @item_pickup.picked_up
         end
 
         # Render the 3D world
@@ -449,7 +456,9 @@ module Doom
 
         # Check against solid things (monsters, barrels, pillars, etc.)
         combined_radius = PLAYER_RADIUS
-        @map.things.each do |thing|
+        picked = @item_pickup&.picked_up
+        @map.things.each_with_index do |thing, idx|
+          next if picked && picked[idx]
           thing_radius = SOLID_THING_RADIUS[thing.type]
           next unless thing_radius
 

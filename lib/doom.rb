@@ -14,6 +14,7 @@ require_relative 'doom/map/data'
 require_relative 'doom/game/player_state'
 require_relative 'doom/game/sector_actions'
 require_relative 'doom/game/animations'
+require_relative 'doom/game/item_pickup'
 require_relative 'doom/game/sector_effects'
 require_relative 'doom/render/renderer'
 require_relative 'doom/render/status_bar'
@@ -77,9 +78,10 @@ module Doom
       weapon_renderer = Render::WeaponRenderer.new(hud_graphics, player_state)
       sector_actions = Game::SectorActions.new(map)
       sector_effects = Game::SectorEffects.new(map)
+      item_pickup = Game::ItemPickup.new(map, player_state)
 
       puts 'Starting game window...'
-      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects)
+      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup)
       window.show
     end
   end

@@ -62,6 +62,7 @@ module Doom
         @flats = flats.to_h { |f| [f.name, f] }
         @sprites = sprites
         @animations = animations
+        @hidden_things = nil
 
         @framebuffer = Array.new(SCREEN_WIDTH * SCREEN_HEIGHT, 0)
 
@@ -102,6 +103,7 @@ module Doom
       end
 
       attr_reader :player_x, :player_y, :player_z, :sin_angle, :cos_angle, :framebuffer
+      attr_writer :hidden_things
 
       # Diagnostic: returns info about all sprites and why they are/aren't visible
       def sprite_diagnostics
@@ -1278,7 +1280,10 @@ module Doom
         # Collect visible sprites with their distances
         visible_sprites = []
 
-        @map.things.each do |thing|
+        @map.things.each_with_index do |thing, thing_idx|
+          # Skip picked-up items
+          next if @hidden_things && @hidden_things[thing_idx]
+
           # Check if we have a sprite for this thing type
           next unless @sprites.prefix_for(thing.type)
 
