@@ -63,6 +63,7 @@ module Doom
         @sprites = sprites
         @animations = animations
         @hidden_things = nil
+        @combat = nil
 
         @framebuffer = Array.new(SCREEN_WIDTH * SCREEN_HEIGHT, 0)
 
@@ -103,7 +104,7 @@ module Doom
       end
 
       attr_reader :player_x, :player_y, :player_z, :sin_angle, :cos_angle, :framebuffer
-      attr_writer :hidden_things
+      attr_writer :hidden_things, :combat
 
       # Diagnostic: returns info about all sprites and why they are/aren't visible
       def sprite_diagnostics
@@ -1301,8 +1302,12 @@ module Doom
           dy = thing.y - @player_y
           angle_to_thing = Math.atan2(dy, dx)
 
-          # Get the correct rotated sprite
-          sprite = @sprites.get_rotated(thing.type, angle_to_thing, thing.angle)
+          # Get sprite - use death frame if monster is dead
+          if @combat && @combat.dead?(thing_idx)
+            sprite = @combat.death_sprite(thing_idx, thing.type, angle_to_thing, thing.angle)
+          else
+            sprite = @sprites.get_rotated(thing.type, angle_to_thing, thing.angle)
+          end
           next unless sprite
 
           # Project to screen X
