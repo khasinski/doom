@@ -11,6 +11,11 @@ require_relative '../lib/doom/wad/texture'
 require_relative '../lib/doom/wad/sprite'
 require_relative '../lib/doom/map/data'
 require_relative '../lib/doom/render/renderer'
+require_relative '../lib/doom/game/player_state'
+require_relative '../lib/doom/game/animations'
+require_relative '../lib/doom/game/sector_effects'
+require_relative '../lib/doom/game/item_pickup'
+require_relative '../lib/doom/game/combat'
 
 module Doom
   class Error < StandardError; end
