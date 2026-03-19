@@ -10,7 +10,7 @@ Gem::Specification.new do |s|
                   'Supports original WAD files with near pixel-perfect BSP rendering.'
   s.authors     = ['Chris Hasinski']
   s.email       = ['krzysztof.hasinski@gmail.com']
-  s.homepage    = 'https://github.com/khasinski/doom-rb'
+  s.homepage    = 'https://github.com/khasinski/doom'
   s.license     = 'GPL-2.0'
 
   s.files       = Dir['lib/**/*', 'bin/*', 'README.md', 'LICENSE']
