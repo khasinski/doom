@@ -14,6 +14,10 @@ jobs:
         ruby: ['3.3', '3.4', '4.0']
     steps:
       - uses: actions/checkout@v4
+      - name: Install SDL2 dependencies (for Gosu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libgl1-mesa-dev libopenal-dev libsndfile1-dev libmpg123-dev libgmp-dev libfontconfig1-dev
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
