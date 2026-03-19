@@ -50,6 +50,15 @@ module Doom
 
       DEATH_ANIM_TICS = 6  # Tics per death frame
 
+      # Projectile constants
+      ROCKET_SPEED = 20.0       # Map units per tic (matches DOOM's mobjinfo MISSILESPEED)
+      ROCKET_DAMAGE = 20        # Direct hit base (DOOM: 1d8 * 20)
+      ROCKET_RADIUS = 11        # Collision radius
+      SPLASH_RADIUS = 128.0     # Splash damage radius
+      SPLASH_DAMAGE = 128       # Max splash damage at center
+
+      Projectile = Struct.new(:x, :y, :z, :dx, :dy, :type, :spawn_tic)
+
       # Weapon damage: DOOM does (P_Random()%3 + 1) * multiplier
       # Pistol/chaingun: 1*5..3*5 = 5-15 per bullet
       # Shotgun: 7 pellets, each 1*5..3*5 = 5-15
@@ -61,10 +70,12 @@ module Doom
         @sprites = sprites
         @monster_hp = {}     # thing_idx => current HP
         @dead_things = {}    # thing_idx => { tic: death_start_tic, prefix: sprite_prefix }
+        @projectiles = []    # Active projectiles in flight
+        @explosions = []     # Active explosions (for rendering)
         @tic = 0
       end
 
-      attr_reader :dead_things
+      attr_reader :dead_things, :projectiles, :explosions
 
       def dead?(thing_idx)
         @dead_things.key?(thing_idx)
@@ -88,6 +99,8 @@ module Doom
       # Called each game tic
       def update
         @tic += 1
+        update_projectiles
+        update_explosions
       end
 
       # Fire the current weapon
@@ -97,6 +110,8 @@ module Doom
           hitscan(px, py, cos_a, sin_a, 1, 0.0, 5)
         when PlayerState::WEAPON_SHOTGUN
           hitscan(px, py, cos_a, sin_a, 7, Math::PI / 32, 5)
+        when PlayerState::WEAPON_ROCKET
+          spawn_rocket(px, py, pz, cos_a, sin_a)
         when PlayerState::WEAPON_FIST
           melee(px, py, cos_a, sin_a, 2, 64)
         when PlayerState::WEAPON_CHAINSAW
@@ -105,6 +120,117 @@ module Doom
       end
 
       private
+
+      def spawn_rocket(px, py, pz, cos_a, sin_a)
+        # Spawn slightly ahead of the player
+        @projectiles << Projectile.new(
+          px + cos_a * 20, py + sin_a * 20, pz,
+          cos_a * ROCKET_SPEED, sin_a * ROCKET_SPEED,
+          :rocket, @tic
+        )
+      end
+
+      def update_projectiles
+        @projectiles.reject! do |proj|
+          # Move projectile
+          new_x = proj.x + proj.dx
+          new_y = proj.y + proj.dy
+
+          # Check wall collision
+          hit_wall = hits_wall?(proj.x, proj.y, new_x, new_y)
+
+          # Check monster collision
+          hit_monster = nil
+          @map.things.each_with_index do |thing, idx|
+            next unless MONSTER_HP[thing.type]
+            next if @dead_things[idx]
+            radius = (MONSTER_RADIUS[thing.type] || 20) + ROCKET_RADIUS
+            dx = new_x - thing.x
+            dy = new_y - thing.y
+            if dx * dx + dy * dy < radius * radius
+              hit_monster = idx
+              break
+            end
+          end
+
+          if hit_wall || hit_monster
+            explode(new_x, new_y, hit_monster)
+            true  # Remove projectile
+          else
+            proj.x = new_x
+            proj.y = new_y
+            false # Keep projectile
+          end
+        end
+      end
+
+      def explode(x, y, direct_hit_idx)
+        # Direct hit damage
+        if direct_hit_idx
+          damage = (rand(8) + 1) * ROCKET_DAMAGE
+          apply_damage(direct_hit_idx, damage)
+        end
+
+        # Splash damage to all monsters in radius
+        @map.things.each_with_index do |thing, idx|
+          next unless MONSTER_HP[thing.type]
+          next if @dead_things[idx]
+          next if idx == direct_hit_idx  # Already took direct hit
+
+          dx = x - thing.x
+          dy = y - thing.y
+          dist = Math.sqrt(dx * dx + dy * dy)
+          next if dist >= SPLASH_RADIUS
+
+          # Damage falls off linearly with distance
+          damage = ((SPLASH_DAMAGE * (1.0 - dist / SPLASH_RADIUS))).to_i
+          apply_damage(idx, damage) if damage > 0
+        end
+
+        # Spawn explosion visual
+        @explosions << { x: x, y: y, tic: @tic }
+      end
+
+      def update_explosions
+        # Explosions last 20 tics then disappear
+        @explosions.reject! { |e| @tic - e[:tic] > 20 }
+      end
+
+      def hits_wall?(x1, y1, x2, y2)
+        @map.linedefs.each do |ld|
+          # One-sided walls always block
+          blocks = ld.sidedef_left == 0xFFFF || (ld.flags & 0x0001 != 0)
+          unless blocks
+            next unless ld.sidedef_left < 0xFFFF
+            front = @map.sidedefs[ld.sidedef_right]
+            back = @map.sidedefs[ld.sidedef_left]
+            fs = @map.sectors[front.sector]
+            bs = @map.sectors[back.sector]
+            max_floor = [fs.floor_height, bs.floor_height].max
+            min_ceil = [fs.ceiling_height, bs.ceiling_height].min
+            blocks = (min_ceil - max_floor) < 56
+          end
+          next unless blocks
+
+          v1 = @map.vertices[ld.v1]
+          v2 = @map.vertices[ld.v2]
+          if segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
+            return true
+          end
+        end
+        false
+      end
+
+      def segments_intersect?(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2)
+        d1x = ax2 - ax1; d1y = ay2 - ay1
+        d2x = bx2 - bx1; d2y = by2 - by1
+        denom = d1x * d2y - d1y * d2x
+        return false if denom.abs < 0.001
+        dx = bx1 - ax1; dy = by1 - ay1
+        t = (dx * d2y - dy * d2x).to_f / denom
+        u = (dx * d1y - dy * d1x).to_f / denom
+        t > 0.0 && t < 1.0 && u >= 0.0 && u <= 1.0
+      end
 
       def hitscan(px, py, cos_a, sin_a, pellets, spread, multiplier)
         pellets.times do

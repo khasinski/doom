@@ -1328,6 +1328,45 @@ module Doom
         visible_sprites.each do |vs|
           draw_sprite(vs)
         end
+
+        # Draw projectiles and explosions
+        render_projectiles if @combat
+      end
+
+      def render_projectiles
+        # Render rockets in flight
+        @combat.projectiles.each do |proj|
+          view_x, view_y = transform_point(proj.x, proj.y)
+          next if view_y <= 0
+
+          # Rocket has rotations 1-8 based on travel direction relative to viewer
+          rocket_angle = Math.atan2(proj.dy, proj.dx)
+          viewer_angle = Math.atan2(proj.y - @player_y, proj.x - @player_x)
+          angle_diff = (viewer_angle - rocket_angle) % (2 * Math::PI)
+          rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1
+          rocket_sprite = @sprites.send(:load_sprite_frame, 'MISL', 'A', rotation)
+          next unless rocket_sprite
+
+          screen_x = HALF_WIDTH + (view_x * @projection / view_y)
+          thing_stub = Map::Thing.new(proj.x, proj.y, 0, 0, 0)
+          visible = VisibleSprite.new(thing_stub, rocket_sprite, view_x, view_y, view_y, screen_x)
+          draw_sprite(visible)
+        end
+
+        # Render explosions (frames B, C, D - all rotation 0)
+        @combat.explosions.each do |expl|
+          view_x, view_y = transform_point(expl[:x], expl[:y])
+          next if view_y <= 0
+          elapsed = (@combat.instance_variable_get(:@tic) - expl[:tic])
+          frame_idx = (elapsed / 4).clamp(0, 2)
+          frame_letter = %w[B C D][frame_idx]
+          expl_sprite = @sprites.send(:load_sprite_frame, 'MISL', frame_letter, 0)
+          next unless expl_sprite
+          screen_x = HALF_WIDTH + (view_x * @projection / view_y)
+          thing_stub = Map::Thing.new(expl[:x], expl[:y], 0, 0, 0)
+          visible = VisibleSprite.new(thing_stub, expl_sprite, view_x, view_y, view_y, screen_x)
+          draw_sprite(visible)
+        end
       end
 
       def draw_sprite(vs)
