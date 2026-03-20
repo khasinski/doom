@@ -46,6 +46,8 @@ module Doom
       attr_accessor :attacking, :attack_frame, :attack_tics
       attr_accessor :bob_angle, :bob_amount
       attr_accessor :is_moving
+      attr_accessor :dead, :death_tic
+      attr_accessor :damage_count  # Red flash intensity (0-8), decays each tic
 
       # Smooth step-up/down (matching Chocolate Doom's P_CalcHeight / P_ZMovement)
       VIEWHEIGHT = 41.0
@@ -106,6 +108,11 @@ module Doom
         @attacking = false
         @attack_frame = 0
         @attack_tics = 0
+
+        # Death state
+        @dead = false
+        @death_tic = 0
+        @damage_count = 0
 
         # Weapon bob
         @bob_angle = 0.0
@@ -307,6 +314,42 @@ module Doom
         return if @attacking
 
         @weapon = weapon_num
+      end
+
+      # Apply damage (from environment or enemies). Armor absorbs some.
+      def take_damage(amount)
+        return if @dead
+
+        absorbed = 0
+        if @armor > 0
+          absorbed = amount / 3  # Green armor absorbs 1/3
+          absorbed = @armor if absorbed > @armor
+          @armor -= absorbed
+        end
+
+        actual = amount - absorbed
+        @health -= actual
+
+        # Red flash proportional to damage (capped at palette 8)
+        @damage_count = [(@damage_count + actual / 2.0).ceil, 8].min
+
+        if @health <= 0
+          @health = 0
+          @damage_count = 8
+          die
+        end
+      end
+
+      # Decay damage flash each tic
+      def update_damage_count
+        @damage_count -= 1 if @damage_count > 0
+      end
+
+      def die
+        @dead = true
+        @death_tic = 0
+        @attacking = false
+        @deltaviewheight = -VIEWHEIGHT / 8.0  # View drops to ground
       end
     end
   end

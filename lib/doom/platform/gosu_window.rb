@@ -80,8 +80,14 @@ module Doom
         # Precompute sector colors for automap
         @sector_colors = build_sector_colors
 
-        # Pre-build palette lookup for speed
-        @palette_rgba = palette.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
+        # Pre-build palette RGBA lookups for all 14 palettes (0=normal, 1-8=pain red)
+        @all_palette_rgba = []
+        wad = renderer.instance_variable_get(:@wad)
+        14.times do |pal_idx|
+          pal = Wad::Palette.load(wad, pal_idx)
+          @all_palette_rgba << pal.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
+        end
+        @palette_rgba = @all_palette_rgba[0]
       end
 
       def update
@@ -107,6 +113,18 @@ module Doom
           @player_state&.update_viewheight
           @player_state&.update_attack  # Attack timing at 35fps like DOOM
           @combat&.update
+
+          @player_state&.update_damage_count
+
+          # Sector damage (nukage, lava, etc.) every 32 tics
+          if @player_state && !@player_state.dead && (@leveltime % 32 == 0)
+            check_sector_damage
+          end
+
+          # Track death tic for death animation
+          if @player_state&.dead
+            @player_state.death_tic += 1
+          end
         end
         @animations&.update(@leveltime)
 
@@ -132,15 +150,31 @@ module Doom
         @renderer.render_frame
 
         # Render HUD on top
-        if @weapon_renderer
+        if @weapon_renderer && !@player_state&.dead
           @weapon_renderer.render(@renderer.framebuffer)
         end
         if @status_bar
           @status_bar.render(@renderer.framebuffer)
         end
+
+        # Red tint when dead
+        if @player_state&.dead
+          apply_death_tint(@renderer.framebuffer)
+        end
       end
 
       def handle_input(delta_time)
+        # Handle respawn when dead
+        if @player_state&.dead
+          if @player_state.death_tic > 35  # 1 second delay before respawn allowed
+            if Gosu.button_down?(Gosu::KB_SPACE) || Gosu.button_down?(Gosu::KB_X) ||
+               Gosu.button_down?(Gosu::MS_LEFT) || Gosu.button_down?(Gosu::KB_LEFT_SHIFT)
+              respawn_player
+            end
+          end
+          return  # No other input while dead
+        end
+
         # Mouse look
         handle_mouse_look
 
@@ -616,8 +650,10 @@ module Doom
         if @show_map
           draw_automap
         else
-          # Fast RGBA conversion using pre-built palette
-          rgba = @renderer.framebuffer.map { |idx| @palette_rgba[idx] }.join
+          # Select palette: red tint when taking damage (palettes 1-8)
+          pal_idx = @player_state ? @player_state.damage_count.clamp(0, 8) : 0
+          active_pal = @all_palette_rgba[pal_idx]
+          rgba = @renderer.framebuffer.map { |idx| active_pal[idx] }.join
 
           @screen_image = Gosu::Image.from_blob(
             Render::SCREEN_WIDTH,
@@ -676,6 +712,41 @@ module Doom
           @show_map = !@show_map
         when Gosu::KB_F12
           capture_debug_snapshot
+        end
+      end
+
+      # Sector damage types from DOOM (p_spec.c)
+      # Type 5: 10 damage, Type 7: 5 damage, Type 4/16: 20 damage
+      SECTOR_DAMAGE = { 5 => 10, 7 => 5, 4 => 20, 16 => 20, 11 => 20 }.freeze
+
+      def check_sector_damage
+        sector = @map.sector_at(@renderer.player_x, @renderer.player_y)
+        return unless sector
+
+        damage = SECTOR_DAMAGE[sector.special]
+        @player_state.take_damage(damage) if damage
+      end
+
+      def apply_death_tint(framebuffer)
+        # Death keeps damage_count at max so the pain palette stays red
+        @player_state.damage_count = 8 if @player_state&.dead
+      end
+
+      def respawn_player
+        @player_state.reset
+        @last_floor_height = nil
+        @move_momx = 0.0
+        @move_momy = 0.0
+
+        # Reset item pickup and combat state
+        @item_pickup = Game::ItemPickup.new(@map, @player_state) if @item_pickup
+        @combat = Game::Combat.new(@map, @player_state, @combat.instance_variable_get(:@sprites)) if @combat
+
+        # Move player to start position
+        ps = @map.player_start
+        if ps
+          @renderer.set_player(ps.x, ps.y, 41, ps.angle)
+          update_player_height(ps.x, ps.y)
         end
       end
 
