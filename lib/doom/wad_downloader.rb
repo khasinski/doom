@@ -66,7 +66,16 @@ module Doom
       uri = URI.parse(SHAREWARE_URL)
       downloaded = 0
 
-      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
+      ssl_opts = { use_ssl: uri.scheme == 'https' }
+      # Workaround for SSL certificate issues on some systems
+      begin
+        Net::HTTP.start(uri.host, uri.port, **ssl_opts) { |h| h.head(uri) }
+      rescue OpenSSL::SSL::SSLError
+        puts "SSL certificate verification failed, retrying without verification..."
+        ssl_opts[:verify_mode] = OpenSSL::SSL::VERIFY_NONE
+      end
+
+      Net::HTTP.start(uri.host, uri.port, **ssl_opts) do |http|
         request = Net::HTTP::Get.new(uri)
 
         http.request(request) do |response|
