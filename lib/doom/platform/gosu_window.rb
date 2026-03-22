@@ -48,7 +48,7 @@ module Doom
         2046 => 16,                                          # Burning barrel
       }.freeze
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil)
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil)
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, false)
         self.caption = 'Doom Ruby'
 
@@ -63,6 +63,7 @@ module Doom
         @sector_effects = sector_effects
         @item_pickup = item_pickup
         @combat = combat
+        @monster_ai = monster_ai
         @last_floor_height = nil
         @move_momx = 0.0
         @move_momy = 0.0
@@ -113,6 +114,7 @@ module Doom
           @player_state&.update_viewheight
           @player_state&.update_attack  # Attack timing at 35fps like DOOM
           @combat&.update
+          @monster_ai&.update(@renderer.player_x, @renderer.player_y)
 
           @player_state&.update_damage_count
 
@@ -145,6 +147,8 @@ module Doom
 
         # Pass combat state to renderer for death frame rendering
         @renderer.combat = @combat
+        @renderer.monster_ai = @monster_ai
+        @renderer.leveltime = @leveltime
 
         # Render the 3D world
         @renderer.render_frame
@@ -738,9 +742,11 @@ module Doom
         @move_momx = 0.0
         @move_momy = 0.0
 
-        # Reset item pickup and combat state
+        # Reset item pickup, combat, and monster AI state
+        sprites = @combat&.instance_variable_get(:@sprites)
         @item_pickup = Game::ItemPickup.new(@map, @player_state) if @item_pickup
-        @combat = Game::Combat.new(@map, @player_state, @combat.instance_variable_get(:@sprites)) if @combat
+        @combat = Game::Combat.new(@map, @player_state, sprites) if @combat && sprites
+        @monster_ai = Game::MonsterAI.new(@map, @combat) if @monster_ai && @combat
 
         # Move player to start position
         ps = @map.player_start

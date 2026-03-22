@@ -178,8 +178,9 @@ module Doom
         return sprite if sprite
 
         # Calculate rotation frame (1-8)
-        # Doom rotations: 1=front, 2=front-right, 3=right, etc. (clockwise)
-        angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0)
+        # DOOM: rot = (R_PointToAngle(thing) - thing->angle + ANG45/2*9) >> 29
+        # Rotation 1=front (viewer faces monster's front), 5=back
+        angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0) + Math::PI
         angle_diff = angle_diff % (2 * Math::PI)
         angle_diff += 2 * Math::PI if angle_diff < 0
         rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1
@@ -196,8 +197,8 @@ module Doom
         sprite = load_sprite_frame(prefix, frame_letter, 0)
         return sprite if sprite
 
-        # Try with calculated rotation
-        angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0)
+        # Try with calculated rotation (same formula as get_rotated)
+        angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0) + Math::PI
         angle_diff = angle_diff % (2 * Math::PI)
         angle_diff += 2 * Math::PI if angle_diff < 0
         rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1

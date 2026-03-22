@@ -64,6 +64,8 @@ module Doom
         @animations = animations
         @hidden_things = nil
         @combat = nil
+        @monster_ai = nil
+        @leveltime = 0
 
         @framebuffer = Array.new(SCREEN_WIDTH * SCREEN_HEIGHT, 0)
 
@@ -104,7 +106,7 @@ module Doom
       end
 
       attr_reader :player_x, :player_y, :player_z, :sin_angle, :cos_angle, :framebuffer
-      attr_writer :hidden_things, :combat
+      attr_writer :hidden_things, :combat, :monster_ai, :leveltime
 
       # Diagnostic: returns info about all sprites and why they are/aren't visible
       def sprite_diagnostics
@@ -1302,9 +1304,17 @@ module Doom
           dy = thing.y - @player_y
           angle_to_thing = Math.atan2(dy, dx)
 
-          # Get sprite - use death frame if monster is dead
+          # Get sprite: death frame > walking frame > idle frame
           if @combat && @combat.dead?(thing_idx)
             sprite = @combat.death_sprite(thing_idx, thing.type, angle_to_thing, thing.angle)
+          elsif @monster_ai
+            mon = @monster_ai.monsters.find { |m| m.thing_idx == thing_idx }
+            if mon && mon.active
+              # Walking animation: cycle through frames A-D based on leveltime
+              walk_frame = %w[A B C D][@leveltime / 4 % 4]
+              sprite = @sprites.get_frame(thing.type, walk_frame, angle_to_thing, thing.angle)
+            end
+            sprite ||= @sprites.get_rotated(thing.type, angle_to_thing, thing.angle)
           else
             sprite = @sprites.get_rotated(thing.type, angle_to_thing, thing.angle)
           end
