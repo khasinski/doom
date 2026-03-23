@@ -1,9 +1,11 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Enable YJIT if available (Ruby 3.1+) for better performance
-if defined?(RubyVM::YJIT) && RubyVM::YJIT.respond_to?(:enable)
-  RubyVM::YJIT.enable
+# Enable YJIT unless --no-yjit flag is passed (for live toggle demo)
+unless ARGV.delete('--no-yjit')
+  if defined?(RubyVM::YJIT) && RubyVM::YJIT.respond_to?(:enable)
+    RubyVM::YJIT.enable
+  end
 end
 
 # Parse arguments before loading heavy dependencies

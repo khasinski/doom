@@ -49,8 +49,10 @@ module Doom
       }.freeze
 
       def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil)
-        super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, false)
+        fullscreen = ARGV.include?('--fullscreen') || ARGV.include?('-f')
+        super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
+        self.update_interval = 0  # Uncap framerate (default 16.67ms = 60 FPS cap)
 
         @renderer = renderer
         @palette = palette
@@ -77,6 +79,9 @@ module Doom
         @show_debug = false
         @show_map = false
         @debug_font = Gosu::Font.new(16)
+        @fps_frames = 0
+        @fps_time = Time.now
+        @fps_display = 0.0
 
         # Precompute sector colors for automap
         @sector_colors = build_sector_colors
@@ -672,6 +677,16 @@ module Doom
       end
 
       def draw_debug_overlay
+        # Update FPS counter (refresh every 0.5 seconds)
+        @fps_frames += 1
+        now = Time.now
+        elapsed = now - @fps_time
+        if elapsed >= 0.5
+          @fps_display = (@fps_frames / elapsed).round(1)
+          @fps_frames = 0
+          @fps_time = now
+        end
+
         sector = @map.sector_at(@renderer.player_x, @renderer.player_y)
         return unless sector
 
@@ -679,12 +694,14 @@ module Doom
         sector_idx = @map.sectors.index(sector)
 
         lines = [
+          "FPS: #{@fps_display}",
           "Sector #{sector_idx}",
           "Floor: #{sector.floor_height} (#{sector.floor_texture})",
           "Ceil:  #{sector.ceiling_height} (#{sector.ceiling_texture})",
           "Light: #{sector.light_level}",
           "Pos: #{@renderer.player_x.round}, #{@renderer.player_y.round}",
           "Heading: #{(Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)}",
+          "YJIT: #{defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled? ? 'ON' : 'OFF'} (Y to toggle)",
         ]
 
         y = 4
@@ -712,6 +729,17 @@ module Doom
           end
         when Gosu::KB_Z
           @show_debug = !@show_debug
+        when Gosu::KB_Y
+          if defined?(RubyVM::YJIT)
+            setup_yjit_toggle
+            if RubyVM::YJIT.enabled?
+              RubyVM::YJIT.disable
+              puts "YJIT disabled!"
+            else
+              RubyVM::YJIT.enable
+              puts "YJIT enabled!"
+            end
+          end
         when Gosu::KB_M
           @show_map = !@show_map
         when Gosu::KB_F12
@@ -754,6 +782,33 @@ module Doom
           @renderer.set_player(ps.x, ps.y, 41, ps.angle)
           update_player_height(ps.x, ps.y)
         end
+      end
+
+      def setup_yjit_toggle
+        return if @yjit_toggle_ready || !defined?(RubyVM::YJIT)
+        require "fiddle"
+
+        address = Fiddle::Handle::DEFAULT["rb_yjit_enabled_p"]
+        enabled_ptr = Fiddle::Pointer.new(address, Fiddle::SIZEOF_CHAR)
+
+        RubyVM::YJIT.singleton_class.prepend(Module.new do
+          define_method(:enable) do |**kwargs|
+            return false if enabled?
+            return super(**kwargs) unless RUBY_DESCRIPTION.include?("+YJIT")
+            enabled_ptr[0] = 1
+            true
+          end
+
+          define_method(:disable) do
+            return false unless enabled?
+            enabled_ptr[0] = 0
+            true
+          end
+        end)
+
+        @yjit_toggle_ready = true
+      rescue => e
+        puts "YJIT toggle setup failed: #{e.message}"
       end
 
       def needs_cursor?
