@@ -7,6 +7,35 @@ module Doom
     class GosuWindow < Gosu::Window
       SCALE = 3
 
+      # SDL2 keyboard grab via Fiddle -- prevents macOS Ctrl+Arrow space switching
+      module SDLKeyboardGrab
+        def self.setup
+          require "fiddle"
+          bundle = File.join(Gem.loaded_specs["gosu"].full_gem_path, "lib", "gosu.bundle")
+          @lib = Fiddle.dlopen(bundle)
+          @shared_window = Fiddle::Function.new(
+            @lib["_ZN4Gosu13shared_windowEv"], [], Fiddle::TYPE_VOIDP
+          )
+          @set_kb_grab = Fiddle::Function.new(
+            @lib["SDL_SetWindowKeyboardGrab"],
+            [Fiddle::TYPE_VOIDP, Fiddle::TYPE_INT], Fiddle::TYPE_VOID
+          )
+          @ready = true
+        rescue => e
+          @ready = false
+        end
+
+        def self.grab!
+          return unless @ready
+          @set_kb_grab.call(@shared_window.call, 1)
+        end
+
+        def self.release!
+          return unless @ready
+          @set_kb_grab.call(@shared_window.call, 0)
+        end
+      end
+
       # Movement constants (matching Chocolate Doom P_Thrust / P_XYMovement)
       # DOOM: terminal walk speed = 7.55 units/tic = 264 units/sec
       # Continuous-time: v_terminal = thrust_rate / decay_rate
@@ -53,6 +82,7 @@ module Doom
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
         self.update_interval = 0  # Uncap framerate (default 16.67ms = 60 FPS cap)
+        SDLKeyboardGrab.setup
 
         @renderer = renderer
         @palette = palette
@@ -241,8 +271,9 @@ module Doom
           try_move(@move_momx * delta_time, @move_momy * delta_time)
         end
 
-        # Handle firing (left click, Z, or Shift - Ctrl conflicts with macOS spaces)
+        # Handle firing (left click, Ctrl, X, or Shift)
         if @player_state && ((@mouse_captured && Gosu.button_down?(Gosu::MS_LEFT)) ||
+            Gosu.button_down?(Gosu::KB_LEFT_CONTROL) || Gosu.button_down?(Gosu::KB_RIGHT_CONTROL) ||
             Gosu.button_down?(Gosu::KB_X) || Gosu.button_down?(Gosu::KB_LEFT_SHIFT) ||
             Gosu.button_down?(Gosu::KB_RIGHT_SHIFT))
           was_attacking = @player_state.attacking
@@ -715,6 +746,7 @@ module Doom
       def button_down(id)
         case id
         when Gosu::KB_ESCAPE
+          SDLKeyboardGrab.release!
           if @mouse_captured
             @mouse_captured = false
             self.mouse_x = width / 2
@@ -726,6 +758,7 @@ module Doom
           unless @mouse_captured
             @mouse_captured = true
             @last_mouse_x = mouse_x
+            SDLKeyboardGrab.grab!
           end
         when Gosu::KB_Z
           @show_debug = !@show_debug
