@@ -18,6 +18,7 @@ require_relative 'doom/game/item_pickup'
 require_relative 'doom/game/combat'
 require_relative 'doom/game/sector_effects'
 require_relative 'doom/game/monster_ai'
+require_relative 'doom/game/menu'
 require_relative 'doom/render/renderer'
 require_relative 'doom/render/status_bar'
 require_relative 'doom/render/weapon_renderer'
@@ -83,9 +84,10 @@ module Doom
       item_pickup = Game::ItemPickup.new(map, player_state)
       combat = Game::Combat.new(map, player_state, sprites)
       monster_ai = Game::MonsterAI.new(map, combat, player_state)
+      menu = Game::Menu.new(wad, hud_graphics)
 
       puts 'Starting game window...'
-      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai)
+      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai, menu)
       window.show
     end
   end

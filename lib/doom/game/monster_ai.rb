@@ -57,6 +57,7 @@ module Doom
         @player = player_state
         @monsters = []
         @aggression = true  # Monsters fight back (toggle with C)
+        @damage_multiplier = 1.0
 
         map.things.each_with_index do |thing, idx|
           next unless Combat::MONSTER_HP[thing.type]
@@ -68,7 +69,7 @@ module Doom
       end
 
       attr_reader :monsters
-      attr_accessor :aggression
+      attr_accessor :aggression, :damage_multiplier
 
       # Called each game tic
       def update(player_x, player_y)
@@ -163,9 +164,9 @@ module Doom
           return false if rand(256) > (256 - dist * 0.33)
         end
 
-        # Apply damage
+        # Apply damage scaled by difficulty
         min_dmg, max_dmg = atk[:damage]
-        damage = rand(min_dmg..max_dmg)
+        damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
         @player.take_damage(damage)
 
         # Set cooldown

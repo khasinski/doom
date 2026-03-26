@@ -79,7 +79,7 @@ module Doom
         2046 => 16,                                          # Burning barrel
       }.freeze
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil)
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil, menu = nil)
         fullscreen = ARGV.include?('--fullscreen') || ARGV.include?('-f')
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
@@ -98,6 +98,8 @@ module Doom
         @item_pickup = item_pickup
         @combat = combat
         @monster_ai = monster_ai
+        @menu = menu
+        @damage_multiplier = 1.0
         @last_floor_height = nil
         @move_momx = 0.0
         @move_momy = 0.0
@@ -133,6 +135,12 @@ module Doom
         now = Time.now
         delta_time = now - @last_update_time
         @last_update_time = now
+
+        # Menu is active -- only update menu animation, skip game logic
+        if @menu&.active?
+          @menu.update
+          return
+        end
 
         handle_input(delta_time)
 
@@ -689,7 +697,18 @@ module Doom
       end
 
       def draw
-        if @show_map
+        if @menu&.active?
+          # Render menu to framebuffer and display
+          @menu_fb ||= Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
+          @menu_fb.fill(0)
+          @menu.render(@menu_fb, nil)
+          active_pal = @all_palette_rgba[0]
+          rgba = @menu_fb.map { |idx| active_pal[idx] }.join
+          @screen_image = Gosu::Image.from_blob(
+            Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
+          )
+          @screen_image.draw(0, 0, 0, SCALE, SCALE)
+        elsif @show_map
           draw_automap
         else
           # Select palette: red tint when taking damage (palettes 1-8)
@@ -698,11 +717,8 @@ module Doom
           rgba = @renderer.framebuffer.map { |idx| active_pal[idx] }.join
 
           @screen_image = Gosu::Image.from_blob(
-            Render::SCREEN_WIDTH,
-            Render::SCREEN_HEIGHT,
-            rgba
+            Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
           )
-
           @screen_image.draw(0, 0, 0, SCALE, SCALE)
 
           draw_debug_overlay if @show_debug
@@ -746,6 +762,26 @@ module Doom
       end
 
       def button_down(id)
+        # Menu handles input when active
+        if @menu&.active?
+          key = case id
+                when Gosu::KB_UP then :up
+                when Gosu::KB_DOWN then :down
+                when Gosu::KB_RETURN, Gosu::KB_SPACE then :enter
+                when Gosu::KB_ESCAPE then :escape
+                end
+          if key
+            result = @menu.handle_key(key)
+            case result
+            when :start_game
+              apply_difficulty(@menu.selected_skill)
+            when :quit
+              close
+            end
+          end
+          return
+        end
+
         case id
         when Gosu::KB_ESCAPE
           SDLKeyboardGrab.release!
@@ -796,7 +832,7 @@ module Doom
         return unless sector
 
         damage = SECTOR_DAMAGE[sector.special]
-        @player_state.take_damage(damage) if damage
+        @player_state.take_damage((damage * @damage_multiplier).to_i) if damage
       end
 
       def apply_death_tint(framebuffer)
@@ -822,6 +858,28 @@ module Doom
           @renderer.set_player(ps.x, ps.y, 41, ps.angle)
           update_player_height(ps.x, ps.y)
         end
+      end
+
+      def apply_difficulty(skill)
+        @damage_multiplier = case skill
+                             when Game::Menu::SKILL_BABY then 0.5
+                             when Game::Menu::SKILL_EASY then 0.75
+                             when Game::Menu::SKILL_MEDIUM then 1.0
+                             when Game::Menu::SKILL_HARD then 1.0
+                             when Game::Menu::SKILL_NIGHTMARE then 1.5
+                             else 1.0
+                             end
+
+        # Baby mode: start with some armor
+        if skill == Game::Menu::SKILL_BABY
+          @player_state.armor = 50
+        end
+
+        if @monster_ai
+          @monster_ai.aggression = true
+          @monster_ai.damage_multiplier = @damage_multiplier
+        end
+        respawn_player
       end
 
       def setup_yjit_toggle
