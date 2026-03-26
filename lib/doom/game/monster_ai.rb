@@ -48,8 +48,15 @@ module Doom
         65   => { type: :hitscan, damage: [3, 15], cooldown: 40 },     # Heavy Weapon Dude: faster fire
       }.freeze
 
+      REACTIONTIME = 8  # Tics before first attack after activation (from mobjinfo)
+
+      # Hitscan hit probability by distance (DOOM's P_AimLineAttack has bullet spread)
+      # Close = ~85%, mid = ~60%, far = ~35%
+      HITSCAN_ACCURACY = 0.85
+
       MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
-                                :active, :chase_timer, :type, :attack_cooldown)
+                                :active, :chase_timer, :type, :attack_cooldown,
+                                :reactiontime)
 
       def initialize(map, combat, player_state)
         @map = map
@@ -63,7 +70,7 @@ module Doom
           next unless Combat::MONSTER_HP[thing.type]
           @monsters << MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
-            DI_NODIR, 0, false, 0, thing.type, 0
+            DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME
           )
         end
       end
@@ -147,6 +154,12 @@ module Doom
       end
 
       def try_attack(mon, player_x, player_y, dist)
+        # DOOM's reactiontime: monsters wait before first attack
+        if mon.reactiontime > 0
+          mon.reactiontime -= 1
+          return false
+        end
+
         atk = MONSTER_ATTACK[mon.type]
         return false unless atk
 
@@ -157,17 +170,28 @@ module Doom
           return false if dist > MISSILE_RANGE
           return false unless has_line_of_sight?(mon.x, mon.y, player_x, player_y)
 
-          # DOOM's P_CheckMissileRange: attack probability decreases with distance.
-          # Close range = almost always fires. Far range = rarely fires.
-          # dist/256 gives 0..3 for typical combat ranges.
-          # rand must be < (256 - dist) for the attack to happen.
-          return false if rand(256) > (256 - dist * 0.33)
+          # DOOM's P_CheckMissileRange: probability decreases with distance
+          # If P_Random() < dist, don't attack (0-255 random vs distance in map units)
+          return false if rand(256) < dist
+
+          # Zombieman/Shotgun Guy: extra 50% miss chance beyond 196 units
+          if (mon.type == 3004 || mon.type == 9) && dist > 196
+            return false if rand(2) == 0
+          end
+        end
+
+        # Hitscan accuracy: bullets can MISS (DOOM's P_LineAttack has spread)
+        # Probability of hitting decreases with distance
+        if atk[:type] == :hitscan
+          hit_chance = HITSCAN_ACCURACY * (1.0 - dist / (MISSILE_RANGE * 2))
+          hit_chance = [hit_chance, 0.15].max  # Always at least 15% chance
+          return false if rand > hit_chance  # Miss!
         end
 
         # Apply damage scaled by difficulty
         min_dmg, max_dmg = atk[:damage]
         damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
-        @player.take_damage(damage)
+        @player.take_damage(damage) if damage > 0
 
         # Set cooldown
         mon.attack_cooldown = atk[:cooldown]
