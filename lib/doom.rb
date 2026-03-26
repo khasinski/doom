@@ -82,7 +82,7 @@ module Doom
       sector_effects = Game::SectorEffects.new(map)
       item_pickup = Game::ItemPickup.new(map, player_state)
       combat = Game::Combat.new(map, player_state, sprites)
-      monster_ai = Game::MonsterAI.new(map, combat)
+      monster_ai = Game::MonsterAI.new(map, combat, player_state)
 
       puts 'Starting game window...'
       window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai)

@@ -25,30 +25,50 @@ module Doom
       }.freeze
 
       CHASE_TICS = 4       # Steps between A_Chase calls
-      SIGHT_RANGE = 768.0  # Max distance for sight check (DOOM uses sector sound propagation, we approximate)
+      SIGHT_RANGE = 768.0  # Max distance for sight check
       MELEE_RANGE = 64.0
+      MISSILE_RANGE = 768.0
 
       # Direction to angle (for sprite facing)
       DIR_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315].freeze
 
-      MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
-                                :active, :chase_timer, :type)
+      # Monster attack definitions (from mobjinfo / A_Chase)
+      # Cooldown = attack_anim_tics + avg_movecount(7.5) * chase_tics(4)
+      # In DOOM, monsters only attempt attacks when movecount reaches 0,
+      # then play full attack animation before returning to chase.
+      MONSTER_ATTACK = {
+        3004 => { type: :hitscan, damage: [3, 15], cooldown: 56 },     # Zombieman: 26 anim + 30 chase
+        9    => { type: :hitscan, damage: [3, 15], cooldown: 56 },     # Shotgun Guy: 26 anim + 30 chase
+        3001 => { type: :hitscan, damage: [3, 24], cooldown: 52 },     # Imp: 22 anim + 30 chase
+        3002 => { type: :melee,  damage: [4, 40], cooldown: 42 },      # Demon: 12 anim + 30 chase
+        58   => { type: :melee,  damage: [4, 40], cooldown: 42 },      # Spectre
+        3003 => { type: :hitscan, damage: [8, 64], cooldown: 54 },     # Baron: 24 anim + 30 chase
+        69   => { type: :hitscan, damage: [8, 64], cooldown: 54 },     # Hell Knight
+        3005 => { type: :hitscan, damage: [5, 40], cooldown: 56 },     # Cacodemon
+        65   => { type: :hitscan, damage: [3, 15], cooldown: 40 },     # Heavy Weapon Dude: faster fire
+      }.freeze
 
-      def initialize(map, combat)
+      MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
+                                :active, :chase_timer, :type, :attack_cooldown)
+
+      def initialize(map, combat, player_state)
         @map = map
         @combat = combat
+        @player = player_state
         @monsters = []
+        @aggression = true  # Monsters fight back (toggle with C)
 
         map.things.each_with_index do |thing, idx|
           next unless Combat::MONSTER_HP[thing.type]
           @monsters << MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
-            DI_NODIR, 0, false, 0, thing.type
+            DI_NODIR, 0, false, 0, thing.type, 0
           )
         end
       end
 
       attr_reader :monsters
+      attr_accessor :aggression
 
       # Called each game tic
       def update(player_x, player_y)
@@ -94,10 +114,25 @@ module Doom
       def chase(mon, player_x, player_y)
         speed = MONSTER_SPEED[mon.type] || 8
 
-        # Decrement movecount; pick new direction when expired or blocked
-        mon.movecount -= 1
-        if mon.movecount < 0 || !try_move(mon, speed)
-          new_chase_dir(mon, player_x, player_y)
+        # Tick down attack cooldown
+        mon.attack_cooldown -= CHASE_TICS if mon.attack_cooldown > 0
+
+        dx = player_x - mon.x
+        dy = player_y - mon.y
+        dist = Math.sqrt(dx * dx + dy * dy)
+
+        # In DOOM, monsters only attempt attacks when movecount reaches 0
+        # (i.e., when picking a new direction). This naturally spaces out attacks.
+        if @aggression && mon.attack_cooldown <= 0 && mon.movecount <= 0 && !@player.dead
+          attacked = try_attack(mon, player_x, player_y, dist)
+        end
+
+        # Move (skip movement on the tic we attack, like DOOM)
+        unless attacked
+          mon.movecount -= 1
+          if mon.movecount < 0 || !try_move(mon, speed)
+            new_chase_dir(mon, player_x, player_y)
+          end
         end
 
         # Update the thing's position and facing angle in the map for rendering
@@ -105,9 +140,37 @@ module Doom
         thing.x = mon.x.to_i
         thing.y = mon.y.to_i
 
-        # Face toward the player (smooth turning)
+        # Face toward the player
         target_angle = Math.atan2(player_y - mon.y, player_x - mon.x) * 180.0 / Math::PI
         thing.angle = target_angle.round.to_i
+      end
+
+      def try_attack(mon, player_x, player_y, dist)
+        atk = MONSTER_ATTACK[mon.type]
+        return false unless atk
+
+        case atk[:type]
+        when :melee
+          return false if dist > MELEE_RANGE + (Combat::MONSTER_RADIUS[mon.type] || 20)
+        when :hitscan
+          return false if dist > MISSILE_RANGE
+          return false unless has_line_of_sight?(mon.x, mon.y, player_x, player_y)
+
+          # DOOM's P_CheckMissileRange: attack probability decreases with distance.
+          # Close range = almost always fires. Far range = rarely fires.
+          # dist/256 gives 0..3 for typical combat ranges.
+          # rand must be < (256 - dist) for the attack to happen.
+          return false if rand(256) > (256 - dist * 0.33)
+        end
+
+        # Apply damage
+        min_dmg, max_dmg = atk[:damage]
+        damage = rand(min_dmg..max_dmg)
+        @player.take_damage(damage)
+
+        # Set cooldown
+        mon.attack_cooldown = atk[:cooldown]
+        true
       end
 
       def try_move(mon, speed)

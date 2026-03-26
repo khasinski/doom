@@ -7,11 +7,13 @@ module Doom
     class GosuWindow < Gosu::Window
       SCALE = 3
 
-      # SDL2 keyboard grab via Fiddle -- prevents macOS Ctrl+Arrow space switching
+      # SDL2 keyboard grab via Gosu's bundled SDL -- prevents OS key interception
       module SDLKeyboardGrab
         def self.setup
           require "fiddle"
-          bundle = File.join(Gem.loaded_specs["gosu"].full_gem_path, "lib", "gosu.bundle")
+          gosu_spec = Gem.loaded_specs["gosu"]
+          lib_ext = RbConfig::CONFIG["DLEXT"] || "so"
+          bundle = File.join(gosu_spec.full_gem_path, "lib", "gosu.#{lib_ext}")
           @lib = Fiddle.dlopen(bundle)
           @shared_window = Fiddle::Function.new(
             @lib["_ZN4Gosu13shared_windowEv"], [], Fiddle::TYPE_VOIDP
@@ -21,7 +23,7 @@ module Doom
             [Fiddle::TYPE_VOIDP, Fiddle::TYPE_INT], Fiddle::TYPE_VOID
           )
           @ready = true
-        rescue => e
+        rescue
           @ready = false
         end
 
@@ -773,6 +775,11 @@ module Doom
               puts "YJIT enabled!"
             end
           end
+        when Gosu::KB_C
+          if @monster_ai
+            @monster_ai.aggression = !@monster_ai.aggression
+            puts "Monster aggression: #{@monster_ai.aggression ? 'ON' : 'OFF'}"
+          end
         when Gosu::KB_M
           @show_map = !@show_map
         when Gosu::KB_F12
@@ -807,7 +814,7 @@ module Doom
         sprites = @combat&.instance_variable_get(:@sprites)
         @item_pickup = Game::ItemPickup.new(@map, @player_state) if @item_pickup
         @combat = Game::Combat.new(@map, @player_state, sprites) if @combat && sprites
-        @monster_ai = Game::MonsterAI.new(@map, @combat) if @monster_ai && @combat
+        @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state) if @monster_ai && @combat
 
         # Move player to start position
         ps = @map.player_start
