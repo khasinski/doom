@@ -83,6 +83,9 @@ module Doom
         @monsters.each do |mon|
           next if @combat.dead?(mon.thing_idx)
 
+          # Pain state: monster is stunned, skip movement and attacks
+          next if @combat.in_pain?(mon.thing_idx)
+
           if mon.active
             mon.chase_timer -= 1
             if mon.chase_timer <= 0

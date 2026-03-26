@@ -879,6 +879,12 @@ module Doom
           @monster_ai.aggression = true
           @monster_ai.damage_multiplier = @damage_multiplier
         end
+
+        # Baby: double ammo from pickups (matching DOOM skill 1)
+        if @item_pickup
+          @item_pickup.ammo_multiplier = (skill == Game::Menu::SKILL_BABY) ? 2 : 1
+        end
+
         respawn_player
       end
 

@@ -50,6 +50,14 @@ module Doom
 
       DEATH_ANIM_TICS = 6  # Tics per death frame
 
+      # Pain chance per monster (out of 256, from mobjinfo)
+      PAIN_CHANCE = {
+        3004 => 200, 9 => 170, 3001 => 200, 3002 => 180, 58 => 180,
+        3003 => 50, 69 => 50, 3005 => 128, 3006 => 256, 16 => 40,
+        7 => 40, 65 => 170, 64 => 10, 71 => 128, 84 => 170,
+      }.freeze
+      PAIN_DURATION = 6  # Tics monster is stunned when in pain
+
       # Projectile constants
       ROCKET_SPEED = 20.0       # Map units per tic (matches DOOM's mobjinfo MISSILESPEED)
       ROCKET_DAMAGE = 20        # Direct hit base (DOOM: 1d8 * 20)
@@ -70,12 +78,17 @@ module Doom
         @sprites = sprites
         @monster_hp = {}     # thing_idx => current HP
         @dead_things = {}    # thing_idx => { tic: death_start_tic, prefix: sprite_prefix }
+        @pain_until = {}     # thing_idx => tic when pain ends
         @projectiles = []    # Active projectiles in flight
         @explosions = []     # Active explosions (for rendering)
         @tic = 0
       end
 
       attr_reader :dead_things, :projectiles, :explosions
+
+      def in_pain?(thing_idx)
+        @pain_until[thing_idx] && @tic < @pain_until[thing_idx]
+      end
 
       def dead?(thing_idx)
         @dead_things.key?(thing_idx)
@@ -308,6 +321,12 @@ module Doom
         if @monster_hp[thing_idx] <= 0
           prefix = @sprites.prefix_for(thing.type)
           @dead_things[thing_idx] = { tic: @tic, prefix: prefix } if prefix
+        else
+          # Pain state: monster flinches and stops moving/attacking
+          pain_chance = PAIN_CHANCE[thing.type] || 128
+          if rand(256) < pain_chance
+            @pain_until[thing_idx] = @tic + PAIN_DURATION
+          end
         end
       end
 

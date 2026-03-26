@@ -51,11 +51,13 @@ module Doom
       }.freeze
 
       attr_reader :picked_up
+      attr_accessor :ammo_multiplier  # 2x on Baby difficulty
 
       def initialize(map, player_state)
         @map = map
         @player = player_state
         @picked_up = {}  # thing index => true (to avoid re-picking)
+        @ammo_multiplier = 1
       end
 
       def update(player_x, player_y)
@@ -112,6 +114,7 @@ module Doom
       end
 
       def give_ammo(type, amount)
+        amount = amount * @ammo_multiplier
         case type
         when :bullets
           return false if @player.ammo_bullets >= @player.max_bullets
