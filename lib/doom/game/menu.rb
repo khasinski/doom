@@ -36,9 +36,12 @@ module Doom
 
       attr_reader :state, :selected_skill
 
-      def initialize(wad, hud_graphics)
+      attr_reader :font
+
+      def initialize(wad, hud_graphics, font = nil)
         @wad = wad
         @gfx = hud_graphics
+        @font = font
         @state = STATE_TITLE
         @cursor = 0
         @skull_frame = 0
