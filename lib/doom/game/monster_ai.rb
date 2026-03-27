@@ -56,7 +56,7 @@ module Doom
 
       MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
                                 :active, :chase_timer, :type, :attack_cooldown,
-                                :reactiontime)
+                                :reactiontime, :last_saw_player)
 
       def initialize(map, combat, player_state)
         @map = map
@@ -65,13 +65,14 @@ module Doom
         @monsters = []
         @aggression = true  # Monsters fight back (toggle with C)
         @damage_multiplier = 1.0
+        @tic_counter = 0
 
         map.things.each_with_index do |thing, idx|
           next unless Combat::MONSTER_HP[thing.type]
           next if thing.type == Combat::BARREL_TYPE  # Barrels are damageable but not monsters
           @monsters << MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
-            DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME
+            DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME, 0
           )
         end
       end
@@ -81,6 +82,7 @@ module Doom
 
       # Called each game tic
       def update(player_x, player_y)
+        @tic_counter += 1
         @monsters.each do |mon|
           next if @combat.dead?(mon.thing_idx)
 
@@ -133,9 +135,19 @@ module Doom
         dy = player_y - mon.y
         dist = Math.sqrt(dx * dx + dy * dy)
 
-        # In DOOM, monsters only attempt attacks when movecount reaches 0
-        # (i.e., when picking a new direction). This naturally spaces out attacks.
-        if @aggression && mon.attack_cooldown <= 0 && mon.movecount <= 0 && !@player.dead
+        # Track if monster can see the player
+        can_see = dist < SIGHT_RANGE && has_line_of_sight?(mon.x, mon.y, player_x, player_y)
+        if can_see
+          mon.last_saw_player = @tic_counter
+        elsif @tic_counter - (mon.last_saw_player || 0) > 105  # ~3 seconds without LOS
+          # Monster gives up and goes idle (like DOOM's A_Chase returning to spawnstate)
+          mon.active = false
+          mon.reactiontime = REACTIONTIME
+          return
+        end
+
+        # Only attempt attacks when: movecount == 0, has LOS, and in range
+        if @aggression && mon.attack_cooldown <= 0 && mon.movecount <= 0 && can_see && !@player.dead
           attacked = try_attack(mon, player_x, player_y, dist)
         end
 
