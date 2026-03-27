@@ -120,7 +120,14 @@ module Doom
         return nil unless frames
 
         elapsed = @tic - info[:tic]
-        frame_idx = (elapsed / DEATH_ANIM_TICS).clamp(0, frames.size - 1)
+        frame_idx = elapsed / DEATH_ANIM_TICS
+
+        # Barrels disappear after explosion animation (S_NULL in Chocolate Doom)
+        if thing_type == BARREL_TYPE && frame_idx >= frames.size
+          return nil
+        end
+
+        frame_idx = frame_idx.clamp(0, frames.size - 1)
         frame_letter = frames[frame_idx]
 
         # Use prefix directly if it differs from the thing's sprite (e.g. BEXP for barrels)

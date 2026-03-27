@@ -1307,6 +1307,7 @@ module Doom
           # Get sprite: death frame > walking frame > idle frame
           if @combat && @combat.dead?(thing_idx)
             sprite = @combat.death_sprite(thing_idx, thing.type, angle_to_thing, thing.angle)
+            next unless sprite  # Barrel disappeared after explosion
           elsif @monster_ai
             mon = @monster_ai.monsters.find { |m| m.thing_idx == thing_idx }
             if mon && mon.active
