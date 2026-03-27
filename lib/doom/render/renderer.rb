@@ -1311,9 +1311,19 @@ module Doom
           elsif @monster_ai
             mon = @monster_ai.monsters.find { |m| m.thing_idx == thing_idx }
             if mon && mon.active
-              # Walking animation: cycle through frames A-D based on leveltime
-              walk_frame = %w[A B C D][@leveltime / 4 % 4]
-              sprite = @sprites.get_frame(thing.type, walk_frame, angle_to_thing, thing.angle)
+              if mon.attacking
+                # Attack animation: show attack frames (E, F, G...)
+                prefix = @sprites.prefix_for(thing.type)
+                atk_frames = Game::MonsterAI::ATTACK_FRAMES[prefix]
+                if atk_frames
+                  frame_idx = (mon.attack_frame_tic / Game::MonsterAI::ATTACK_FRAME_TICS).clamp(0, atk_frames.size - 1)
+                  sprite = @sprites.get_frame(thing.type, atk_frames[frame_idx], angle_to_thing, thing.angle)
+                end
+              else
+                # Walking animation: cycle through frames A-D
+                walk_frame = %w[A B C D][@leveltime / 4 % 4]
+                sprite = @sprites.get_frame(thing.type, walk_frame, angle_to_thing, thing.angle)
+              end
             end
             sprite ||= @sprites.get_rotated(thing.type, angle_to_thing, thing.angle)
           else

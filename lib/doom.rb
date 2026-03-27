@@ -84,7 +84,7 @@ module Doom
       sector_effects = Game::SectorEffects.new(map)
       item_pickup = Game::ItemPickup.new(map, player_state)
       combat = Game::Combat.new(map, player_state, sprites)
-      monster_ai = Game::MonsterAI.new(map, combat, player_state)
+      monster_ai = Game::MonsterAI.new(map, combat, player_state, sprites)
       doom_font = Render::Font.new(wad, hud_graphics)
       menu = Game::Menu.new(wad, hud_graphics, doom_font)
 

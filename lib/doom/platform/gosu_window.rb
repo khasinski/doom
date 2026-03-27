@@ -858,7 +858,8 @@ module Doom
         sprites = @combat&.instance_variable_get(:@sprites)
         @item_pickup = Game::ItemPickup.new(@map, @player_state) if @item_pickup
         @combat = Game::Combat.new(@map, @player_state, sprites) if @combat && sprites
-        @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state) if @monster_ai && @combat
+        sprites_mgr = @combat&.instance_variable_get(:@sprites)
+        @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state, sprites_mgr) if @monster_ai && @combat
 
         # Re-apply active cheats from menu options
         if @menu

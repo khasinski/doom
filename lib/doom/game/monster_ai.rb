@@ -54,14 +54,30 @@ module Doom
       # Close = ~85%, mid = ~60%, far = ~35%
       HITSCAN_ACCURACY = 0.85
 
+      # Attack animation frames per sprite prefix (E, F, G typically)
+      ATTACK_FRAMES = {
+        'POSS' => %w[E F],       # Zombieman: raise, fire
+        'SPOS' => %w[E F],       # Shotgun Guy
+        'TROO' => %w[E F G H],   # Imp: raise, fireball, throw, recover
+        'SARG' => %w[E F G],     # Demon: bite
+        'HEAD' => %w[E F],       # Cacodemon
+        'BOSS' => %w[E F G],     # Baron
+        'BOS2' => %w[E F G],     # Hell Knight
+        'CPOS' => %w[E F],       # Heavy Weapon Dude
+      }.freeze
+
+      ATTACK_FRAME_TICS = 6  # Tics per attack animation frame
+
       MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
                                 :active, :chase_timer, :type, :attack_cooldown,
-                                :reactiontime, :last_saw_player)
+                                :reactiontime, :last_saw_player,
+                                :attacking, :attack_frame_tic)
 
-      def initialize(map, combat, player_state)
+      def initialize(map, combat, player_state, sprites_mgr = nil)
         @map = map
         @combat = combat
         @player = player_state
+        @sprites_mgr = sprites_mgr
         @monsters = []
         @aggression = true  # Monsters fight back (toggle with C)
         @damage_multiplier = 1.0
@@ -72,7 +88,8 @@ module Doom
           next if thing.type == Combat::BARREL_TYPE  # Barrels are damageable but not monsters
           @monsters << MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
-            DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME, 0
+            DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME, 0,
+            false, 0
           )
         end
       end
@@ -90,6 +107,19 @@ module Doom
           next if @combat.in_pain?(mon.thing_idx)
 
           if mon.active
+            # Attack animation in progress: freeze movement, tick animation
+            if mon.attacking
+              mon.attack_frame_tic += 1
+              prefix = @sprites_mgr&.prefix_for(mon.type)
+              frames = ATTACK_FRAMES[prefix]
+              total_tics = (frames&.size || 2) * ATTACK_FRAME_TICS
+              if mon.attack_frame_tic >= total_tics
+                mon.attacking = false
+                mon.attack_frame_tic = 0
+              end
+              next
+            end
+
             mon.chase_timer -= 1
             if mon.chase_timer <= 0
               mon.chase_timer = CHASE_TICS
@@ -208,6 +238,10 @@ module Doom
         min_dmg, max_dmg = atk[:damage]
         damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
         @player.take_damage(damage) if damage > 0
+
+        # Start attack animation (monster stops moving)
+        mon.attacking = true
+        mon.attack_frame_tic = 0
 
         # Set cooldown
         mon.attack_cooldown = atk[:cooldown]
