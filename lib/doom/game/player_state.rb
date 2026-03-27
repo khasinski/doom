@@ -48,6 +48,7 @@ module Doom
       attr_accessor :is_moving
       attr_accessor :dead, :death_tic
       attr_accessor :damage_count  # Red flash intensity (0-8), decays each tic
+      attr_accessor :god_mode, :infinite_ammo
 
       # Smooth step-up/down (matching Chocolate Doom's P_CalcHeight / P_ZMovement)
       VIEWHEIGHT = 41.0
@@ -114,6 +115,10 @@ module Doom
         @death_tic = 0
         @damage_count = 0
 
+        # Cheats
+        @god_mode = false
+        @infinite_ammo = false
+
         # Weapon bob
         @bob_angle = 0.0
         @bob_amount = 0.0
@@ -168,6 +173,7 @@ module Doom
 
       def can_attack?
         return true if @weapon == WEAPON_FIST || @weapon == WEAPON_CHAINSAW
+        return true if @infinite_ammo
 
         ammo = current_ammo
         ammo && ammo > 0
@@ -181,7 +187,9 @@ module Doom
         @attack_frame = 0
         @attack_tics = 0
 
-        # Consume ammo
+        # Consume ammo (skipped with infinite ammo)
+        return if @infinite_ammo
+
         case @weapon
         when WEAPON_PISTOL
           @ammo_bullets -= 1 if @ammo_bullets > 0
@@ -319,6 +327,7 @@ module Doom
       # Apply damage (from environment or enemies). Armor absorbs some.
       def take_damage(amount)
         return if @dead
+        return if @god_mode
 
         absorbed = 0
         if @armor > 0

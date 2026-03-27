@@ -17,10 +17,25 @@ module Doom
       STATE_TITLE = :title
       STATE_MAIN = :main
       STATE_SKILL = :skill
+      STATE_OPTIONS = :options
       STATE_NONE = :none   # In-game, no menu
 
       # Main menu items
       MAIN_ITEMS = %i[new_game options quit].freeze
+
+      # Options menu items
+      OPTIONS_ITEMS = %i[god_mode infinite_ammo all_weapons fullscreen rubykaigi_mode].freeze
+      OPTIONS_LABELS = {
+        god_mode: "GOD MODE",
+        infinite_ammo: "INFINITE AMMO",
+        all_weapons: "ALL WEAPONS",
+        fullscreen: "FULLSCREEN",
+        rubykaigi_mode: "RUBYKAIGI MODE",
+      }.freeze
+
+      OPTIONS_X = 48
+      OPTIONS_Y = 50
+      OPTIONS_SPACING = 18
 
       # Skill menu items
       SKILL_ITEMS = [SKILL_BABY, SKILL_EASY, SKILL_MEDIUM, SKILL_HARD, SKILL_NIGHTMARE].freeze
@@ -34,9 +49,7 @@ module Doom
       SKILL_Y = 63
       SKILL_SPACING = 16
 
-      attr_reader :state, :selected_skill
-
-      attr_reader :font
+      attr_reader :state, :selected_skill, :options, :font
 
       def initialize(wad, hud_graphics, font = nil)
         @wad = wad
@@ -48,6 +61,15 @@ module Doom
         @skull_tic = 0
         @selected_skill = SKILL_MEDIUM  # Default difficulty
         @game_started = false
+
+        # Options toggles
+        @options = {
+          god_mode: false,
+          infinite_ammo: false,
+          all_weapons: false,
+          fullscreen: false,
+          rubykaigi_mode: false,
+        }
 
         load_graphics
       end
@@ -76,10 +98,12 @@ module Doom
           render_main_menu(framebuffer)
         when STATE_SKILL
           render_skill_menu(framebuffer)
+        when STATE_OPTIONS
+          render_options_menu(framebuffer)
         end
       end
 
-      # Returns :start_game if game should begin, nil otherwise
+      # Returns :start_game, :resume, :quit, or option action symbols
       def handle_key(key)
         case @state
         when STATE_TITLE
@@ -89,6 +113,8 @@ module Doom
           handle_main_key(key)
         when STATE_SKILL
           handle_skill_key(key)
+        when STATE_OPTIONS
+          handle_options_key(key)
         end
       end
 
@@ -189,6 +215,9 @@ module Doom
           when :new_game
             @state = STATE_SKILL
             @cursor = SKILL_MEDIUM  # Default to "Hurt me plenty"
+          when :options
+            @state = STATE_OPTIONS
+            @cursor = 0
           when :quit
             return :quit
           end
@@ -218,6 +247,45 @@ module Doom
         when :escape
           @state = STATE_MAIN
           @cursor = 0
+        end
+        nil
+      end
+
+      def render_options_menu(framebuffer)
+        # Draw title using font
+        @font&.draw_centered(framebuffer, "OPTIONS", 20)
+
+        # Draw each option with ON/OFF status
+        OPTIONS_ITEMS.each_with_index do |item, i|
+          y = OPTIONS_Y + i * OPTIONS_SPACING
+          label = OPTIONS_LABELS[item]
+          value = @options[item] ? "ON" : "OFF"
+          @font&.draw_text(framebuffer, label, OPTIONS_X, y)
+          @font&.draw_text(framebuffer, value, 260, y)
+        end
+
+        # Draw skull cursor
+        skull = @skulls[@skull_frame]
+        if skull
+          skull_x = OPTIONS_X - 32
+          skull_y = OPTIONS_Y + @cursor * OPTIONS_SPACING - 5
+          draw_sprite(framebuffer, skull, skull_x, skull_y)
+        end
+      end
+
+      def handle_options_key(key)
+        case key
+        when :up
+          @cursor = (@cursor - 1) % OPTIONS_ITEMS.size
+        when :down
+          @cursor = (@cursor + 1) % OPTIONS_ITEMS.size
+        when :enter
+          item = OPTIONS_ITEMS[@cursor]
+          @options[item] = !@options[item]
+          return { action: :toggle_option, option: item, value: @options[item] }
+        when :escape
+          @state = STATE_MAIN
+          @cursor = 1  # Options is the second main menu item
         end
         nil
       end

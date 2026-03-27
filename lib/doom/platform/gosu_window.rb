@@ -786,6 +786,8 @@ module Doom
               SDLKeyboardGrab.grab!
             when :quit
               close
+            when Hash
+              handle_option_toggle(result[:option], result[:value]) if result[:action] == :toggle_option
             end
           end
           return
@@ -863,6 +865,28 @@ module Doom
         if ps
           @renderer.set_player(ps.x, ps.y, 41, ps.angle)
           update_player_height(ps.x, ps.y)
+        end
+      end
+
+      def handle_option_toggle(option, value)
+        case option
+        when :god_mode
+          @player_state.god_mode = value
+          @player_state.health = 100 if value
+        when :infinite_ammo
+          @player_state.infinite_ammo = value
+        when :all_weapons
+          if value
+            (0..7).each { |w| @player_state.has_weapons[w] = true }
+            @player_state.ammo_bullets = @player_state.max_bullets
+            @player_state.ammo_shells = @player_state.max_shells
+            @player_state.ammo_rockets = @player_state.max_rockets
+            @player_state.ammo_cells = @player_state.max_cells
+          end
+        when :fullscreen
+          self.fullscreen = value if respond_to?(:fullscreen=)
+        when :rubykaigi_mode
+          # Placeholder for RubyKaigi mode
         end
       end
 
