@@ -698,12 +698,17 @@ module Doom
 
       def draw
         if @menu&.active?
-          # Render menu to framebuffer and display
-          @menu_fb ||= Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
-          @menu_fb.fill(0)
-          @menu.render(@menu_fb, nil)
+          if @menu.needs_background?
+            # Render game view as background, then overlay menu on top
+            render_frame
+            fb = @renderer.framebuffer.dup
+          else
+            # Title screen: black background
+            fb = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
+          end
+          @menu.render(fb, nil)
           active_pal = @all_palette_rgba[0]
-          rgba = @menu_fb.map { |idx| active_pal[idx] }.join
+          rgba = fb.map { |idx| active_pal[idx] }.join
           @screen_image = Gosu::Image.from_blob(
             Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
           )

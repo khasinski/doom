@@ -52,6 +52,10 @@ module Doom
         @state != STATE_NONE
       end
 
+      def needs_background?
+        @state != STATE_TITLE
+      end
+
       def update
         @skull_tic += 1
         if @skull_tic >= SKULL_ANIM_TICS
