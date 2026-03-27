@@ -700,7 +700,7 @@ module Doom
         if @menu&.active?
           if @menu.needs_background?
             # Render game view as background, then overlay menu on top
-            render_frame
+            @renderer.render_frame
             fb = @renderer.framebuffer.dup
           else
             # Title screen: black background
