@@ -860,6 +860,14 @@ module Doom
         @combat = Game::Combat.new(@map, @player_state, sprites) if @combat && sprites
         @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state) if @monster_ai && @combat
 
+        # Re-apply active cheats from menu options
+        if @menu
+          opts = @menu.options
+          @player_state.god_mode = opts[:god_mode]
+          @player_state.infinite_ammo = opts[:infinite_ammo]
+          handle_option_toggle(:all_weapons, true) if opts[:all_weapons]
+        end
+
         # Move player to start position
         ps = @map.player_start
         if ps
