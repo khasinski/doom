@@ -68,6 +68,7 @@ module Doom
 
         map.things.each_with_index do |thing, idx|
           next unless Combat::MONSTER_HP[thing.type]
+          next if thing.type == Combat::BARREL_TYPE  # Barrels are damageable but not monsters
           @monsters << MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
             DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME
