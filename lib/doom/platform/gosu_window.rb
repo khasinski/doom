@@ -877,7 +877,12 @@ module Doom
           @player_state.infinite_ammo = value
         when :all_weapons
           if value
-            (0..7).each { |w| @player_state.has_weapons[w] = true }
+            # Give all weapons that have sprites loaded
+            @gfx_weapons ||= @weapon_renderer&.instance_variable_get(:@gfx)&.weapons || {}
+            (0..7).each do |w|
+              name = Game::PlayerState::WEAPON_NAMES[w]
+              @player_state.has_weapons[w] = true if @gfx_weapons[name]&.dig(:idle)
+            end
             @player_state.ammo_bullets = @player_state.max_bullets
             @player_state.ammo_shells = @player_state.max_shells
             @player_state.ammo_rockets = @player_state.max_rockets
