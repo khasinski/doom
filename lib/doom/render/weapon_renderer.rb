@@ -26,7 +26,7 @@ module Doom
         return unless weapon_data
 
         # Get the appropriate frame
-        sprite = if @player.attacking && weapon_data[:fire]
+        sprite = if @player.attacking && weapon_data[:fire]&.any?
                    frame = @player.attack_frame.clamp(0, weapon_data[:fire].length - 1)
                    weapon_data[:fire][frame]
                  else
