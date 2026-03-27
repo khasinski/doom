@@ -44,6 +44,7 @@ module Doom
         @skull_frame = 0
         @skull_tic = 0
         @selected_skill = SKILL_MEDIUM  # Default difficulty
+        @game_started = false
 
         load_graphics
       end
@@ -90,6 +91,7 @@ module Doom
 
       def dismiss
         @state = STATE_NONE
+        @game_started = true
       end
 
       def show
@@ -188,7 +190,13 @@ module Doom
             return :quit
           end
         when :escape
-          @state = STATE_TITLE
+          if @game_started
+            # Resume game
+            @state = STATE_NONE
+            return :resume
+          else
+            @state = STATE_TITLE
+          end
         end
         nil
       end
@@ -202,6 +210,7 @@ module Doom
         when :enter
           @selected_skill = SKILL_ITEMS[@cursor]
           @state = STATE_NONE
+          @game_started = true
           return :start_game
         when :escape
           @state = STATE_MAIN

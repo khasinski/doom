@@ -781,6 +781,9 @@ module Doom
             case result
             when :start_game
               apply_difficulty(@menu.selected_skill)
+            when :resume
+              @mouse_captured = true
+              SDLKeyboardGrab.grab!
             when :quit
               close
             end
@@ -791,13 +794,10 @@ module Doom
         case id
         when Gosu::KB_ESCAPE
           SDLKeyboardGrab.release!
-          if @mouse_captured
-            @mouse_captured = false
-            self.mouse_x = width / 2
-            self.mouse_y = height / 2
-          else
-            close
-          end
+          @mouse_captured = false
+          self.mouse_x = width / 2
+          self.mouse_y = height / 2
+          @menu&.show
         when Gosu::MS_LEFT, Gosu::KB_TAB
           unless @mouse_captured
             @mouse_captured = true
