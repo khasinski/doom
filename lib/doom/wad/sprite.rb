@@ -206,6 +206,11 @@ module Doom
         load_sprite_frame(prefix, frame_letter, rotation)
       end
 
+      # Get a frame by explicit prefix (for barrel explosions where prefix differs from thing type)
+      def get_frame_by_prefix(prefix, frame_letter)
+        load_sprite_frame(prefix, frame_letter, 0)
+      end
+
       private
 
       def build_sprite_index

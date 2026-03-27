@@ -22,13 +22,21 @@ module Doom
         64   => 700,  # Archvile
         71   => 400,  # Pain Elemental
         84   => 20,   # Wolfenstein SS
+        2035 => 20,   # Explosive barrel
       }.freeze
 
       MONSTER_RADIUS = {
         3004 => 20, 9 => 20, 3001 => 20, 3002 => 30, 58 => 30,
         3003 => 24, 69 => 24, 3005 => 31, 3006 => 16, 16 => 40,
         7 => 128, 65 => 20, 64 => 20, 71 => 31, 84 => 20,
+        2035 => 10,  # Barrel
       }.freeze
+
+      # Barrel (explosive, not a monster but damageable)
+      BARREL_TYPE = 2035
+      BARREL_HP = 20
+      BARREL_SPLASH_RADIUS = 128.0
+      BARREL_SPLASH_DAMAGE = 128
 
       # Normal death frame sequences per sprite prefix (rotation 0 only)
       # Identified by sprite heights: frames go from standing height to flat on ground
@@ -46,6 +54,7 @@ module Doom
         'CPOS' => %w[H I J K L M N],   # Heavy Weapon Dude
         'PAIN' => %w[H I J K L M],     # Pain Elemental
         'SSWV' => %w[I J K L M],       # Wolfenstein SS
+        'BEXP' => %w[A B C D E],       # Barrel explosion
       }.freeze
 
       DEATH_ANIM_TICS = 6  # Tics per death frame
@@ -81,7 +90,14 @@ module Doom
         @pain_until = {}     # thing_idx => tic when pain ends
         @projectiles = []    # Active projectiles in flight
         @explosions = []     # Active explosions (for rendering)
+        @player_x = 0.0
+        @player_y = 0.0
         @tic = 0
+      end
+
+      def update_player_pos(x, y)
+        @player_x = x
+        @player_y = y
       end
 
       attr_reader :dead_things, :projectiles, :explosions
@@ -94,19 +110,26 @@ module Doom
         @dead_things.key?(thing_idx)
       end
 
-      # Get the current death frame sprite for a dead monster
+      # Get the current death frame sprite for a dead monster/barrel
       def death_sprite(thing_idx, thing_type, viewer_angle, thing_angle)
         info = @dead_things[thing_idx]
         return nil unless info
 
-        frames = DEATH_FRAMES[info[:prefix]]
+        prefix = info[:prefix]
+        frames = DEATH_FRAMES[prefix]
         return nil unless frames
 
         elapsed = @tic - info[:tic]
         frame_idx = (elapsed / DEATH_ANIM_TICS).clamp(0, frames.size - 1)
         frame_letter = frames[frame_idx]
 
-        @sprites.get_frame(thing_type, frame_letter, viewer_angle, thing_angle)
+        # Use prefix directly if it differs from the thing's sprite (e.g. BEXP for barrels)
+        thing_prefix = @sprites.prefix_for(thing_type)
+        if prefix != thing_prefix
+          @sprites.get_frame_by_prefix(prefix, frame_letter)
+        else
+          @sprites.get_frame(thing_type, frame_letter, viewer_angle, thing_angle)
+        end
       end
 
       # Called each game tic
@@ -319,14 +342,52 @@ module Doom
         @monster_hp[thing_idx] -= damage
 
         if @monster_hp[thing_idx] <= 0
-          prefix = @sprites.prefix_for(thing.type)
-          @dead_things[thing_idx] = { tic: @tic, prefix: prefix } if prefix
-        else
-          # Pain state: monster flinches and stops moving/attacking
-          pain_chance = PAIN_CHANCE[thing.type] || 128
-          if rand(256) < pain_chance
-            @pain_until[thing_idx] = @tic + PAIN_DURATION
+          return if @dead_things[thing_idx]  # Already dead
+
+          if thing.type == BARREL_TYPE
+            # Barrel explodes: use BEXP explosion frames, deal splash damage
+            @dead_things[thing_idx] = { tic: @tic, prefix: 'BEXP' }
+            barrel_explode(thing.x, thing.y, thing_idx)
+          else
+            prefix = @sprites.prefix_for(thing.type)
+            @dead_things[thing_idx] = { tic: @tic, prefix: prefix } if prefix
           end
+        else
+          # Pain state: monster flinches (not barrels)
+          if thing.type != BARREL_TYPE
+            pain_chance = PAIN_CHANCE[thing.type] || 128
+            if rand(256) < pain_chance
+              @pain_until[thing_idx] = @tic + PAIN_DURATION
+            end
+          end
+        end
+      end
+
+      def barrel_explode(x, y, barrel_idx)
+        @explosions << { x: x, y: y, tic: @tic }
+
+        # Splash damage to monsters and other barrels (chain reactions!)
+        @map.things.each_with_index do |thing, idx|
+          next unless MONSTER_HP[thing.type]
+          next if @dead_things[idx]
+          next if idx == barrel_idx
+
+          dx = x - thing.x
+          dy = y - thing.y
+          dist = Math.sqrt(dx * dx + dy * dy)
+          next if dist >= BARREL_SPLASH_RADIUS
+
+          damage = ((BARREL_SPLASH_DAMAGE * (1.0 - dist / BARREL_SPLASH_RADIUS))).to_i
+          apply_damage(idx, damage) if damage > 0
+        end
+
+        # Splash damage to player
+        dx = x - @player_x
+        dy = y - @player_y
+        dist = Math.sqrt(dx * dx + dy * dy)
+        if dist < BARREL_SPLASH_RADIUS
+          damage = ((BARREL_SPLASH_DAMAGE * (1.0 - dist / BARREL_SPLASH_RADIUS))).to_i
+          @player.take_damage(damage) if damage > 0
         end
       end
 
