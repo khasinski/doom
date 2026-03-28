@@ -302,17 +302,21 @@ module Doom
 
       def hits_wall?(x1, y1, x2, y2)
         @map.linedefs.each do |ld|
-          # One-sided walls always block
-          blocks = ld.sidedef_left == 0xFFFF || (ld.flags & 0x0001 != 0)
-          unless blocks
-            next unless ld.sidedef_left < 0xFFFF
+          # One-sided walls always block projectiles
+          if ld.sidedef_left == 0xFFFF
+            blocks = true
+          elsif ld.sidedef_left < 0xFFFF
+            # Two-sided: only block if opening is too small for a projectile
+            # BLOCKING flag (0x0001) stops players/monsters but NOT projectiles
             front = @map.sidedefs[ld.sidedef_right]
             back = @map.sidedefs[ld.sidedef_left]
             fs = @map.sectors[front.sector]
             bs = @map.sectors[back.sector]
             max_floor = [fs.floor_height, bs.floor_height].max
             min_ceil = [fs.ceiling_height, bs.ceiling_height].min
-            blocks = (min_ceil - max_floor) < 56
+            blocks = (min_ceil - max_floor) < 1  # Closed door/wall
+          else
+            next
           end
           next unless blocks
 
