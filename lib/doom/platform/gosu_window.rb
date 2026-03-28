@@ -158,6 +158,7 @@ module Doom
           @sector_effects&.update
           @player_state&.update_viewheight
           @player_state&.update_attack  # Attack timing at 35fps like DOOM
+          @combat&.update_player_pos(@renderer.player_x, @renderer.player_y)
           @combat&.update
           @monster_ai&.update(@renderer.player_x, @renderer.player_y)
 
@@ -191,7 +192,6 @@ module Doom
         end
 
         # Pass combat state to renderer for death frame rendering
-        @combat&.update_player_pos(@renderer.player_x, @renderer.player_y)
         @renderer.combat = @combat
         @renderer.monster_ai = @monster_ai
         @renderer.leveltime = @leveltime

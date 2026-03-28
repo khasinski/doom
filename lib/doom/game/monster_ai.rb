@@ -69,10 +69,25 @@ module Doom
 
       ATTACK_FRAME_TICS = 8  # Tics per attack animation frame
 
+      # Which frame index the actual attack happens on (matching Chocolate Doom)
+      # Zombieman: A_PosAttack on frame F (index 1)
+      # Imp: A_TroopAttack on frame G (index 2)
+      # Demon: A_SargAttack on frame F (index 1)
+      FIRE_FRAME_INDEX = {
+        'POSS' => 1,  # Zombieman: E=raise, F=fire
+        'SPOS' => 1,  # Shotgun Guy: E=raise, F=fire
+        'TROO' => 2,  # Imp: E=raise, F=aim, G=throw, H=recover
+        'SARG' => 1,  # Demon: E=open, F=bite, G=close
+        'HEAD' => 1,  # Cacodemon: E=charge, F=fire
+        'BOSS' => 1,  # Baron: E=raise, F=throw, G=recover
+        'BOS2' => 1,  # Hell Knight
+        'CPOS' => 1,  # Heavy Weapon Dude
+      }.freeze
+
       MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
                                 :active, :chase_timer, :type, :attack_cooldown,
                                 :reactiontime, :last_saw_player,
-                                :attacking, :attack_frame_tic)
+                                :attacking, :attack_frame_tic, :fired)
 
       def initialize(map, combat, player_state, sprites_mgr = nil)
         @map = map
@@ -91,7 +106,7 @@ module Doom
           mon = MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
             DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME, 0,
-            false, 0
+            false, 0, false
           )
           @monsters << mon
           @monster_by_thing_idx[idx] = mon
@@ -117,9 +132,19 @@ module Doom
               prefix = @sprites_mgr&.prefix_for(mon.type)
               frames = ATTACK_FRAMES[prefix]
               total_tics = (frames&.size || 2) * ATTACK_FRAME_TICS
+
+              # Fire on the correct frame (matching Chocolate Doom)
+              fire_idx = FIRE_FRAME_INDEX[prefix] || 1
+              fire_tic = fire_idx * ATTACK_FRAME_TICS
+              if !mon.fired && mon.attack_frame_tic >= fire_tic
+                execute_attack(mon, player_x, player_y)
+                mon.fired = true
+              end
+
               if mon.attack_frame_tic >= total_tics
                 mon.attacking = false
                 mon.attack_frame_tic = 0
+                mon.fired = false
               end
               next
             end
@@ -213,8 +238,8 @@ module Doom
         thing.angle = target_angle.round.to_i
       end
 
+      # Decide whether to start an attack (does NOT apply damage yet)
       def try_attack(mon, player_x, player_y, dist)
-        # DOOM's reactiontime: monsters wait before first attack
         if mon.reactiontime > 0
           mon.reactiontime -= 1
           return false
@@ -226,40 +251,50 @@ module Doom
         case atk[:type]
         when :melee
           return false if dist > MELEE_RANGE + (Combat::MONSTER_RADIUS[mon.type] || 20)
-          # Melee always hits
-          min_dmg, max_dmg = atk[:damage]
-          damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
-          @player.take_damage(damage) if damage > 0
-
-        when :hitscan
+        when :hitscan, :projectile
           return false if dist > MISSILE_RANGE
           return false unless has_line_of_sight?(mon.x, mon.y, player_x, player_y)
           return false if rand(256) < dist
           if (mon.type == 3004 || mon.type == 9) && dist > 196
             return false if rand(2) == 0
           end
-          # Hitscan accuracy
+        end
+
+        # Start attack animation (damage applied later on fire frame)
+        mon.attacking = true
+        mon.attack_frame_tic = 0
+        mon.fired = false
+        mon.attack_cooldown = atk[:cooldown]
+        true
+      end
+
+      # Called on the fire frame of the attack animation
+      def execute_attack(mon, player_x, player_y)
+        atk = MONSTER_ATTACK[mon.type]
+        return unless atk
+
+        dx = player_x - mon.x
+        dy = player_y - mon.y
+        dist = Math.sqrt(dx * dx + dy * dy)
+
+        case atk[:type]
+        when :melee
+          min_dmg, max_dmg = atk[:damage]
+          damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
+          @player.take_damage(damage) if damage > 0
+
+        when :hitscan
           hit_chance = HITSCAN_ACCURACY * (1.0 - dist / (MISSILE_RANGE * 2))
           hit_chance = [hit_chance, 0.15].max
-          unless rand > hit_chance
+          if rand < hit_chance
             min_dmg, max_dmg = atk[:damage]
             damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
             @player.take_damage(damage) if damage > 0
           end
 
         when :projectile
-          return false if dist > MISSILE_RANGE
-          return false unless has_line_of_sight?(mon.x, mon.y, player_x, player_y)
-          return false if rand(256) < dist
-          # Spawn a visible fireball projectile
           @combat.spawn_monster_projectile(mon.x, mon.y, 41.0, mon.type, @damage_multiplier)
         end
-
-        # Start attack animation (monster stops moving)
-        mon.attacking = true
-        mon.attack_frame_tic = 0
-        mon.attack_cooldown = atk[:cooldown]
-        true
       end
 
       def try_move(mon, speed)
