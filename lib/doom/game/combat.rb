@@ -253,7 +253,7 @@ module Doom
                 end
               end
               # Spawn fireball explosion
-              @explosions << { x: new_x, y: new_y, tic: @tic, sprite: proj.sprite_prefix }
+              @explosions << { x: new_x, y: new_y, z: proj.z, tic: @tic, sprite: proj.sprite_prefix }
               hit = true
             end
           end

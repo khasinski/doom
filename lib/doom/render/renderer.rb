@@ -1354,6 +1354,9 @@ module Doom
         render_projectiles if @combat
       end
 
+      # Stub for projectiles/explosions that carries a z height
+      ProjectileStub = Struct.new(:x, :y, :angle, :type, :flags, :z)
+
       def render_projectiles
         # Render all projectiles in flight
         @combat.projectiles.each do |proj|
@@ -1376,32 +1379,27 @@ module Doom
           next unless proj_sprite
 
           screen_x = HALF_WIDTH + (view_x * @projection / view_y)
-          thing_stub = Map::Thing.new(proj.x, proj.y, 0, 0, 0)
-          visible = VisibleSprite.new(thing_stub, proj_sprite, view_x, view_y, view_y, screen_x)
+          stub = ProjectileStub.new(proj.x, proj.y, 0, 0, 0, proj.z)
+          visible = VisibleSprite.new(stub, proj_sprite, view_x, view_y, view_y, screen_x)
           draw_sprite(visible)
         end
 
-        # Render explosions
+        # Render explosions at projectile height
         @combat.explosions.each do |expl|
           view_x, view_y = transform_point(expl[:x], expl[:y])
           next if view_y <= 0
           elapsed = (@combat.instance_variable_get(:@tic) - expl[:tic])
           frame_idx = (elapsed / 4).clamp(0, 2)
 
-          # Use the explosion's own sprite prefix (MISL for rockets, BAL1 for imp, etc.)
           prefix = expl[:sprite] || 'MISL'
-          # Explosion frames: C, D, E for fireballs; B, C, D for rockets
-          if prefix == 'MISL'
-            frame_letter = %w[B C D][frame_idx]
-          else
-            frame_letter = %w[C D E][frame_idx]
-          end
+          frame_letter = (prefix == 'MISL') ? %w[B C D][frame_idx] : %w[C D E][frame_idx]
 
           expl_sprite = @sprites.send(:load_sprite_frame, prefix, frame_letter, 0)
           next unless expl_sprite
           screen_x = HALF_WIDTH + (view_x * @projection / view_y)
-          thing_stub = Map::Thing.new(expl[:x], expl[:y], 0, 0, 0)
-          visible = VisibleSprite.new(thing_stub, expl_sprite, view_x, view_y, view_y, screen_x)
+          expl_z = expl[:z] || @player_z
+          stub = ProjectileStub.new(expl[:x], expl[:y], 0, 0, 0, expl_z)
+          visible = VisibleSprite.new(stub, expl_sprite, view_x, view_y, view_y, screen_x)
           draw_sprite(visible)
         end
       end
@@ -1437,8 +1435,14 @@ module Doom
 
         # Calculate sprite world Z positions
         thing_floor = sector ? sector.floor_height : 0
-        sprite_gz = thing_floor  # bottom of sprite in world Z
-        sprite_gzt = thing_floor + sprite.top_offset  # top of sprite in world Z
+        # ProjectileStub carries a z field for flight height
+        if thing.is_a?(ProjectileStub) && thing.z
+          base_z = thing.z - sprite.height / 2  # Center sprite at projectile height
+        else
+          base_z = thing_floor
+        end
+        sprite_gz = base_z  # bottom of sprite in world Z
+        sprite_gzt = base_z + sprite.top_offset  # top of sprite in world Z
 
         # Initialize per-column clip arrays (-2 = not yet clipped)
         clipbot = Array.new(SCREEN_WIDTH, -2)

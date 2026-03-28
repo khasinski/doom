@@ -582,10 +582,8 @@ module Doom
           return segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
         end
 
-        # BLOCKING flag blocks crossing even on two-sided linedefs
-        if (linedef.flags & 0x0001) != 0
-          return segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
-        end
+        # Two-sided: BLOCKING flag (0x0001) only blocks monsters, not players
+        # Player is blocked by step height and headroom checks below
 
         # Two-sided: check if impassable (high step OR low ceiling)
         front_side = @map.sidedefs[linedef.sidedef_right]
