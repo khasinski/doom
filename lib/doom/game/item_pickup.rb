@@ -50,8 +50,8 @@ module Doom
         38 => { cat: :key, key: :red_skull },
       }.freeze
 
-      attr_reader :picked_up
-      attr_accessor :ammo_multiplier, :hidden_things  # 2x on Baby difficulty
+      attr_reader :picked_up, :pickup_message, :pickup_flash
+      attr_accessor :ammo_multiplier, :hidden_things
 
       def initialize(map, player_state, hidden_things = {})
         @map = map
@@ -59,6 +59,13 @@ module Doom
         @picked_up = {}
         @hidden_things = hidden_things
         @ammo_multiplier = 1
+        @pickup_message = nil
+        @pickup_flash = 0  # Tics remaining for yellow screen flash
+      end
+
+      # Decay pickup flash each tic
+      def update_flash
+        @pickup_flash -= 1 if @pickup_flash > 0
       end
 
       def update(player_x, player_y)
@@ -68,16 +75,34 @@ module Doom
           item = ITEMS[thing.type]
           next unless item
 
-          # DOOM uses bounding box overlap: abs(dx) < sum_of_radii
           dx = (player_x - thing.x).abs
           dy = (player_y - thing.y).abs
           next if dx >= PICKUP_DIST || dy >= PICKUP_DIST
 
           if try_pickup(item)
             @picked_up[idx] = true
+            @pickup_message = PICKUP_MESSAGES[thing.type]
+            @pickup_flash = 8  # Yellow flash for ~0.23 seconds
           end
         end
       end
+
+      PICKUP_MESSAGES = {
+        2001 => "A SHOTGUN!", 2002 => "A CHAINGUN!", 2003 => "A ROCKET LAUNCHER!",
+        2004 => "A PLASMA RIFLE!", 2005 => "A CHAINSAW!", 2006 => "A BFG9000!",
+        2007 => "PICKED UP A CLIP.", 2048 => "PICKED UP A BOX OF BULLETS.",
+        2008 => "PICKED UP 4 SHOTGUN SHELLS.", 2049 => "PICKED UP A BOX OF SHELLS.",
+        2010 => "PICKED UP A ROCKET.", 2046 => "PICKED UP A BOX OF ROCKETS.",
+        17 => "PICKED UP AN ENERGY CELL.", 2047 => "PICKED UP AN ENERGY CELL PACK.",
+        8 => "PICKED UP A BACKPACK FULL OF AMMO!",
+        2011 => "PICKED UP A STIMPACK.", 2012 => "PICKED UP A MEDIKIT.",
+        2014 => "PICKED UP A HEALTH BONUS.", 2015 => "PICKED UP AN ARMOR BONUS.",
+        2018 => "PICKED UP THE ARMOR.", 2019 => "PICKED UP THE MEGAARMOR!",
+        2013 => "SUPERCHARGE!",
+        5 => "PICKED UP A BLUE KEYCARD.", 6 => "PICKED UP A YELLOW KEYCARD.",
+        13 => "PICKED UP A RED KEYCARD.", 40 => "PICKED UP A BLUE SKULL KEY.",
+        39 => "PICKED UP A YELLOW SKULL KEY.", 38 => "PICKED UP A RED SKULL KEY.",
+      }.freeze
 
       private
 

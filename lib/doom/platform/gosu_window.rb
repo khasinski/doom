@@ -99,6 +99,7 @@ module Doom
         @combat = combat
         @monster_ai = monster_ai
         @menu = menu
+        @doom_font = menu&.font
         @damage_multiplier = 1.0
         @skill = Game::Menu::SKILL_MEDIUM
         @skill_hidden = {}  # Thing indices hidden by difficulty
@@ -165,6 +166,7 @@ module Doom
           @monster_ai&.update(@renderer.player_x, @renderer.player_y)
 
           @player_state&.update_damage_count
+          @item_pickup&.update_flash
 
           # Sector damage (nukage, lava, etc.) every 32 tics
           if @player_state && !@player_state.dead && (@leveltime % 32 == 0)
@@ -207,6 +209,11 @@ module Doom
         end
         if @status_bar
           @status_bar.render(@renderer.framebuffer)
+        end
+
+        # Pickup message (drawn into framebuffer with DOOM font)
+        if @doom_font && @item_pickup&.pickup_message && @item_pickup.pickup_flash > 0
+          @doom_font.draw_text(@renderer.framebuffer, @item_pickup.pickup_message, 2, 2)
         end
 
         # Red tint when dead
@@ -724,7 +731,14 @@ module Doom
           draw_automap
         else
           # Select palette: red tint when taking damage (palettes 1-8)
-          pal_idx = @player_state ? @player_state.damage_count.clamp(0, 8) : 0
+          # Pain palette (1-8 red), pickup palette (9 yellow)
+          pal_idx = if @item_pickup && @item_pickup.pickup_flash > 0
+                      9  # Yellow flash for item pickup
+                    elsif @player_state
+                      @player_state.damage_count.clamp(0, 8)
+                    else
+                      0
+                    end
           active_pal = @all_palette_rgba[pal_idx]
           rgba = @renderer.framebuffer.map { |idx| active_pal[idx] }.join
 
