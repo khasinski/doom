@@ -1350,8 +1350,11 @@ module Doom
           draw_sprite(vs)
         end
 
-        # Draw projectiles and explosions
-        render_projectiles if @combat
+        # Draw projectiles, explosions, and bullet puffs
+        if @combat
+          render_projectiles
+          render_puffs
+        end
       end
 
       # Stub for projectiles/explosions that carries a z height
@@ -1400,6 +1403,22 @@ module Doom
           expl_z = expl[:z] || @player_z
           stub = ProjectileStub.new(expl[:x], expl[:y], 0, 0, 0, expl_z)
           visible = VisibleSprite.new(stub, expl_sprite, view_x, view_y, view_y, screen_x)
+          draw_sprite(visible)
+        end
+      end
+
+      def render_puffs
+        @combat.puffs.each do |puff|
+          view_x, view_y = transform_point(puff[:x], puff[:y])
+          next if view_y <= 0
+          elapsed = @combat.instance_variable_get(:@tic) - puff[:tic]
+          frame_idx = (elapsed / 3).clamp(0, 3)
+          frame_letter = %w[A B C D][frame_idx]
+          puff_sprite = @sprites.send(:load_sprite_frame, 'PUFF', frame_letter, 0)
+          next unless puff_sprite
+          screen_x = HALF_WIDTH + (view_x * @projection / view_y)
+          stub = ProjectileStub.new(puff[:x], puff[:y], 0, 0, 0, puff[:z])
+          visible = VisibleSprite.new(stub, puff_sprite, view_x, view_y, view_y, screen_x)
           draw_sprite(visible)
         end
       end

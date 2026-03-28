@@ -106,6 +106,7 @@ module Doom
         @pain_until = {}     # thing_idx => tic when pain ends
         @projectiles = []    # Active projectiles in flight
         @explosions = []     # Active explosions (for rendering)
+        @puffs = []          # Bullet puff effects
         @player_x = 0.0
         @player_y = 0.0
         @player_z = 0.0
@@ -150,7 +151,7 @@ module Doom
         )
       end
 
-      attr_reader :dead_things, :projectiles, :explosions
+      attr_reader :dead_things, :projectiles, :explosions, :puffs
 
       def in_pain?(thing_idx)
         @pain_until[thing_idx] && @tic < @pain_until[thing_idx]
@@ -194,6 +195,7 @@ module Doom
         @tic += 1
         update_projectiles
         update_explosions
+        @puffs.reject! { |p| @tic - p[:tic] > 12 }
       end
 
       # Fire the current weapon
@@ -390,6 +392,12 @@ module Doom
               best_idx = idx
             end
           end
+
+          # Spawn bullet puff at hit location
+          puff_x = px + ca * best_dist
+          puff_y = py + sa * best_dist
+          puff_z = @player_z
+          @puffs << { x: puff_x, y: puff_y, z: puff_z, tic: @tic }
 
           if best_idx
             damage = (rand(3) + 1) * multiplier
