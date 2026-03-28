@@ -704,8 +704,10 @@ module Doom
       def draw
         if @menu&.active?
           if @menu.needs_background?
-            # Render game view as background, then overlay menu on top
+            # Render game view + HUD as background, then overlay menu on top
             @renderer.render_frame
+            @weapon_renderer&.render(@renderer.framebuffer) unless @player_state&.dead
+            @status_bar&.render(@renderer.framebuffer)
             fb = @renderer.framebuffer.dup
           else
             # Title screen: black background

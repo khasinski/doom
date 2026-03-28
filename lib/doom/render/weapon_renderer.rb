@@ -38,10 +38,10 @@ module Doom
         bob_x = @player.attacking ? 0 : @player.weapon_bob_x.to_i
         bob_y = @player.attacking ? 0 : @player.weapon_bob_y.to_i
 
-        # dc_yl = centery - texturemid, where texturemid = centery - (WEAPONTOP - topoffset)
-        # Simplifies to: dc_yl = WEAPONTOP - topoffset
+        # Chocolate Doom on 200px: dc_yl = WEAPONTOP - topoffset
+        # Our screen is 240px, so add 40 to shift weapon down
         x = 1 - sprite.left_offset + bob_x
-        y = WEAPONTOP - sprite.top_offset + bob_y
+        y = WEAPONTOP - sprite.top_offset + (SCREEN_HEIGHT - 200) + bob_y
 
         draw_weapon_sprite(framebuffer, sprite, x, y)
 
@@ -88,7 +88,7 @@ module Doom
         # Flash uses same positioning as weapon sprite (built-in offsets)
         # Same positioning formula as weapon sprite
         flash_x = 1 - flash_sprite.left_offset
-        flash_y = WEAPONTOP - flash_sprite.top_offset
+        flash_y = WEAPONTOP - flash_sprite.top_offset + (SCREEN_HEIGHT - 200)
 
         draw_weapon_sprite(framebuffer, flash_sprite, flash_x, flash_y)
       end
