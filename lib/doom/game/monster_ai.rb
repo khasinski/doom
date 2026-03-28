@@ -293,7 +293,10 @@ module Doom
           end
 
         when :projectile
-          @combat.spawn_monster_projectile(mon.x, mon.y, 41.0, mon.type, @damage_multiplier)
+          # P_SpawnMissile: z = source->z + 32 (chest height)
+          sector = @map.sector_at(mon.x, mon.y)
+          spawn_z = (sector ? sector.floor_height : 0) + 32
+          @combat.spawn_monster_projectile(mon.x, mon.y, spawn_z, mon.type, @damage_multiplier)
         end
       end
 

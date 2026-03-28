@@ -1434,15 +1434,16 @@ module Doom
         return if x1 > x2
 
         # Calculate sprite world Z positions
+        # In Chocolate Doom: sprite_gz = mobj->z, sprite_gzt = mobj->z + spritetopoffset
+        # For regular things, mobj->z = sector floor height
+        # For projectiles, mobj->z = the projectile's flight height
         thing_floor = sector ? sector.floor_height : 0
-        # ProjectileStub carries a z field for flight height
         if thing.is_a?(ProjectileStub) && thing.z
-          base_z = thing.z - sprite.height / 2  # Center sprite at projectile height
+          sprite_gz = thing.z
         else
-          base_z = thing_floor
+          sprite_gz = thing_floor
         end
-        sprite_gz = base_z  # bottom of sprite in world Z
-        sprite_gzt = base_z + sprite.top_offset  # top of sprite in world Z
+        sprite_gzt = sprite_gz + sprite.top_offset
 
         # Initialize per-column clip arrays (-2 = not yet clipped)
         clipbot = Array.new(SCREEN_WIDTH, -2)

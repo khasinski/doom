@@ -470,18 +470,21 @@ module Doom
           v1 = @map.vertices[ld.v1]
           v2 = @map.vertices[ld.v2]
 
-          # One-sided always blocks; two-sided only if impassable
-          blocks = (ld.sidedef_left == 0xFFFF) || (ld.flags & 0x0001 != 0)
-          unless blocks
-            next unless ld.sidedef_left < 0xFFFF
+          # One-sided always blocks hitscan
+          if ld.sidedef_left == 0xFFFF
+            blocks = true
+          elsif ld.sidedef_left < 0xFFFF
+            # Two-sided: only blocks if opening is too small
+            # BLOCKING flag does NOT stop hitscan (only affects movement)
             front = @map.sidedefs[ld.sidedef_right]
             back = @map.sidedefs[ld.sidedef_left]
             fs = @map.sectors[front.sector]
             bs = @map.sectors[back.sector]
-            # Blocks if opening is too small (step or low ceiling)
             max_floor = [fs.floor_height, bs.floor_height].max
             min_ceil = [fs.ceiling_height, bs.ceiling_height].min
             blocks = (min_ceil - max_floor) < 56
+          else
+            next
           end
           next unless blocks
 

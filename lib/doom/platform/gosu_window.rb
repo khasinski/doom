@@ -630,8 +630,8 @@ module Doom
         # One-sided linedef (wall) always blocks
         return true if linedef.sidedef_left == 0xFFFF
 
-        # BLOCKING flag (0x0001) blocks even on two-sided linedefs (e.g., windows)
-        return true if (linedef.flags & 0x0001) != 0
+        # Two-sided: BLOCKING flag only affects monsters (BLOCKMONSTERS=0x0002)
+        # Player checks step height and headroom only (matching Chocolate Doom PIT_CheckLine)
 
         # Two-sided: check if impassable (high step OR low ceiling)
         front_side = @map.sidedefs[linedef.sidedef_right]
