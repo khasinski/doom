@@ -100,6 +100,8 @@ module Doom
         @monster_ai = monster_ai
         @menu = menu
         @damage_multiplier = 1.0
+        @skill = Game::Menu::SKILL_MEDIUM
+        @skill_hidden = {}  # Thing indices hidden by difficulty
         @last_floor_height = nil
         @move_momx = 0.0
         @move_momy = 0.0
@@ -188,7 +190,7 @@ module Doom
         # Check item pickups
         if @item_pickup
           @item_pickup.update(@renderer.player_x, @renderer.player_y)
-          @renderer.hidden_things = @item_pickup.picked_up
+          @renderer.hidden_things = @skill_hidden.merge(@item_pickup.picked_up)
         end
 
         # Pass combat state to renderer for death frame rendering
@@ -556,6 +558,7 @@ module Doom
         combined_radius = PLAYER_RADIUS
         picked = @item_pickup&.picked_up
         @map.things.each_with_index do |thing, idx|
+          next if @skill_hidden[idx]
           next if picked && picked[idx]
           next if @combat && @combat.dead?(idx)
           thing_radius = SOLID_THING_RADIUS[thing.type]
@@ -630,8 +633,9 @@ module Doom
         # One-sided linedef (wall) always blocks
         return true if linedef.sidedef_left == 0xFFFF
 
-        # Two-sided: BLOCKING flag only affects monsters (BLOCKMONSTERS=0x0002)
-        # Player checks step height and headroom only (matching Chocolate Doom PIT_CheckLine)
+        # ML_BLOCKING on two-sided: handled by crosses_blocking_linedef? (crossing check)
+        # Don't check here -- linedef_blocks? is a proximity check and would
+        # block the player when standing near the line, not just crossing it
 
         # Two-sided: check if impassable (high step OR low ceiling)
         front_side = @map.sidedefs[linedef.sidedef_right]
@@ -857,7 +861,7 @@ module Doom
         @item_pickup = Game::ItemPickup.new(@map, @player_state) if @item_pickup
         @combat = Game::Combat.new(@map, @player_state, sprites) if @combat && sprites
         sprites_mgr = @combat&.instance_variable_get(:@sprites)
-        @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state, sprites_mgr) if @monster_ai && @combat
+        @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state, sprites_mgr, @skill_hidden) if @monster_ai && @combat
 
         # Re-apply active cheats from menu options
         if @menu
@@ -902,7 +906,26 @@ module Doom
         end
       end
 
+      # DOOM thing flags: bit 0 = skill 1-2, bit 1 = skill 3, bit 2 = skill 4-5
+      def compute_skill_hidden(skill)
+        flag_bit = case skill
+                   when Game::Menu::SKILL_BABY, Game::Menu::SKILL_EASY then 0x0001
+                   when Game::Menu::SKILL_MEDIUM then 0x0002
+                   when Game::Menu::SKILL_HARD, Game::Menu::SKILL_NIGHTMARE then 0x0004
+                   else 0x0007
+                   end
+        hidden = {}
+        @map.things.each_with_index do |thing, idx|
+          # Multiplayer-only things (bit 4) are hidden in single player
+          if (thing.flags & 0x0010) != 0 || (thing.flags & flag_bit) == 0
+            hidden[idx] = true
+          end
+        end
+        hidden
+      end
+
       def apply_difficulty(skill)
+        @skill = skill
         @damage_multiplier = case skill
                              when Game::Menu::SKILL_BABY then 0.5
                              when Game::Menu::SKILL_EASY then 0.75
@@ -911,6 +934,9 @@ module Doom
                              when Game::Menu::SKILL_NIGHTMARE then 1.5
                              else 1.0
                              end
+
+        # Compute which things are hidden by this skill level
+        @skill_hidden = compute_skill_hidden(skill)
 
         # Baby mode: start with some armor
         if skill == Game::Menu::SKILL_BABY

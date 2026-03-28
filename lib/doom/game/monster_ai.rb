@@ -89,7 +89,7 @@ module Doom
                                 :reactiontime, :last_saw_player,
                                 :attacking, :attack_frame_tic, :fired)
 
-      def initialize(map, combat, player_state, sprites_mgr = nil)
+      def initialize(map, combat, player_state, sprites_mgr = nil, hidden_things = {})
         @map = map
         @combat = combat
         @player = player_state
@@ -101,8 +101,9 @@ module Doom
         @monster_by_thing_idx = {}
 
         map.things.each_with_index do |thing, idx|
+          next if hidden_things[idx]  # Filtered by difficulty
           next unless Combat::MONSTER_HP[thing.type]
-          next if thing.type == Combat::BARREL_TYPE  # Barrels are damageable but not monsters
+          next if thing.type == Combat::BARREL_TYPE
           mon = MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
             DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME, 0,
