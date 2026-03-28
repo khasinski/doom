@@ -862,8 +862,8 @@ module Doom
 
         # Reset item pickup, combat, and monster AI state
         sprites = @combat&.instance_variable_get(:@sprites)
-        @item_pickup = Game::ItemPickup.new(@map, @player_state) if @item_pickup
-        @combat = Game::Combat.new(@map, @player_state, sprites) if @combat && sprites
+        @item_pickup = Game::ItemPickup.new(@map, @player_state, @skill_hidden) if @item_pickup
+        @combat = Game::Combat.new(@map, @player_state, sprites, @skill_hidden) if @combat && sprites
         sprites_mgr = @combat&.instance_variable_get(:@sprites)
         @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state, sprites_mgr, @skill_hidden) if @monster_ai && @combat
 

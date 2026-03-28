@@ -51,17 +51,19 @@ module Doom
       }.freeze
 
       attr_reader :picked_up
-      attr_accessor :ammo_multiplier  # 2x on Baby difficulty
+      attr_accessor :ammo_multiplier, :hidden_things  # 2x on Baby difficulty
 
-      def initialize(map, player_state)
+      def initialize(map, player_state, hidden_things = {})
         @map = map
         @player = player_state
-        @picked_up = {}  # thing index => true (to avoid re-picking)
+        @picked_up = {}
+        @hidden_things = hidden_things
         @ammo_multiplier = 1
       end
 
       def update(player_x, player_y)
         @map.things.each_with_index do |thing, idx|
+          next if @hidden_things[idx]
           next if @picked_up[idx]
           item = ITEMS[thing.type]
           next unless item

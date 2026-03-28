@@ -96,10 +96,11 @@ module Doom
       # Shotgun: 7 pellets, each 1*5..3*5 = 5-15
       # Fist/chainsaw: 1*2..3*2 = 2-10
 
-      def initialize(map, player_state, sprites)
+      def initialize(map, player_state, sprites, hidden_things = {})
         @map = map
         @player = player_state
         @sprites = sprites
+        @hidden_things = hidden_things
         @monster_hp = {}     # thing_idx => current HP
         @dead_things = {}    # thing_idx => { tic: death_start_tic, prefix: sprite_prefix }
         @pain_until = {}     # thing_idx => tic when pain ends
@@ -378,6 +379,7 @@ module Doom
           best_dist = wall_dist
 
           @map.things.each_with_index do |thing, idx|
+            next if @hidden_things[idx]
             next unless MONSTER_HP[thing.type]
             next if @dead_things[idx]
 
