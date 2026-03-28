@@ -74,7 +74,22 @@ module Doom
       SPLASH_RADIUS = 128.0     # Splash damage radius
       SPLASH_DAMAGE = 128       # Max splash damage at center
 
-      Projectile = Struct.new(:x, :y, :z, :dx, :dy, :type, :spawn_tic)
+      # Monster projectile definitions
+      MONSTER_PROJECTILES = {
+        imp:    { sprite: 'BAL1', speed: 10.0, damage: [3, 24], radius: 6, splash: false },
+        baron:  { sprite: 'BAL7', speed: 15.0, damage: [8, 64], radius: 6, splash: false },
+        caco:   { sprite: 'BAL2', speed: 10.0, damage: [5, 40], radius: 6, splash: false },
+      }.freeze
+
+      # Map monster type to projectile type
+      MONSTER_PROJECTILE_TYPE = {
+        3001 => :imp,     # Imp
+        3003 => :baron,   # Baron
+        69   => :baron,   # Hell Knight
+        3005 => :caco,    # Cacodemon
+      }.freeze
+
+      Projectile = Struct.new(:x, :y, :z, :dx, :dy, :type, :spawn_tic, :sprite_prefix, :target)
 
       # Weapon damage: DOOM does (P_Random()%3 + 1) * multiplier
       # Pistol/chaingun: 1*5..3*5 = 5-15 per bullet
@@ -98,6 +113,30 @@ module Doom
       def update_player_pos(x, y)
         @player_x = x
         @player_y = y
+      end
+
+      # Spawn a monster projectile (fireball, etc.)
+      def spawn_monster_projectile(monster_x, monster_y, monster_z, monster_type, damage_multiplier)
+        proj_type = MONSTER_PROJECTILE_TYPE[monster_type]
+        return unless proj_type
+
+        info = MONSTER_PROJECTILES[proj_type]
+        return unless info
+
+        dx = @player_x - monster_x
+        dy = @player_y - monster_y
+        dist = Math.sqrt(dx * dx + dy * dy)
+        return if dist < 1
+
+        # Normalize direction and apply speed
+        speed = info[:speed]
+        ndx = dx / dist * speed
+        ndy = dy / dist * speed
+
+        @projectiles << Projectile.new(
+          monster_x + ndx * 2, monster_y + ndy * 2, monster_z,
+          ndx, ndy, proj_type, @tic, info[:sprite], :player
+        )
       end
 
       attr_reader :dead_things, :projectiles, :explosions
@@ -165,44 +204,66 @@ module Doom
       private
 
       def spawn_rocket(px, py, pz, cos_a, sin_a)
-        # Spawn slightly ahead of the player
         @projectiles << Projectile.new(
           px + cos_a * 20, py + sin_a * 20, pz,
           cos_a * ROCKET_SPEED, sin_a * ROCKET_SPEED,
-          :rocket, @tic
+          :rocket, @tic, 'MISL', :monsters
         )
       end
 
       def update_projectiles
         @projectiles.reject! do |proj|
-          # Move projectile
           new_x = proj.x + proj.dx
           new_y = proj.y + proj.dy
 
-          # Check wall collision
           hit_wall = hits_wall?(proj.x, proj.y, new_x, new_y)
+          hit = false
 
-          # Check monster collision
-          hit_monster = nil
-          @map.things.each_with_index do |thing, idx|
-            next unless MONSTER_HP[thing.type]
-            next if @dead_things[idx]
-            radius = (MONSTER_RADIUS[thing.type] || 20) + ROCKET_RADIUS
-            dx = new_x - thing.x
-            dy = new_y - thing.y
-            if dx * dx + dy * dy < radius * radius
-              hit_monster = idx
-              break
+          if proj.target == :monsters
+            # Player projectile: check monster collision
+            hit_monster = nil
+            @map.things.each_with_index do |thing, idx|
+              next unless MONSTER_HP[thing.type]
+              next if @dead_things[idx]
+              radius = (MONSTER_RADIUS[thing.type] || 20) + ROCKET_RADIUS
+              dx = new_x - thing.x
+              dy = new_y - thing.y
+              if dx * dx + dy * dy < radius * radius
+                hit_monster = idx
+                break
+              end
+            end
+
+            if hit_wall || hit_monster
+              explode(new_x, new_y, hit_monster) if proj.type == :rocket
+              hit_monster ? apply_damage(hit_monster, (rand(8) + 1) * 5) : nil unless proj.type == :rocket
+              hit = true
+            end
+          elsif proj.target == :player
+            # Monster projectile: check player collision
+            player_radius = 16
+            dx = new_x - @player_x
+            dy = new_y - @player_y
+            if hit_wall || (dx * dx + dy * dy < (player_radius + 6) ** 2)
+              unless hit_wall
+                info = MONSTER_PROJECTILES[proj.type]
+                if info
+                  min_d, max_d = info[:damage]
+                  @player.take_damage(rand(min_d..max_d))
+                end
+              end
+              # Spawn fireball explosion
+              @explosions << { x: new_x, y: new_y, tic: @tic, sprite: proj.sprite_prefix }
+              hit = true
             end
           end
 
-          if hit_wall || hit_monster
-            explode(new_x, new_y, hit_monster)
-            true  # Remove projectile
+          if hit
+            true
           else
             proj.x = new_x
             proj.y = new_y
-            false # Keep projectile
+            false
           end
         end
       end
@@ -231,7 +292,7 @@ module Doom
         end
 
         # Spawn explosion visual
-        @explosions << { x: x, y: y, tic: @tic }
+        @explosions << { x: x, y: y, tic: @tic, sprite: 'MISL' }
       end
 
       def update_explosions
@@ -371,7 +432,7 @@ module Doom
       end
 
       def barrel_explode(x, y, barrel_idx)
-        @explosions << { x: x, y: y, tic: @tic }
+        @explosions << { x: x, y: y, tic: @tic, sprite: 'MISL' }
 
         # Splash damage to monsters and other barrels (chain reactions!)
         @map.things.each_with_index do |thing, idx|

@@ -37,15 +37,15 @@ module Doom
       # In DOOM, monsters only attempt attacks when movecount reaches 0,
       # then play full attack animation before returning to chase.
       MONSTER_ATTACK = {
-        3004 => { type: :hitscan, damage: [3, 15], cooldown: 56 },     # Zombieman: 26 anim + 30 chase
-        9    => { type: :hitscan, damage: [3, 15], cooldown: 56 },     # Shotgun Guy: 26 anim + 30 chase
-        3001 => { type: :hitscan, damage: [3, 24], cooldown: 52 },     # Imp: 22 anim + 30 chase
-        3002 => { type: :melee,  damage: [4, 40], cooldown: 42 },      # Demon: 12 anim + 30 chase
+        3004 => { type: :hitscan, damage: [3, 15], cooldown: 56 },     # Zombieman
+        9    => { type: :hitscan, damage: [3, 15], cooldown: 56 },     # Shotgun Guy
+        3001 => { type: :projectile, cooldown: 52 },                    # Imp: fireball
+        3002 => { type: :melee,  damage: [4, 40], cooldown: 42 },      # Demon
         58   => { type: :melee,  damage: [4, 40], cooldown: 42 },      # Spectre
-        3003 => { type: :hitscan, damage: [8, 64], cooldown: 54 },     # Baron: 24 anim + 30 chase
-        69   => { type: :hitscan, damage: [8, 64], cooldown: 54 },     # Hell Knight
-        3005 => { type: :hitscan, damage: [5, 40], cooldown: 56 },     # Cacodemon
-        65   => { type: :hitscan, damage: [3, 15], cooldown: 40 },     # Heavy Weapon Dude: faster fire
+        3003 => { type: :projectile, cooldown: 54 },                    # Baron: fireball
+        69   => { type: :projectile, cooldown: 54 },                    # Hell Knight
+        3005 => { type: :projectile, cooldown: 56 },                    # Cacodemon
+        65   => { type: :hitscan, damage: [3, 15], cooldown: 40 },     # Heavy Weapon Dude
       }.freeze
 
       REACTIONTIME = 8  # Tics before first attack after activation (from mobjinfo)
@@ -212,38 +212,38 @@ module Doom
         case atk[:type]
         when :melee
           return false if dist > MELEE_RANGE + (Combat::MONSTER_RADIUS[mon.type] || 20)
+          # Melee always hits
+          min_dmg, max_dmg = atk[:damage]
+          damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
+          @player.take_damage(damage) if damage > 0
+
         when :hitscan
           return false if dist > MISSILE_RANGE
           return false unless has_line_of_sight?(mon.x, mon.y, player_x, player_y)
-
-          # DOOM's P_CheckMissileRange: probability decreases with distance
-          # If P_Random() < dist, don't attack (0-255 random vs distance in map units)
           return false if rand(256) < dist
-
-          # Zombieman/Shotgun Guy: extra 50% miss chance beyond 196 units
           if (mon.type == 3004 || mon.type == 9) && dist > 196
             return false if rand(2) == 0
           end
-        end
-
-        # Hitscan accuracy: bullets can MISS (DOOM's P_LineAttack has spread)
-        # Probability of hitting decreases with distance
-        if atk[:type] == :hitscan
+          # Hitscan accuracy
           hit_chance = HITSCAN_ACCURACY * (1.0 - dist / (MISSILE_RANGE * 2))
-          hit_chance = [hit_chance, 0.15].max  # Always at least 15% chance
-          return false if rand > hit_chance  # Miss!
-        end
+          hit_chance = [hit_chance, 0.15].max
+          unless rand > hit_chance
+            min_dmg, max_dmg = atk[:damage]
+            damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
+            @player.take_damage(damage) if damage > 0
+          end
 
-        # Apply damage scaled by difficulty
-        min_dmg, max_dmg = atk[:damage]
-        damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
-        @player.take_damage(damage) if damage > 0
+        when :projectile
+          return false if dist > MISSILE_RANGE
+          return false unless has_line_of_sight?(mon.x, mon.y, player_x, player_y)
+          return false if rand(256) < dist
+          # Spawn a visible fireball projectile
+          @combat.spawn_monster_projectile(mon.x, mon.y, 41.0, mon.type, @damage_multiplier)
+        end
 
         # Start attack animation (monster stops moving)
         mon.attacking = true
         mon.attack_frame_tic = 0
-
-        # Set cooldown
         mon.attack_cooldown = atk[:cooldown]
         true
       end
