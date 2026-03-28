@@ -39,11 +39,12 @@ module Doom
         bob_x = @player.attacking ? 0 : @player.weapon_bob_x.to_i
         bob_y = @player.attacking ? 0 : @player.weapon_bob_y.to_i
 
-        # DOOM's R_DrawPSprite: x1 = centerx + (psp->sx - centerx - spriteoffset)
-        # With psp->sx = 1 (default): x = 1 - left_offset
-        # Uses sprite's built-in offsets for both weapon and flash alignment
+        # Chocolate Doom R_DrawPSprite positioning:
+        # centery(120) - (WEAPONTOP(32) - topoffset) for y
+        # centery is HALF_HEIGHT for our 240px screen (view area 208px, center 104)
+        # But psprite centery uses full screen center = 120
         x = 1 - sprite.left_offset + bob_x
-        y = 1 - sprite.top_offset + SCREEN_Y_OFFSET + bob_y
+        y = 120 - (WEAPONTOP - sprite.top_offset) + bob_y
 
         draw_weapon_sprite(framebuffer, sprite, x, y)
 
@@ -90,7 +91,7 @@ module Doom
         # Flash uses same positioning as weapon sprite (built-in offsets)
         # Same positioning formula as weapon sprite
         flash_x = 1 - flash_sprite.left_offset
-        flash_y = 1 - flash_sprite.top_offset + SCREEN_Y_OFFSET
+        flash_y = 120 - (WEAPONTOP - flash_sprite.top_offset)
 
         draw_weapon_sprite(framebuffer, flash_sprite, flash_x, flash_y)
       end
