@@ -7,13 +7,12 @@ module Doom
       # Weapon is rendered above the status bar
       WEAPON_AREA_HEIGHT = SCREEN_HEIGHT - StatusBar::STATUS_BAR_HEIGHT
 
-      # DOOM positions weapon sprites using their built-in offsets:
-      #   x = SCREENWIDTH/2 - sprite.left_offset
-      #   y = WEAPONTOP + SCREENHEIGHT - 200 - sprite.top_offset
-      # WEAPONTOP = 32 in fixed-point = 32 pixels above the default position
-      # We scale for our 240px screen vs DOOM's 200px.
+      # Chocolate Doom R_DrawPSprite weapon positioning:
+      # centery = viewheight/2 (view area excluding status bar)
+      # texturemid = centery - (WEAPONTOP - spritetopoffset)
+      # dc_yl = centery - texturemid (first visible row)
       WEAPONTOP = 32
-      SCREEN_Y_OFFSET = SCREEN_HEIGHT - 200  # 40px offset for 240px screen
+      VIEW_CENTERY = (SCREEN_HEIGHT - StatusBar::STATUS_BAR_HEIGHT) / 2  # 104
 
       def initialize(hud_graphics, player_state)
         @gfx = hud_graphics
@@ -39,12 +38,10 @@ module Doom
         bob_x = @player.attacking ? 0 : @player.weapon_bob_x.to_i
         bob_y = @player.attacking ? 0 : @player.weapon_bob_y.to_i
 
-        # Chocolate Doom R_DrawPSprite positioning:
-        # centery(120) - (WEAPONTOP(32) - topoffset) for y
-        # centery is HALF_HEIGHT for our 240px screen (view area 208px, center 104)
-        # But psprite centery uses full screen center = 120
+        # dc_yl = centery - texturemid, where texturemid = centery - (WEAPONTOP - topoffset)
+        # Simplifies to: dc_yl = WEAPONTOP - topoffset
         x = 1 - sprite.left_offset + bob_x
-        y = 120 - (WEAPONTOP - sprite.top_offset) + bob_y
+        y = WEAPONTOP - sprite.top_offset + bob_y
 
         draw_weapon_sprite(framebuffer, sprite, x, y)
 
@@ -91,7 +88,7 @@ module Doom
         # Flash uses same positioning as weapon sprite (built-in offsets)
         # Same positioning formula as weapon sprite
         flash_x = 1 - flash_sprite.left_offset
-        flash_y = 120 - (WEAPONTOP - flash_sprite.top_offset)
+        flash_y = WEAPONTOP - flash_sprite.top_offset
 
         draw_weapon_sprite(framebuffer, flash_sprite, flash_x, flash_y)
       end

@@ -143,10 +143,14 @@ module Doom
       }.freeze
 
       # Things that use a specific frame instead of 'A'
+      # From DOOM info.h mobjinfo spawnstate:
+      # MT_MISC10 (type 10) -> S_PLAY_XDIE9 = PLAY W (gibbed mess)
+      # MT_MISC12 (type 12) -> S_PLAY_DIE7 = PLAY N (dead body)
+      # MT_MISC15 (type 15) -> S_PLAY_DIE7 = PLAY N (dead body)
       THING_DEFAULT_FRAME = {
-        10 => 'N',   # Bloody mess (PLAY frame N = dead on ground)
-        12 => 'W',   # Bloody mess 2 (PLAY frame W = gibbed)
-        15 => 'N',   # Dead player
+        10 => 'W',   # Bloody mess (gibbed)
+        12 => 'N',   # Bloody mess 2 (dead body flat)
+        15 => 'N',   # Dead player (dead body flat)
       }.freeze
 
       def initialize(wad)
