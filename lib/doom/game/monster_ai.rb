@@ -239,6 +239,7 @@ module Doom
       end
 
       # Decide whether to start an attack (does NOT apply damage yet)
+      # Matches Chocolate Doom's P_CheckMissileRange from p_enemy.c
       def try_attack(mon, player_x, player_y, dist)
         if mon.reactiontime > 0
           mon.reactiontime -= 1
@@ -254,10 +255,13 @@ module Doom
         when :hitscan, :projectile
           return false if dist > MISSILE_RANGE
           return false unless has_line_of_sight?(mon.x, mon.y, player_x, player_y)
-          return false if rand(256) < dist
-          if (mon.type == 3004 || mon.type == 9) && dist > 196
-            return false if rand(2) == 0
-          end
+
+          # P_CheckMissileRange: subtract grace distance, cap at 200
+          check_dist = dist - 64  # 64 unit grace distance
+          check_dist -= 128 if atk[:type] == :projectile  # Pure ranged fire more
+          check_dist = [check_dist, 0].max
+          check_dist = [check_dist, 200].min  # Cap: always >= 22% chance to fire
+          return false if rand(256) < check_dist
         end
 
         # Start attack animation (damage applied later on fire frame)
