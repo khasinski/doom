@@ -148,7 +148,7 @@ module Doom
       def precompute_columns
         @width.times do |x|
           posts = @columns[x]
-          pixels = Array.new(@height, 0)
+          pixels = Array.new(@height)  # nil = transparent
           posts.each do |post|
             td = post.top_delta
             post.pixels.each_with_index do |color, i|

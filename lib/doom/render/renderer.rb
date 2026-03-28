@@ -1067,6 +1067,32 @@ module Doom
                                   sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height, sector.floor_height)
             end
 
+            # Middle texture on two-sided linedef (grates, bars, fences)
+            mid_tex = sidedef.middle_texture
+            if mid_tex && mid_tex != '-' && !mid_tex.empty?
+              texture = @textures[anim_texture(mid_tex)]
+              if texture
+                # Opening bounds: top and bottom of the passable area
+                open_top = [sector.ceiling_height, back_sector.ceiling_height].min
+                open_bottom = [sector.floor_height, back_sector.floor_height].max
+                # Screen Y for opening
+                mid_top_y = (HALF_HEIGHT - (open_top - @player_z) * scale).to_i
+                mid_bot_y = (HALF_HEIGHT - (open_bottom - @player_z) * scale).to_i
+                # Clip to ceiling/floor clips
+                mid_top_y = [mid_top_y, @ceiling_clip[x] + 1].max
+                mid_bot_y = [mid_bot_y, @floor_clip[x] - 1].min
+                if mid_top_y <= mid_bot_y
+                  if linedef.lower_unpegged?
+                    mid_tex_y = sidedef.y_offset + open_bottom
+                  else
+                    mid_tex_y = sidedef.y_offset + open_top - texture.height
+                  end
+                  draw_wall_column_masked(x, mid_top_y, mid_bot_y, mid_tex, dist,
+                                         sector.light_level, tex_col, mid_tex_y, scale, open_top)
+                end
+              end
+            end
+
             # Update clip bounds
             if closed_door
               @wall_depth[x] = [@wall_depth[x], dist].min
@@ -1209,7 +1235,52 @@ module Doom
           tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
 
           color = column[tex_y]
-          framebuffer[y * SCREEN_WIDTH + x] = cmap[color]
+          framebuffer[y * SCREEN_WIDTH + x] = cmap[color] if color
+          y += 1
+        end
+      end
+
+      # Draw a masked (transparent) wall column for middle textures on two-sided linedefs.
+      # Unlike draw_wall_column_ex, skips nil pixels (transparent areas).
+      def draw_wall_column_masked(x, y1, y2, texture_name, dist, light_level, tex_col, tex_y_start, scale, world_top)
+        return if y1 > y2
+        return if texture_name.nil? || texture_name.empty? || texture_name == '-'
+
+        clip_top = @ceiling_clip[x] + 1
+        clip_bottom = @floor_clip[x] - 1
+        y1 = [y1, clip_top].max
+        y2 = [y2, clip_bottom].min
+        return if y1 > y2
+
+        texture = @textures[anim_texture(texture_name)]
+        return unless texture
+
+        light = calculate_light(light_level, dist)
+        cmap = @colormap.maps[light]
+        framebuffer = @framebuffer
+        tex_width = texture.width
+        tex_height = texture.height
+
+        tex_x = tex_col.to_i % tex_width
+        column = texture.column_pixels(tex_x)
+        return unless column
+
+        tex_step = 1.0 / scale
+        unclipped_y1 = HALF_HEIGHT - (world_top - @player_z) * scale
+        tex_y_at_y1 = tex_y_start + (y1 - unclipped_y1) * tex_step
+
+        y1 = 0 if y1 < 0
+        y2 = SCREEN_HEIGHT - 1 if y2 >= SCREEN_HEIGHT
+
+        y = y1
+        while y <= y2
+          screen_offset = y - y1
+          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
+          color = column[tex_y]
+          # Skip transparent pixels (nil in patch data)
+          if color
+            framebuffer[y * SCREEN_WIDTH + x] = cmap[color]
+          end
           y += 1
         end
       end
