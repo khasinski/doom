@@ -89,7 +89,7 @@ module Doom
         3005 => :caco,    # Cacodemon
       }.freeze
 
-      Projectile = Struct.new(:x, :y, :z, :dx, :dy, :type, :spawn_tic, :sprite_prefix, :target)
+      Projectile = Struct.new(:x, :y, :z, :dx, :dy, :dz, :type, :spawn_tic, :sprite_prefix, :target)
 
       # Weapon damage: DOOM does (P_Random()%3 + 1) * multiplier
       # Pistol/chaingun: 1*5..3*5 = 5-15 per bullet
@@ -107,15 +107,18 @@ module Doom
         @explosions = []     # Active explosions (for rendering)
         @player_x = 0.0
         @player_y = 0.0
+        @player_z = 0.0
         @tic = 0
       end
 
-      def update_player_pos(x, y)
+      def update_player_pos(x, y, z = nil)
         @player_x = x
         @player_y = y
+        @player_z = z if z
       end
 
       # Spawn a monster projectile (fireball, etc.)
+      # Matches Chocolate Doom's P_SpawnMissile: calculates momz for vertical aim
       def spawn_monster_projectile(monster_x, monster_y, monster_z, monster_type, damage_multiplier)
         proj_type = MONSTER_PROJECTILE_TYPE[monster_type]
         return unless proj_type
@@ -133,9 +136,16 @@ module Doom
         ndx = dx / dist * speed
         ndy = dy / dist * speed
 
+        # P_SpawnMissile: momz = (target.z - source.z) / (dist / speed)
+        # This makes the projectile arc toward the target's height
+        target_z = @player_z - 16  # Aim at player center (z + height/2, roughly)
+        travel_tics = dist / speed
+        travel_tics = 1.0 if travel_tics < 1.0
+        ndz = (target_z - monster_z) / travel_tics
+
         @projectiles << Projectile.new(
           monster_x + ndx * 2, monster_y + ndy * 2, monster_z,
-          ndx, ndy, proj_type, @tic, info[:sprite], :player
+          ndx, ndy, ndz, proj_type, @tic, info[:sprite], :player
         )
       end
 
@@ -206,7 +216,7 @@ module Doom
       def spawn_rocket(px, py, pz, cos_a, sin_a)
         @projectiles << Projectile.new(
           px + cos_a * 20, py + sin_a * 20, pz,
-          cos_a * ROCKET_SPEED, sin_a * ROCKET_SPEED,
+          cos_a * ROCKET_SPEED, sin_a * ROCKET_SPEED, 0.0,
           :rocket, @tic, 'MISL', :monsters
         )
       end
@@ -215,8 +225,15 @@ module Doom
         @projectiles.reject! do |proj|
           new_x = proj.x + proj.dx
           new_y = proj.y + proj.dy
+          new_z = proj.z + (proj.dz || 0)
 
           hit_wall = hits_wall?(proj.x, proj.y, new_x, new_y)
+
+          # Check if projectile hit the floor or ceiling
+          sector = @map.sector_at(new_x, new_y)
+          if sector
+            hit_wall = true if new_z <= sector.floor_height || new_z >= sector.ceiling_height
+          end
           hit = false
 
           if proj.target == :monsters
@@ -263,6 +280,7 @@ module Doom
           else
             proj.x = new_x
             proj.y = new_y
+            proj.z = new_z
             false
           end
         end

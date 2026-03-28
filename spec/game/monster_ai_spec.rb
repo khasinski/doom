@@ -36,7 +36,7 @@ RSpec.describe Doom::Game::MonsterAI do
 
   # Helper: run AI+combat tics like the game loop
   def run_tics(ai, combat, px, py, count)
-    combat.update_player_pos(px, py)
+    combat.update_player_pos(px, py, 17.0)
     count.times do
       combat.update
       ai.update(px, py)
@@ -223,15 +223,51 @@ RSpec.describe Doom::Game::MonsterAI do
       imp = find_monster(ai, 3001)
       skip 'No imp' unless imp
 
-      # Spawn fireball heading directly at player
+      # Spawn fireball heading directly at player at same height
+      sector = @map.sector_at(imp.x, imp.y)
+      floor = sector ? sector.floor_height : 0
+      spawn_z = floor + 32
       px = imp.x + 50
-      combat.update_player_pos(px, imp.y)
-      combat.spawn_monster_projectile(imp.x, imp.y, 41.0, 3001, 1.0)
+      combat.update_player_pos(px, imp.y, spawn_z.to_f)
+      combat.spawn_monster_projectile(imp.x, imp.y, spawn_z.to_f, 3001, 1.0)
 
       initial_health = player.health
       20.times { combat.update }
 
       expect(player.health).to be < initial_health
+    end
+
+    it 'fireball has vertical velocity when source and target at different heights' do
+      imp = find_monster(ai, 3001)
+      skip 'No imp' unless imp
+
+      # Simulate imp on high platform (z=128) shooting at player on floor (z=17)
+      combat.update_player_pos(imp.x + 200, imp.y)
+      combat.spawn_monster_projectile(imp.x, imp.y, 128.0, 3001, 1.0)
+
+      proj = combat.projectiles.last
+      expect(proj).not_to be_nil
+      expect(proj.dz).to be < 0  # Must descend toward player
+      expect(proj.z).to eq(128.0)
+
+      # After a few tics, z should decrease
+      5.times { combat.update }
+      if combat.projectiles.any?
+        expect(combat.projectiles.last.z).to be < 128.0
+      end
+    end
+
+    it 'fireball hits floor or ceiling and explodes' do
+      imp = find_monster(ai, 3001)
+      skip 'No imp' unless imp
+
+      # Spawn fireball very high, aiming straight down
+      combat.update_player_pos(imp.x + 50, imp.y)
+      combat.spawn_monster_projectile(imp.x, imp.y, 500.0, 3001, 1.0)
+
+      100.times { combat.update }
+      # Should have hit floor and exploded
+      expect(combat.projectiles.size).to eq(0)
     end
 
     it 'fireball creates explosion on player impact' do
