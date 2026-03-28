@@ -1309,7 +1309,7 @@ module Doom
             sprite = @combat.death_sprite(thing_idx, thing.type, angle_to_thing, thing.angle)
             next unless sprite  # Barrel disappeared after explosion
           elsif @monster_ai
-            mon = @monster_ai.monsters.find { |m| m.thing_idx == thing_idx }
+            mon = @monster_ai.monster_by_thing_idx[thing_idx]
             if mon && mon.active
               if mon.attacking
                 # Attack animation: show attack frames (E, F, G...)

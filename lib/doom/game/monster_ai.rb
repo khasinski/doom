@@ -28,6 +28,7 @@ module Doom
       SIGHT_RANGE = 768.0  # Max distance for sight check
       MELEE_RANGE = 64.0
       MISSILE_RANGE = 768.0
+      KEEP_DISTANCE = 196.0  # Ranged monsters prefer to stay this far from player
 
       # Direction to angle (for sprite facing)
       DIR_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315].freeze
@@ -66,7 +67,7 @@ module Doom
         'CPOS' => %w[E F],       # Heavy Weapon Dude
       }.freeze
 
-      ATTACK_FRAME_TICS = 6  # Tics per attack animation frame
+      ATTACK_FRAME_TICS = 8  # Tics per attack animation frame
 
       MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
                                 :active, :chase_timer, :type, :attack_cooldown,
@@ -82,19 +83,22 @@ module Doom
         @aggression = true  # Monsters fight back (toggle with C)
         @damage_multiplier = 1.0
         @tic_counter = 0
+        @monster_by_thing_idx = {}
 
         map.things.each_with_index do |thing, idx|
           next unless Combat::MONSTER_HP[thing.type]
           next if thing.type == Combat::BARREL_TYPE  # Barrels are damageable but not monsters
-          @monsters << MonsterState.new(
+          mon = MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
             DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME, 0,
             false, 0
           )
+          @monsters << mon
+          @monster_by_thing_idx[idx] = mon
         end
       end
 
-      attr_reader :monsters
+      attr_reader :monsters, :monster_by_thing_idx
       attr_accessor :aggression, :damage_multiplier
 
       # Called each game tic
@@ -181,11 +185,21 @@ module Doom
           attacked = try_attack(mon, player_x, player_y, dist)
         end
 
-        # Move (skip movement on the tic we attack, like DOOM)
+        # Move -- but ranged monsters stop advancing when they have LOS and are close enough
+        # In DOOM, A_Chase skips movement when P_CheckMissileRange succeeds
         unless attacked
-          mon.movecount -= 1
-          if mon.movecount < 0 || !try_move(mon, speed)
-            new_chase_dir(mon, player_x, player_y)
+          atk = MONSTER_ATTACK[mon.type]
+          ranged = atk && (atk[:type] == :hitscan || atk[:type] == :projectile)
+          skip_move = ranged && can_see && dist < KEEP_DISTANCE
+
+          if skip_move
+            # Still tick movecount down so attack condition can trigger
+            mon.movecount -= 1 if mon.movecount > 0
+          else
+            mon.movecount -= 1
+            if mon.movecount < 0 || !try_move(mon, speed)
+              new_chase_dir(mon, player_x, player_y)
+            end
           end
         end
 
