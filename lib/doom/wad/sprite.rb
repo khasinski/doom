@@ -120,6 +120,12 @@ module Doom
         48 => 'ELEC',   # Tall tech column
         35 => 'CBRA',   # Candelabra
 
+        # Dead bodies / gore decorations
+        10 => 'PLAY',   # Bloody mess
+        12 => 'PLAY',   # Bloody mess 2
+        15 => 'PLAY',   # Dead player
+        24 => 'POL5',   # Pool of blood and flesh
+
         # Barrels
         2035 => 'BAR1', # Exploding barrel
 
@@ -134,6 +140,13 @@ module Doom
         3006 => 'SKUL', # Lost soul
         7 => 'SPID',    # Spider Mastermind
         16 => 'CYBR',   # Cyberdemon
+      }.freeze
+
+      # Things that use a specific frame instead of 'A'
+      THING_DEFAULT_FRAME = {
+        10 => 'N',   # Bloody mess (PLAY frame N = dead on ground)
+        12 => 'W',   # Bloody mess 2 (PLAY frame W = gibbed)
+        15 => 'N',   # Dead player
       }.freeze
 
       def initialize(wad)
@@ -154,8 +167,9 @@ module Doom
         prefix = THING_SPRITES[thing_type]
         return nil unless prefix
 
-        sprite = load_sprite_frame(prefix, 'A', 0) ||
-                 load_sprite_frame(prefix, 'A', 1)
+        frame = THING_DEFAULT_FRAME[thing_type] || 'A'
+        sprite = load_sprite_frame(prefix, frame, 0) ||
+                 load_sprite_frame(prefix, frame, 1)
 
         @cache[thing_type] = sprite
         sprite
@@ -173,8 +187,10 @@ module Doom
         prefix = THING_SPRITES[thing_type]
         return nil unless prefix
 
+        frame = THING_DEFAULT_FRAME[thing_type] || 'A'
+
         # Check for rotation 0 (all angles) sprite first
-        sprite = load_sprite_frame(prefix, 'A', 0)
+        sprite = load_sprite_frame(prefix, frame, 0)
         return sprite if sprite
 
         # Calculate rotation frame (1-8)
@@ -185,7 +201,7 @@ module Doom
         angle_diff += 2 * Math::PI if angle_diff < 0
         rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1
 
-        load_sprite_frame(prefix, 'A', rotation) || @cache[thing_type]
+        load_sprite_frame(prefix, frame, rotation) || @cache[thing_type]
       end
 
       # Get a specific frame (for death animations, etc.)
