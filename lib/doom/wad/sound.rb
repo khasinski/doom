@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'tmpdir'
+
 module Doom
   module Wad
     # Loads DOOM sound effects from WAD and converts to WAV for Gosu playback.
