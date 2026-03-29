@@ -15,8 +15,9 @@ module Doom
       DOOR_WAIT = 150  # Tics to wait when open (~4 seconds)
       PLAYER_HEIGHT = 56  # Player height for door collision
 
-      def initialize(map)
+      def initialize(map, sound_engine = nil)
         @map = map
+        @sound = sound_engine
         @active_doors = {}  # sector_index => door_state
         @player_x = 0
         @player_y = 0
@@ -92,6 +93,7 @@ module Doom
           wait_tics: 0,
           stay_open: stay_open
         }
+        @sound&.door_open
       end
 
       def update_doors
@@ -113,6 +115,7 @@ module Doom
             door[:wait_tics] -= 1
             if door[:wait_tics] <= 0
               door[:state] = DOOR_CLOSING
+              @sound&.door_close
             end
 
           when DOOR_CLOSING
