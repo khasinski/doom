@@ -1566,8 +1566,11 @@ module Doom
           tex_col = ds.maskedtexturecol[col_idx]
           next unless tex_col  # nil = already drawn or empty
 
-          # Per-column scale
+          # Per-column scale (clamped to prevent extreme distortion up close)
+          # Chocolate Doom caps at 64*FRACUNIT
           spryscale = ds.scale1 + (x - ds.x1) * ds.scalestep
+          spryscale = [spryscale, 64.0].min
+          next if spryscale <= 0
 
           # Screen Y of texture top
           sprtopscreen = HALF_HEIGHT - dc_texturemid * spryscale
