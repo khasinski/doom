@@ -22,7 +22,8 @@ module Doom
                          :curline,  # seg for point-on-side test
                          :maskedtexturecol,  # per-column texture X for masked mid textures
                          :frontsector, :backsector,  # sectors for masked rendering
-                         :sidedef)  # sidedef for texture lookup
+                         :sidedef,  # sidedef for texture lookup
+                         :dist1, :dist2, :sx1, :sx2)  # for per-column distance recomputation
 
     # VisibleSprite stores sprite data for sorting and rendering
     # Struct is faster than Hash for fixed-field data
@@ -1180,7 +1181,8 @@ module Doom
             sprtopclip, sprbottomclip,
             seg,
             has_masked ? @current_masked_cols : nil,
-            sector, back_sector, sidedef
+            sector, back_sector, sidedef,
+            dist1, dist2, sx1.to_f, sx2.to_f
           )
           @drawsegs << drawseg
         end
@@ -1566,11 +1568,17 @@ module Doom
           tex_col = ds.maskedtexturecol[col_idx]
           next unless tex_col  # nil = already drawn or empty
 
-          # Per-column scale (clamped to prevent extreme distortion up close)
-          # Chocolate Doom caps at 64*FRACUNIT
-          spryscale = ds.scale1 + (x - ds.x1) * ds.scalestep
+          # Per-column distance using same 1/z interpolation as wall renderer
+          if ds.dist1 && ds.dist2 && ds.dist1 > 0 && ds.dist2 > 0 && ds.sx2 != ds.sx1
+            t = ((x - ds.sx1) / (ds.sx2 - ds.sx1)).clamp(0.0, 1.0)
+            inv_dist = (1.0 - t) / ds.dist1 + t / ds.dist2
+            col_dist = 1.0 / inv_dist
+          else
+            col_dist = ds.dist1 || 1.0
+          end
+          next if col_dist < 1
+          spryscale = @projection / col_dist
           spryscale = [spryscale, 64.0].min
-          next if spryscale <= 0
 
           # Screen Y of texture top
           sprtopscreen = HALF_HEIGHT - dc_texturemid * spryscale
@@ -1586,9 +1594,8 @@ module Doom
           next unless column
 
           iscale = 1.0 / spryscale
-          dist = 1.0 / spryscale * @projection rescue next
 
-          light = calculate_light(light_level, dist)
+          light = calculate_light(light_level, col_dist)
           cmap = @colormap.maps[light]
 
           # Draw each non-nil run of pixels (transparency)
