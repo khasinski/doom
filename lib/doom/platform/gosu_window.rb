@@ -823,7 +823,19 @@ module Doom
                 when Gosu::KB_ESCAPE then :escape
                 end
           if key
+            # Play menu navigation sounds
+            case key
+            when :up, :down
+              @sound&.menu_move
+            when :escape
+              @sound&.menu_back
+            end
+
             result = @menu.handle_key(key)
+
+            # Play confirmation sound on select
+            @sound&.menu_select if key == :enter
+
             case result
             when :start_game
               apply_difficulty(@menu.selected_skill)
@@ -886,7 +898,10 @@ module Doom
         return unless sector
 
         damage = SECTOR_DAMAGE[sector.special]
-        @player_state.take_damage((damage * @damage_multiplier).to_i) if damage
+        if damage
+          @player_state.take_damage((damage * @damage_multiplier).to_i)
+          @sound&.player_pain
+        end
       end
 
       def apply_death_tint(framebuffer)
