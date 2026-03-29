@@ -89,7 +89,7 @@ module Doom
                                 :reactiontime, :last_saw_player,
                                 :attacking, :attack_frame_tic, :fired)
 
-      def initialize(map, combat, player_state, sprites_mgr = nil, hidden_things = {})
+      def initialize(map, combat, player_state, sprites_mgr = nil, hidden_things = {}, sound_engine = nil)
         @map = map
         @combat = combat
         @player = player_state
@@ -98,6 +98,7 @@ module Doom
         @aggression = true  # Monsters fight back (toggle with C)
         @damage_multiplier = 1.0
         @tic_counter = 0
+        @sound = sound_engine
         @monster_by_thing_idx = {}
 
         map.things.each_with_index do |thing, idx|
@@ -182,6 +183,7 @@ module Doom
         if has_line_of_sight?(mon.x, mon.y, player_x, player_y)
           mon.active = true
           mon.chase_timer = CHASE_TICS
+          @sound&.monster_see(mon.type)
         end
       end
 
@@ -277,6 +279,8 @@ module Doom
       def execute_attack(mon, player_x, player_y)
         atk = MONSTER_ATTACK[mon.type]
         return unless atk
+
+        @sound&.monster_attack(mon.type)
 
         dx = player_x - mon.x
         dy = player_y - mon.y

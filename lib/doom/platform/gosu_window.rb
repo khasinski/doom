@@ -79,7 +79,7 @@ module Doom
         2046 => 16,                                          # Burning barrel
       }.freeze
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil, menu = nil)
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil, menu = nil, sound_engine = nil)
         fullscreen = ARGV.include?('--fullscreen') || ARGV.include?('-f')
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
@@ -100,6 +100,7 @@ module Doom
         @monster_ai = monster_ai
         @menu = menu
         @doom_font = menu&.font
+        @sound = sound_engine
         @damage_multiplier = 1.0
         @skill = Game::Menu::SKILL_MEDIUM
         @skill_hidden = {}  # Thing indices hidden by difficulty
@@ -161,9 +162,23 @@ module Doom
           @sector_effects&.update
           @player_state&.update_viewheight
           @player_state&.update_attack  # Attack timing at 35fps like DOOM
+          health_before = @player_state&.health || 100
+
           @combat&.update_player_pos(@renderer.player_x, @renderer.player_y, @renderer.player_z)
           @combat&.update
           @monster_ai&.update(@renderer.player_x, @renderer.player_y)
+
+          # Sound effects for player damage/death
+          if @sound && @player_state
+            health_now = @player_state.health
+            if health_now < health_before
+              if @player_state.dead
+                @sound.player_death
+              else
+                @sound.player_pain
+              end
+            end
+          end
 
           @player_state&.update_damage_count
           @item_pickup&.update_flash
@@ -191,8 +206,18 @@ module Doom
 
         # Check item pickups
         if @item_pickup
+          picked_before = @item_pickup.picked_up.size
           @item_pickup.update(@renderer.player_x, @renderer.player_y)
           @renderer.hidden_things = @skill_hidden.merge(@item_pickup.picked_up)
+          if @sound && @item_pickup.picked_up.size > picked_before
+            # Check if it was a weapon pickup (has :weapon key in ITEMS)
+            msg = @item_pickup.pickup_message
+            if msg && msg.include?('!')  # Weapon pickups end with !
+              @sound.weapon_pickup
+            else
+              @sound.item_pickup
+            end
+          end
         end
 
         # Pass combat state to renderer for death frame rendering
@@ -302,6 +327,7 @@ module Doom
           if @player_state.attacking && !was_attacking && @combat
             @combat.fire(@renderer.player_x, @renderer.player_y, @renderer.player_z,
                          @renderer.cos_angle, @renderer.sin_angle, @player_state.weapon)
+            @sound&.weapon_fire(@player_state.weapon)
           end
         end
 
@@ -877,9 +903,9 @@ module Doom
         # Reset item pickup, combat, and monster AI state
         sprites = @combat&.instance_variable_get(:@sprites)
         @item_pickup = Game::ItemPickup.new(@map, @player_state, @skill_hidden) if @item_pickup
-        @combat = Game::Combat.new(@map, @player_state, sprites, @skill_hidden) if @combat && sprites
+        @combat = Game::Combat.new(@map, @player_state, sprites, @skill_hidden, @sound) if @combat && sprites
         sprites_mgr = @combat&.instance_variable_get(:@sprites)
-        @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state, sprites_mgr, @skill_hidden) if @monster_ai && @combat
+        @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state, sprites_mgr, @skill_hidden, @sound) if @monster_ai && @combat
 
         # Re-apply active cheats from menu options
         if @menu

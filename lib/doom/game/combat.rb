@@ -96,11 +96,12 @@ module Doom
       # Shotgun: 7 pellets, each 1*5..3*5 = 5-15
       # Fist/chainsaw: 1*2..3*2 = 2-10
 
-      def initialize(map, player_state, sprites, hidden_things = {})
+      def initialize(map, player_state, sprites, hidden_things = {}, sound_engine = nil)
         @map = map
         @player = player_state
         @sprites = sprites
         @hidden_things = hidden_things
+        @sound = sound_engine
         @monster_hp = {}     # thing_idx => current HP
         @dead_things = {}    # thing_idx => { tic: death_start_tic, prefix: sprite_prefix }
         @pain_until = {}     # thing_idx => tic when pain ends
@@ -445,12 +446,13 @@ module Doom
           return if @dead_things[thing_idx]  # Already dead
 
           if thing.type == BARREL_TYPE
-            # Barrel explodes: use BEXP explosion frames, deal splash damage
             @dead_things[thing_idx] = { tic: @tic, prefix: 'BEXP' }
+            @sound&.explosion
             barrel_explode(thing.x, thing.y, thing_idx)
           else
             prefix = @sprites.prefix_for(thing.type)
             @dead_things[thing_idx] = { tic: @tic, prefix: prefix } if prefix
+            @sound&.monster_death(thing.type)
           end
         else
           # Pain state: monster flinches (not barrels)
@@ -458,6 +460,7 @@ module Doom
             pain_chance = PAIN_CHANCE[thing.type] || 128
             if rand(256) < pain_chance
               @pain_until[thing_idx] = @tic + PAIN_DURATION
+              @sound&.monster_pain(thing.type)
             end
           end
         end
