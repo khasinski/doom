@@ -1068,27 +1068,41 @@ module Doom
             end
 
             # Middle texture on two-sided linedef (grates, bars, fences)
+            # In Chocolate Doom, middle textures don't tile vertically.
+            # They're drawn once, anchored by pegging flags:
+            #   Without DONTPEGBOTTOM: top of texture at opening ceiling
+            #   With DONTPEGBOTTOM: bottom of texture at opening floor
             mid_tex = sidedef.middle_texture
             if mid_tex && mid_tex != '-' && !mid_tex.empty?
               texture = @textures[anim_texture(mid_tex)]
               if texture
-                # Opening bounds: top and bottom of the passable area
                 open_top = [sector.ceiling_height, back_sector.ceiling_height].min
                 open_bottom = [sector.floor_height, back_sector.floor_height].max
-                # Screen Y for opening
-                mid_top_y = (HALF_HEIGHT - (open_top - @player_z) * scale).to_i
-                mid_bot_y = (HALF_HEIGHT - (open_bottom - @player_z) * scale).to_i
-                # Clip to ceiling/floor clips
+
+                # Texture is drawn once at its actual height, not tiled
+                if linedef.lower_unpegged?
+                  # Bottom of texture at opening floor
+                  tex_world_bottom = open_bottom + sidedef.y_offset
+                  tex_world_top = tex_world_bottom + texture.height
+                else
+                  # Top of texture at opening ceiling
+                  tex_world_top = open_top + sidedef.y_offset
+                  tex_world_bottom = tex_world_top - texture.height
+                end
+
+                # Clip to opening bounds
+                draw_top = [tex_world_top, open_top].min
+                draw_bottom = [tex_world_bottom, open_bottom].max
+
+                mid_top_y = (HALF_HEIGHT - (draw_top - @player_z) * scale).to_i
+                mid_bot_y = (HALF_HEIGHT - (draw_bottom - @player_z) * scale).to_i
                 mid_top_y = [mid_top_y, @ceiling_clip[x] + 1].max
                 mid_bot_y = [mid_bot_y, @floor_clip[x] - 1].min
+
                 if mid_top_y <= mid_bot_y
-                  if linedef.lower_unpegged?
-                    mid_tex_y = sidedef.y_offset + open_bottom
-                  else
-                    mid_tex_y = sidedef.y_offset + open_top - texture.height
-                  end
                   draw_wall_column_masked(x, mid_top_y, mid_bot_y, mid_tex, dist,
-                                         sector.light_level, tex_col, mid_tex_y, scale, open_top)
+                                         sector.light_level, tex_col, sidedef.y_offset,
+                                         scale, draw_top)
                 end
               end
             end
