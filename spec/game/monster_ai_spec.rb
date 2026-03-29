@@ -66,6 +66,9 @@ RSpec.describe Doom::Game::MonsterAI do
     it 'activates monster with LOS within sight range' do
       mon = find_monster(ai, 3004)
       skip 'No zombieman' unless mon
+      # Face the monster toward the player position
+      thing = @map.things[mon.thing_idx]
+      thing.angle = 0  # Face east
       ai.update(mon.x + 100, mon.y)
       expect(mon.active).to be true
     end

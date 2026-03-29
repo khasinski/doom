@@ -16,10 +16,13 @@ module Doom
 
     # Drawseg stores wall segment info for sprite clipping
     # Matches Chocolate Doom's drawseg_t structure
-    Drawseg = Struct.new(:x1, :x2, :scale1, :scale2,
+    Drawseg = Struct.new(:x1, :x2, :scale1, :scale2, :scalestep,
                          :silhouette, :bsilheight, :tsilheight,
                          :sprtopclip, :sprbottomclip,
-                         :curline)  # seg for point-on-side test
+                         :curline,  # seg for point-on-side test
+                         :maskedtexturecol,  # per-column texture X for masked mid textures
+                         :frontsector, :backsector,  # sectors for masked rendering
+                         :sidedef)  # sidedef for texture lookup
 
     # VisibleSprite stores sprite data for sorting and rendering
     # Struct is faster than Hash for fixed-field data
@@ -238,7 +241,6 @@ module Doom
 
         # Initialize drawsegs for sprite clipping
         @drawsegs = []
-        @masked_draws = []  # Deferred middle texture draws (after visplanes)
 
         # Render walls via BSP traversal
         render_bsp_node(@map.nodes.size - 1)
@@ -251,14 +253,8 @@ module Doom
         @sprite_floor_clip.replace(@floor_clip)
         @sprite_wall_depth.replace(@wall_depth)
 
-        # Draw masked middle textures THEN sprites (matching Chocolate Doom R_DrawMasked)
-        # Middle textures use saved clip bounds and depth-test against wall_depth
-        @masked_draws.each do |md|
-          draw_wall_column_masked_deferred(md)
-        end
-
-        # Render sprites (after masked textures so they appear in front of grates)
-        render_sprites if @sprites
+        # R_DrawMasked: render sprites and masked middle textures interleaved
+        draw_masked if @sprites
       end
 
       # Precompute column-based data for floor/ceiling rendering (R_InitLightTables-like)
@@ -931,8 +927,27 @@ module Doom
           tsilheight = -Float::INFINITY
         end
 
+        # Detect masked middle texture (grates, bars, fences)
+        has_masked = false
+        @current_masked_cols = nil
+        if back_sector && sidedef
+          mid_tex = sidedef.middle_texture
+          if mid_tex && mid_tex != '-' && !mid_tex.empty?
+            has_masked = true
+            @current_masked_cols = Array.new(x2 - x1 + 1)
+            # Force silhouette so sprites get clipped against this seg
+            if (silhouette & SIL_TOP) == 0
+              silhouette |= SIL_TOP
+              tsilheight = -Float::INFINITY
+            end
+            if (silhouette & SIL_BOTTOM) == 0
+              silhouette |= SIL_BOTTOM
+              bsilheight = Float::INFINITY
+            end
+          end
+        end
+
         # Check planes for this seg range (R_CheckPlane equivalent)
-        # This may create new visplanes if column ranges would overlap
         if @current_floor_plane
           @current_floor_plane = check_plane(@current_floor_plane, x1, x2)
         end
@@ -1074,46 +1089,9 @@ module Doom
                                   sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height, sector.floor_height)
             end
 
-            # Middle texture on two-sided linedef (grates, bars, fences)
-            # Only for lines with an actual opening (not closed doors).
-            mid_tex = sidedef.middle_texture
-            if !closed_door && mid_tex && mid_tex != '-' && !mid_tex.empty?
-              texture = @textures[anim_texture(mid_tex)]
-              # Only use masked (deferred) drawing if texture has transparent pixels
-              # Solid middle textures on two-sided lines are drawn by the regular path
-              texture = nil unless texture && texture_has_transparency?(texture)
-              if texture
-                open_top = [sector.ceiling_height, back_sector.ceiling_height].min
-                open_bottom = [sector.floor_height, back_sector.floor_height].max
-
-                # Texture is drawn once at its actual height, not tiled
-                if linedef.lower_unpegged?
-                  # Bottom of texture at opening floor
-                  tex_world_bottom = open_bottom + sidedef.y_offset
-                  tex_world_top = tex_world_bottom + texture.height
-                else
-                  # Top of texture at opening ceiling
-                  tex_world_top = open_top + sidedef.y_offset
-                  tex_world_bottom = tex_world_top - texture.height
-                end
-
-                # Clip to opening bounds
-                draw_top = [tex_world_top, open_top].min
-                draw_bottom = [tex_world_bottom, open_bottom].max
-
-                mid_top_y = (HALF_HEIGHT - (draw_top - @player_z) * scale).to_i
-                mid_bot_y = (HALF_HEIGHT - (draw_bottom - @player_z) * scale).to_i
-                mid_top_y = [mid_top_y, @ceiling_clip[x] + 1].max
-                mid_bot_y = [mid_bot_y, @floor_clip[x] - 1].min
-
-                if mid_top_y <= mid_bot_y
-                  # Save current clip values (before BSP modifies them for columns behind)
-                  @masked_draws << { x: x, y1: mid_top_y, y2: mid_bot_y, tex: mid_tex,
-                                     dist: dist, light: sector.light_level, tex_col: tex_col,
-                                     tex_y: sidedef.y_offset, scale: scale, world_top: draw_top,
-                                     clip_top: @ceiling_clip[x], clip_bottom: @floor_clip[x] }
-                end
-              end
+            # Store masked texture column for deferred rendering (grates, bars)
+            if @current_masked_cols
+              @current_masked_cols[x - x1] = tex_col
             end
 
             # Update clip bounds
@@ -1188,22 +1166,25 @@ module Doom
           end
         end
 
-        # Save drawseg for sprite clipping (after columns are rendered)
-        # Copy the clip arrays for the segment's screen range
-        if silhouette != SIL_NONE
+        # Save drawseg for sprite clipping and masked rendering
+        if silhouette != SIL_NONE || has_masked
           sprtopclip = @ceiling_clip[x1..x2].dup
           sprbottomclip = @floor_clip[x1..x2].dup
+          scalestep = (x2 > x1) ? (scale2 - scale1) / (x2 - x1) : 0
 
           drawseg = Drawseg.new(
             x1, x2,
-            scale1, scale2,
+            scale1, scale2, scalestep,
             silhouette,
             bsilheight, tsilheight,
             sprtopclip, sprbottomclip,
-            seg
+            seg,
+            has_masked ? @current_masked_cols : nil,
+            sector, back_sector, sidedef
           )
           @drawsegs << drawseg
         end
+        @current_masked_cols = nil
       end
 
       # Wall column drawing with proper texture mapping
@@ -1497,15 +1478,149 @@ module Doom
         # Sort by distance (back to front for proper overdraw)
         visible_sprites.sort_by! { |s| -s.dist }
 
-        # Draw each sprite
+        # Draw each sprite with drawseg interleaving
         visible_sprites.each do |vs|
-          draw_sprite(vs)
+          draw_sprite_with_masking(vs)
+        end
+
+        # Draw remaining masked segs not triggered by sprites
+        @drawsegs.reverse_each do |ds|
+          next unless ds.maskedtexturecol
+          render_masked_seg_range(ds, ds.x1, ds.x2)
         end
 
         # Draw projectiles, explosions, and bullet puffs
         if @combat
           render_projectiles
           render_puffs
+        end
+      end
+
+      # Chocolate Doom R_DrawMasked: interleave sprites with masked drawsegs
+      def draw_masked
+        render_sprites
+      end
+
+      # Draw sprite, rendering masked drawsegs behind it first (R_DrawSprite)
+      def draw_sprite_with_masking(spr)
+        sprite_scale = @projection / spr.dist
+
+        # Scan drawsegs newest to oldest (nearest to farthest)
+        @drawsegs.reverse_each do |ds|
+          next if ds.x1 > spr.screen_x.to_i + spr.sprite.width || ds.x2 < spr.screen_x.to_i - spr.sprite.width
+          next if ds.silhouette == SIL_NONE && ds.maskedtexturecol.nil?
+
+          ds_max_scale = [ds.scale1, ds.scale2].max
+          ds_min_scale = [ds.scale1, ds.scale2].min
+
+          # Is the drawseg behind the sprite?
+          if ds_max_scale < sprite_scale
+            # Draw masked texture behind the sprite
+            if ds.maskedtexturecol
+              r1 = [ds.x1, spr.screen_x.to_i - spr.sprite.width].max
+              r2 = [ds.x2, spr.screen_x.to_i + spr.sprite.width].min
+              render_masked_seg_range(ds, r1, r2)
+            end
+            next  # Don't clip against things behind
+          end
+        end
+
+        draw_sprite(spr)
+      end
+
+      # Chocolate Doom R_RenderMaskedSegRange
+      def render_masked_seg_range(ds, rx1, rx2)
+        return unless ds.maskedtexturecol
+        return unless ds.sidedef
+
+        mid_tex_name = ds.sidedef.middle_texture
+        return if mid_tex_name.nil? || mid_tex_name == '-' || mid_tex_name.empty?
+
+        texture = @textures[anim_texture(mid_tex_name)]
+        return unless texture
+
+        front = ds.frontsector
+        back = ds.backsector
+        return unless front && back
+
+        # Texture anchoring (matching Chocolate Doom)
+        if ds.curline && @map.linedefs[ds.curline.linedef].lower_unpegged?
+          higher_floor = [front.floor_height, back.floor_height].max
+          dc_texturemid = higher_floor + texture.height - @player_z
+        else
+          lower_ceiling = [front.ceiling_height, back.ceiling_height].min
+          dc_texturemid = lower_ceiling - @player_z
+        end
+        dc_texturemid += ds.sidedef.y_offset
+
+        light_level = front.light_level
+
+        # Iterate columns
+        rx1 = [rx1, ds.x1].max
+        rx2 = [rx2, ds.x2].min
+
+        (rx1..rx2).each do |x|
+          col_idx = x - ds.x1
+          next if col_idx < 0 || col_idx >= ds.maskedtexturecol.size
+
+          tex_col = ds.maskedtexturecol[col_idx]
+          next unless tex_col  # nil = already drawn or empty
+
+          # Per-column scale
+          spryscale = ds.scale1 + (x - ds.x1) * ds.scalestep
+
+          # Screen Y of texture top
+          sprtopscreen = HALF_HEIGHT - dc_texturemid * spryscale
+
+          # Get clip bounds from drawseg
+          clip_idx = x - ds.x1
+          mceilingclip = ds.sprtopclip[clip_idx]
+          mfloorclip = ds.sprbottomclip[clip_idx]
+
+          # Calculate column draw range
+          tex_x = tex_col.to_i % texture.width
+          column = texture.column_pixels(tex_x)
+          next unless column
+
+          iscale = 1.0 / spryscale
+          dist = 1.0 / spryscale * @projection rescue next
+
+          light = calculate_light(light_level, dist)
+          cmap = @colormap.maps[light]
+
+          # Draw each non-nil run of pixels (transparency)
+          tex_height = texture.height
+          y_start = nil
+          (0..tex_height).each do |ty|
+            color = ty < tex_height ? column[ty] : nil
+            if color
+              y_start = ty unless y_start
+            elsif y_start
+              # Draw run from y_start to ty-1
+              top_y = (sprtopscreen + y_start * spryscale).to_i
+              bot_y = (sprtopscreen + ty * spryscale).to_i - 1
+              top_y = [top_y, mceilingclip + 1].max
+              bot_y = [bot_y, mfloorclip - 1].min
+
+              if top_y <= bot_y
+                top_y = [top_y, 0].max
+                bot_y = [bot_y, SCREEN_HEIGHT - 1].min
+                tex_frac = y_start + (top_y - (sprtopscreen + y_start * spryscale)) * iscale
+                y = top_y
+                while y <= bot_y
+                  t = ((tex_frac).to_i % tex_height)
+                  c = column[t]
+                  @framebuffer[y * SCREEN_WIDTH + x] = cmap[c] if c
+                  tex_frac += iscale
+                  y += 1
+                end
+              end
+              y_start = nil
+            end
+          end
+
+          # Mark column as drawn
+          ds.maskedtexturecol[col_idx] = nil
         end
       end
 
