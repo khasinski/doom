@@ -238,6 +238,7 @@ module Doom
 
         # Initialize drawsegs for sprite clipping
         @drawsegs = []
+        @masked_draws = []  # Deferred middle texture draws (after visplanes)
 
         # Render walls via BSP traversal
         render_bsp_node(@map.nodes.size - 1)
@@ -250,7 +251,13 @@ module Doom
         @sprite_floor_clip.replace(@floor_clip)
         @sprite_wall_depth.replace(@wall_depth)
 
-        # Render sprites
+        # Draw masked middle textures THEN sprites (matching Chocolate Doom R_DrawMasked)
+        # Middle textures use saved clip bounds and depth-test against wall_depth
+        @masked_draws.each do |md|
+          draw_wall_column_masked_deferred(md)
+        end
+
+        # Render sprites (after masked textures so they appear in front of grates)
         render_sprites if @sprites
       end
 
@@ -1068,13 +1075,13 @@ module Doom
             end
 
             # Middle texture on two-sided linedef (grates, bars, fences)
-            # In Chocolate Doom, middle textures don't tile vertically.
-            # They're drawn once, anchored by pegging flags:
-            #   Without DONTPEGBOTTOM: top of texture at opening ceiling
-            #   With DONTPEGBOTTOM: bottom of texture at opening floor
+            # Only for lines with an actual opening (not closed doors).
             mid_tex = sidedef.middle_texture
-            if mid_tex && mid_tex != '-' && !mid_tex.empty?
+            if !closed_door && mid_tex && mid_tex != '-' && !mid_tex.empty?
               texture = @textures[anim_texture(mid_tex)]
+              # Only use masked (deferred) drawing if texture has transparent pixels
+              # Solid middle textures on two-sided lines are drawn by the regular path
+              texture = nil unless texture && texture_has_transparency?(texture)
               if texture
                 open_top = [sector.ceiling_height, back_sector.ceiling_height].min
                 open_bottom = [sector.floor_height, back_sector.floor_height].max
@@ -1100,9 +1107,11 @@ module Doom
                 mid_bot_y = [mid_bot_y, @floor_clip[x] - 1].min
 
                 if mid_top_y <= mid_bot_y
-                  draw_wall_column_masked(x, mid_top_y, mid_bot_y, mid_tex, dist,
-                                         sector.light_level, tex_col, sidedef.y_offset,
-                                         scale, draw_top)
+                  # Save current clip values (before BSP modifies them for columns behind)
+                  @masked_draws << { x: x, y1: mid_top_y, y2: mid_bot_y, tex: mid_tex,
+                                     dist: dist, light: sector.light_level, tex_col: tex_col,
+                                     tex_y: sidedef.y_offset, scale: scale, world_top: draw_top,
+                                     clip_top: @ceiling_clip[x], clip_bottom: @floor_clip[x] }
                 end
               end
             end
@@ -1248,6 +1257,64 @@ module Doom
           screen_offset = y - y1
           tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
 
+          color = column[tex_y]
+          framebuffer[y * SCREEN_WIDTH + x] = cmap[color] if color
+          y += 1
+        end
+      end
+
+      # Cache which textures have transparent pixels
+      def texture_has_transparency?(texture)
+        @transparency_cache ||= {}
+        name = texture.name
+        return @transparency_cache[name] if @transparency_cache.key?(name)
+        @transparency_cache[name] = texture.width.times.any? do |x|
+          col = texture.column_pixels(x)
+          col&.any?(&:nil?)
+        end
+      end
+
+      # Draw a deferred masked column using per-drawseg clip values saved at BSP time
+      def draw_wall_column_masked_deferred(md)
+        x = md[:x]
+        tex_name = md[:tex]
+        return if tex_name.nil? || tex_name.empty? || tex_name == '-'
+
+        # Use saved clips (from BSP time, before far walls closed them)
+        # AND final sprite clips (to prevent far grates drawing over near walls)
+        # Take the tightest combination of both
+        y1 = [md[:clip_top] + 1, @sprite_ceiling_clip[x] + 1, md[:y1]].max
+        y2 = [md[:clip_bottom] - 1, @sprite_floor_clip[x] - 1, md[:y2]].min
+        return if y1 > y2
+
+        # Depth test: far grate behind a near solid wall
+        return if md[:dist] > @sprite_wall_depth[x]
+
+        texture = @textures[anim_texture(tex_name)]
+        return unless texture
+
+        light = calculate_light(md[:light], md[:dist])
+        cmap = @colormap.maps[light]
+        framebuffer = @framebuffer
+        tex_width = texture.width
+        tex_height = texture.height
+
+        tex_x = md[:tex_col].to_i % tex_width
+        column = texture.column_pixels(tex_x)
+        return unless column
+
+        scale = md[:scale]
+        tex_step = 1.0 / scale
+        unclipped_y1 = HALF_HEIGHT - (md[:world_top] - @player_z) * scale
+        tex_y_at_y1 = md[:tex_y] + (y1 - unclipped_y1) * tex_step
+
+        y1 = 0 if y1 < 0
+        y2 = SCREEN_HEIGHT - 1 if y2 >= SCREEN_HEIGHT
+
+        y = y1
+        while y <= y2
+          screen_offset = y - y1
+          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
           color = column[tex_y]
           framebuffer[y * SCREEN_WIDTH + x] = cmap[color] if color
           y += 1
