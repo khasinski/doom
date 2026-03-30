@@ -20,6 +20,7 @@ require_relative 'doom/game/sector_effects'
 require_relative 'doom/game/monster_ai'
 require_relative 'doom/game/menu'
 require_relative 'doom/wad/sound'
+require_relative 'doom/wad/music'
 require_relative 'doom/game/sound_engine'
 require_relative 'doom/render/font'
 require_relative 'doom/render/renderer'
@@ -90,10 +91,11 @@ module Doom
       combat = Game::Combat.new(map, player_state, sprites, {}, sound_engine)
       monster_ai = Game::MonsterAI.new(map, combat, player_state, sprites, {}, sound_engine)
       doom_font = Render::Font.new(wad, hud_graphics)
+      music = Wad::MusicManager.new(wad)
       menu = Game::Menu.new(wad, hud_graphics, doom_font)
 
       puts 'Starting game window...'
-      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai, menu, sound_engine)
+      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai, menu, sound_engine, music)
       window.show
     end
   end
