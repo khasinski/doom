@@ -79,7 +79,7 @@ module Doom
         2046 => 16,                                          # Burning barrel
       }.freeze
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil, menu = nil, sound_engine = nil, music = nil)
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil, menu = nil, sound_engine = nil)
         fullscreen = ARGV.include?('--fullscreen') || ARGV.include?('-f')
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
@@ -101,7 +101,6 @@ module Doom
         @menu = menu
         @doom_font = menu&.font
         @sound = sound_engine
-        @music = music
         @damage_multiplier = 1.0
         @skill = Game::Menu::SKILL_MEDIUM
         @skill_hidden = {}  # Thing indices hidden by difficulty
@@ -133,15 +132,9 @@ module Doom
           @all_palette_rgba << pal.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
         end
         @palette_rgba = @all_palette_rgba[0]
-        @music_started = false
       end
 
       def update
-        # Start title music on first frame
-        if !@music_started && @music
-          @music.play_title
-          @music_started = true
-        end
         # Calculate delta time for smooth animations
         now = Time.now
         delta_time = now - @last_update_time
@@ -1022,7 +1015,6 @@ module Doom
         respawn_player
 
         # Play map music
-        @music&.play_map('E1M1')
       end
 
       def setup_yjit_toggle
