@@ -116,6 +116,7 @@ module Doom
         @use_pressed = false
         @show_debug = false
         @show_map = false
+        @screen_melt = nil
         @debug_font = Gosu::Font.new(16)
         @fps_frames = 0
         @fps_time = Time.now
@@ -735,6 +736,20 @@ module Doom
       end
 
       def draw
+        # Screen melt effect in progress
+        if @screen_melt && !@screen_melt.done?
+          fb = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
+          @screen_melt.update(fb)
+          active_pal = @all_palette_rgba[0]
+          rgba = fb.map { |idx| active_pal[idx] }.join
+          @screen_image = Gosu::Image.from_blob(
+            Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
+          )
+          @screen_image.draw(0, 0, 0, SCALE, SCALE)
+          @screen_melt = nil if @screen_melt.done?
+          return
+        end
+
         if @menu&.active?
           if @menu.needs_background?
             # Render game view + HUD as background, then overlay menu on top
@@ -747,6 +762,10 @@ module Doom
             fb = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
           end
           @menu.render(fb, nil)
+
+          # Capture current menu frame for melt transitions
+          @last_menu_fb = fb.dup
+
           active_pal = @all_palette_rgba[0]
           rgba = fb.map { |idx| active_pal[idx] }.join
           @screen_image = Gosu::Image.from_blob(
@@ -831,7 +850,21 @@ module Doom
               @sound&.menu_back
             end
 
+            # Capture old screen before menu state change (for melt effect)
+            old_state = @menu.state
             result = @menu.handle_key(key)
+            new_state = @menu.state
+
+            # Trigger melt when transitioning from title to main menu
+            if old_state == Game::Menu::STATE_TITLE && new_state == Game::Menu::STATE_MAIN && @last_menu_fb
+              # Build the new screen (main menu with game background)
+              @renderer.render_frame
+              @weapon_renderer&.render(@renderer.framebuffer) unless @player_state&.dead
+              @status_bar&.render(@renderer.framebuffer)
+              new_fb = @renderer.framebuffer.dup
+              @menu.render(new_fb, nil)
+              @screen_melt = Render::ScreenMelt.new(@last_menu_fb, new_fb)
+            end
 
             # Play confirmation sound on select
             @sound&.menu_select if key == :enter
