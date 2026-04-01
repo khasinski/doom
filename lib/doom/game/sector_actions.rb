@@ -15,12 +15,16 @@ module Doom
       DOOR_WAIT = 150  # Tics to wait when open (~4 seconds)
       PLAYER_HEIGHT = 56  # Player height for door collision
 
+      attr_reader :exit_triggered
+
       def initialize(map, sound_engine = nil)
         @map = map
         @sound = sound_engine
         @active_doors = {}  # sector_index => door_state
         @player_x = 0
         @player_y = 0
+        @exit_triggered = nil
+        @crossed_linedefs = {}
       end
 
       def update_player_position(x, y)
@@ -30,6 +34,7 @@ module Doom
 
       def update
         update_doors
+        check_walk_triggers
       end
 
       # Try to use a linedef (called when player presses use key)
@@ -52,12 +57,44 @@ module Doom
         when 28  # DR Red Door
           activate_door(linedef, key: :red_card)
           true
+        when 11  # S1 Exit
+          @exit_triggered = :normal
+          true
+        when 51  # S1 Secret Exit
+          @exit_triggered = :secret
+          true
         else
           false
         end
       end
 
       private
+
+      def check_walk_triggers
+        @map.linedefs.each_with_index do |ld, idx|
+          next if @crossed_linedefs[idx]
+          next unless [52, 124].include?(ld.special)  # W1 Exit, W1 Secret Exit
+
+          v1 = @map.vertices[ld.v1]
+          v2 = @map.vertices[ld.v2]
+          # Check if player is near this linedef
+          dist = point_line_dist(@player_x, @player_y, v1.x, v1.y, v2.x, v2.y)
+          if dist < 24
+            @crossed_linedefs[idx] = true
+            @exit_triggered = ld.special == 124 ? :secret : :normal
+          end
+        end
+      end
+
+      def point_line_dist(px, py, x1, y1, x2, y2)
+        dx = x2 - x1; dy = y2 - y1
+        len_sq = dx * dx + dy * dy
+        return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2) if len_sq == 0
+        t = ((px - x1) * dx + (py - y1) * dy).to_f / len_sq
+        t = [[t, 0.0].max, 1.0].min
+        cx = x1 + t * dx; cy = y1 + t * dy
+        Math.sqrt((px - cx) ** 2 + (py - cy) ** 2)
+      end
 
       def activate_door(linedef, stay_open: false, key: nil)
         # Find the sector on the back side of the linedef

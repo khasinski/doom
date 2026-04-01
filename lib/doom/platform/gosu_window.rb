@@ -117,6 +117,8 @@ module Doom
         @show_debug = false
         @show_map = false
         @screen_melt = nil
+        @intermission = nil
+        @current_map = 'E1M1'
         @debug_font = Gosu::Font.new(16)
         @fps_frames = 0
         @fps_time = Time.now
@@ -144,6 +146,12 @@ module Doom
         # Menu is active -- only update menu animation, skip game logic
         if @menu&.active?
           @menu.update
+          return
+        end
+
+        # Intermission screen active
+        if @intermission
+          @intermission.update
           return
         end
 
@@ -203,6 +211,11 @@ module Doom
         if @sector_actions
           @sector_actions.update_player_position(@renderer.player_x, @renderer.player_y)
           @sector_actions.update
+
+          # Check for level exit
+          if @sector_actions.exit_triggered && !@intermission
+            trigger_level_exit(@sector_actions.exit_triggered)
+          end
         end
 
         # Check item pickups
@@ -736,6 +749,19 @@ module Doom
       end
 
       def draw
+        # Intermission screen
+        if @intermission
+          fb = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
+          @intermission.render(fb)
+          active_pal = @all_palette_rgba[0]
+          rgba = fb.map { |idx| active_pal[idx] }.join
+          @screen_image = Gosu::Image.from_blob(
+            Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
+          )
+          @screen_image.draw(0, 0, 0, SCALE, SCALE)
+          return
+        end
+
         # Screen melt effect in progress
         if @screen_melt && !@screen_melt.done?
           fb = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
@@ -833,6 +859,22 @@ module Doom
       end
 
       def button_down(id)
+        # Intermission handles input
+        if @intermission
+          @intermission.handle_key
+          if @intermission.finished
+            next_map = @intermission.next_map
+            @intermission = nil
+            if next_map
+              load_next_map(next_map)
+            else
+              # Episode complete - return to menu
+              @menu&.show
+            end
+          end
+          return
+        end
+
         # Menu handles input when active
         if @menu&.active?
           key = case id
@@ -1014,6 +1056,79 @@ module Doom
           end
         end
         hidden
+      end
+
+      def trigger_level_exit(exit_type)
+        # Gather stats
+        total_monsters = @monster_ai ? @monster_ai.monsters.size : 0
+        killed = @combat ? @combat.dead_things.size : 0
+
+        total_items = Game::ItemPickup::ITEMS.keys.count { |t|
+          @map.things.any? { |th| th.type == t }
+        }
+        picked = @item_pickup ? @item_pickup.picked_up.size : 0
+
+        # Count secret sectors
+        total_secrets = @map.sectors.count { |s| s.special == 9 }
+        # Secrets found: player visited a sector with special 9
+        found_secrets = 0  # TODO: track properly
+
+        stats = {
+          map: @current_map,
+          kills: killed, total_kills: total_monsters,
+          items: picked, total_items: total_items,
+          secrets: found_secrets, total_secrets: total_secrets,
+          time_tics: @leveltime,
+          exit_type: exit_type,
+        }
+
+        wad = @renderer.instance_variable_get(:@wad)
+        @intermission = Game::Intermission.new(wad, @status_bar.instance_variable_get(:@gfx), stats)
+      end
+
+      def load_next_map(map_name)
+        return unless map_name
+
+        wad = @renderer.instance_variable_get(:@wad)
+        @current_map = map_name
+
+        # Load new map data
+        map = Map::MapData.load(wad, map_name)
+        @map = map
+
+        # Rebuild all systems for new map
+        palette = @palette
+        colormap = @renderer.instance_variable_get(:@colormap)
+        textures = @renderer.instance_variable_get(:@textures)
+        flats = @renderer.instance_variable_get(:@flats)
+        sprites = @renderer.instance_variable_get(:@sprites)
+        animations = @animations
+
+        @renderer = Render::Renderer.new(wad, map, textures, palette, colormap,
+                                          flats.values, sprites, animations)
+        ps = map.player_start
+        @renderer.set_player(ps.x, ps.y, 41, ps.angle)
+
+        @player_state.reset
+        @sector_actions = Game::SectorActions.new(map, @sound)
+        @sector_effects = Game::SectorEffects.new(map)
+
+        @skill_hidden = compute_skill_hidden(@skill || Game::Menu::SKILL_MEDIUM)
+        @item_pickup = Game::ItemPickup.new(map, @player_state, @skill_hidden)
+        @item_pickup.ammo_multiplier = (@skill == Game::Menu::SKILL_BABY) ? 2 : 1
+
+        combat_sprites = sprites
+        @combat = Game::Combat.new(map, @player_state, combat_sprites, @skill_hidden, @sound)
+        @monster_ai = Game::MonsterAI.new(map, @combat, @player_state, combat_sprites, @skill_hidden, @sound)
+        @monster_ai.aggression = true
+        @monster_ai.damage_multiplier = @damage_multiplier
+
+        @last_floor_height = nil
+        @move_momx = 0.0
+        @move_momy = 0.0
+        @leveltime = 0
+
+        update_player_height(ps.x, ps.y)
       end
 
       def apply_difficulty(skill)
