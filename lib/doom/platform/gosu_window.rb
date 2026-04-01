@@ -236,8 +236,8 @@ module Doom
           @status_bar.render(@renderer.framebuffer)
         end
 
-        # Pickup message (drawn into framebuffer with DOOM font)
-        if @doom_font && @item_pickup&.pickup_message && @item_pickup.pickup_flash > 0
+        # Pickup message (drawn into framebuffer with DOOM font, 4 seconds like Chocolate Doom)
+        if @doom_font && @item_pickup&.pickup_message && @item_pickup.message_tics > 0
           @doom_font.draw_text(@renderer.framebuffer, @item_pickup.pickup_message, 2, 2)
         end
 

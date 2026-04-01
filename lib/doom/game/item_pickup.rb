@@ -50,7 +50,10 @@ module Doom
         38 => { cat: :key, key: :red_skull },
       }.freeze
 
-      attr_reader :picked_up, :pickup_message, :pickup_flash
+      MESSAGETICS = 140    # 4 * TICRATE (4 seconds, matching Chocolate Doom)
+      FLASH_TICS = 8       # Yellow palette flash duration
+
+      attr_reader :picked_up, :pickup_message, :pickup_flash, :message_tics
       attr_accessor :ammo_multiplier, :hidden_things
 
       def initialize(map, player_state, hidden_things = {})
@@ -60,12 +63,14 @@ module Doom
         @hidden_things = hidden_things
         @ammo_multiplier = 1
         @pickup_message = nil
-        @pickup_flash = 0  # Tics remaining for yellow screen flash
+        @pickup_flash = 0     # Yellow screen flash (short)
+        @message_tics = 0     # Message display timer (long)
       end
 
-      # Decay pickup flash each tic
+      # Decay timers each tic
       def update_flash
         @pickup_flash -= 1 if @pickup_flash > 0
+        @message_tics -= 1 if @message_tics > 0
       end
 
       def update(player_x, player_y)
@@ -82,7 +87,8 @@ module Doom
           if try_pickup(item)
             @picked_up[idx] = true
             @pickup_message = PICKUP_MESSAGES[thing.type]
-            @pickup_flash = 8  # Yellow flash for ~0.23 seconds
+            @pickup_flash = FLASH_TICS
+            @message_tics = MESSAGETICS
           end
         end
       end
