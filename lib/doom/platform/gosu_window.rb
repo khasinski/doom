@@ -430,7 +430,7 @@ module Doom
       end
 
       def facing_linedef?(px, py, cos_angle, sin_angle, v1, v2)
-        # Calculate linedef normal (perpendicular to line, pointing to front side)
+        # Calculate linedef normal (perpendicular to line)
         line_dx = v2.x - v1.x
         line_dy = v2.y - v1.y
 
@@ -438,24 +438,26 @@ module Doom
         normal_x = -line_dy
         normal_y = line_dx
 
-        # Normalize
         len = Math.sqrt(normal_x * normal_x + normal_y * normal_y)
         return false if len == 0
 
         normal_x /= len
         normal_y /= len
 
-        # Check if player is on the front side (normal side) of the line
+        # Determine which side the player is on
         to_player_x = px - v1.x
         to_player_y = py - v1.y
-        dot_player = to_player_x * normal_x + to_player_y * normal_y
+        side = to_player_x * normal_x + to_player_y * normal_y
 
-        # Player must be on front side
-        return false if dot_player < 0
+        # Flip normal if player is on the back side (so we check facing toward the line)
+        if side < 0
+          normal_x = -normal_x
+          normal_y = -normal_y
+        end
 
-        # Check if player is facing toward the line
+        # Check if player is facing toward the line (relaxed angle check)
         dot_facing = cos_angle * (-normal_x) + sin_angle * (-normal_y)
-        dot_facing > 0.5  # Must be roughly facing the line
+        dot_facing > 0.2  # ~78 degree cone, matching DOOM's generous use check
       end
 
       def handle_weapon_switch
