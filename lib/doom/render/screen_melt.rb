@@ -8,7 +8,7 @@ module Doom
     class ScreenMelt
       WIDTH = SCREEN_WIDTH
       HEIGHT = SCREEN_HEIGHT
-      MELT_SPEED = HEIGHT / 15  # ~16 pixels per tic (matching Chocolate Doom)
+      MELT_SPEED = HEIGHT / 30  # ~8 pixels per frame (Chocolate Doom does HEIGHT/15 at 35fps)
 
       def initialize(old_screen, new_screen)
         # Snapshot both screens (arrays of palette indices, 320x240)
