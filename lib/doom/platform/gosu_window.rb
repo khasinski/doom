@@ -1013,8 +1013,6 @@ module Doom
         end
 
         respawn_player
-
-        # Play map music
       end
 
       def setup_yjit_toggle
