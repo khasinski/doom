@@ -216,6 +216,12 @@ module Doom
           if @sector_actions.exit_triggered && !@intermission
             trigger_level_exit(@sector_actions.exit_triggered)
           end
+
+          # Check for teleport
+          if (dest = @sector_actions.pop_teleport)
+            @renderer.set_player(dest[:x], dest[:y], @renderer.player_z, dest[:angle])
+            update_player_height(dest[:x], dest[:y])
+          end
         end
 
         # Check item pickups
