@@ -145,7 +145,19 @@ module Doom
           v1 = @map.vertices[ld.v1]
           v2 = @map.vertices[ld.v2]
           dist = point_line_dist(@player_x, @player_y, v1.x, v1.y, v2.x, v2.y)
-          next if dist >= 24
+
+          # Track player proximity: trigger only on entering range (crossing),
+          # not while standing near. Matches Chocolate Doom's P_CrossSpecialLine.
+          near = dist < 24
+          was_near = @near_linedefs ||= {}
+          if near && !was_near[idx]
+            was_near[idx] = true
+          elsif !near
+            was_near[idx] = false
+            next
+          else
+            next  # Still near, don't retrigger
+          end
 
           @crossed_linedefs[idx] = true
 
@@ -437,6 +449,9 @@ module Doom
 
         if @secret_sectors.include?(sector_idx)
           @secrets_found[sector_idx] = true
+          # Clear the special so it doesn't retrigger (matching Chocolate Doom)
+          @map.sectors[sector_idx].special = 0
+          @secret_sectors.delete(sector_idx)
         end
       end
 
