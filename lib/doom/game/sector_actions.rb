@@ -132,6 +132,8 @@ module Doom
       W1_TYPES = [2, 5, 7, 8, 52, 124].freeze
 
       def check_walk_triggers
+        @near_linedefs ||= {}
+
         @map.linedefs.each_with_index do |ld, idx|
           next if ld.special == 0
           action = WALK_TRIGGERS[ld.special]
@@ -144,19 +146,27 @@ module Doom
 
           v1 = @map.vertices[ld.v1]
           v2 = @map.vertices[ld.v2]
+
+          # Determine which side of the linedef the player is on
+          # DOOM's P_CrossSpecialLine fires when the player transitions sides
+          side = line_side(@player_x, @player_y, v1.x, v1.y, v2.x, v2.y)
           dist = point_line_dist(@player_x, @player_y, v1.x, v1.y, v2.x, v2.y)
 
-          # Track player proximity: trigger only on entering range (crossing),
-          # not while standing near. Matches Chocolate Doom's P_CrossSpecialLine.
-          near = dist < 24
-          was_near = @near_linedefs ||= {}
-          if near && !was_near[idx]
-            was_near[idx] = true
+          near = dist < 48  # Use generous range for detection
+          prev_side = @near_linedefs[idx]
+
+          if near && prev_side && prev_side != side
+            # Player crossed the line - trigger!
+            @near_linedefs[idx] = side
+          elsif near && prev_side.nil?
+            # First time near - record side but don't trigger yet
+            @near_linedefs[idx] = side
+            next
           elsif !near
-            was_near[idx] = false
+            @near_linedefs[idx] = nil
             next
           else
-            next  # Still near, don't retrigger
+            next  # Same side, no crossing
           end
 
           @crossed_linedefs[idx] = true
@@ -180,6 +190,12 @@ module Doom
             teleport_player(ld)
           end
         end
+      end
+
+      # Returns which side of a line a point is on (:front or :back)
+      def line_side(px, py, x1, y1, x2, y2)
+        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
+        cross >= 0 ? :front : :back
       end
 
       def point_line_dist(px, py, x1, y1, x2, y2)
