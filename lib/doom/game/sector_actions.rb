@@ -152,7 +152,7 @@ module Doom
           side = line_side(@player_x, @player_y, v1.x, v1.y, v2.x, v2.y)
           dist = point_line_dist(@player_x, @player_y, v1.x, v1.y, v2.x, v2.y)
 
-          near = dist < 48  # Use generous range for detection
+          near = dist < 32  # Detection range
           prev_side = @near_linedefs[idx]
 
           if near && prev_side && prev_side != side
@@ -337,9 +337,10 @@ module Doom
         tag = linedef.tag
         return if tag == 0
 
+        activated = false
         @map.sectors.each_with_index do |sector, idx|
           next unless sector_has_tag?(idx, tag)
-          next if @active_lifts[idx]
+          next if @active_lifts[idx]  # Already moving
 
           lowest = find_lowest_floor_around(idx)
           @active_lifts[idx] = {
@@ -349,8 +350,9 @@ module Doom
             original_height: sector.floor_height,
             wait_tics: 0,
           }
+          activated = true
         end
-        @sound&.platform_start
+        @sound&.platform_start if activated
       end
 
       def update_lifts
