@@ -21,6 +21,12 @@ module Doom
 
       attr_reader :exit_triggered, :secrets_found
 
+      def pop_teleport
+        dest = @teleport_dest
+        @teleport_dest = nil
+        dest
+      end
+
       def initialize(map, sound_engine = nil)
         @map = map
         @sound = sound_engine
@@ -403,11 +409,6 @@ module Doom
         end
       end
 
-      def pop_teleport
-        dest = @teleport_dest
-        @teleport_dest = nil
-        dest
-      end
 
       def check_secrets
         sector = @map.sector_at(@player_x, @player_y)
