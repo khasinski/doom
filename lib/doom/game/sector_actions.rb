@@ -19,7 +19,7 @@ module Doom
       LIFT_SPEED = 4
       LIFT_WAIT = 105  # ~3 seconds
 
-      attr_reader :exit_triggered
+      attr_reader :exit_triggered, :secrets_found
 
       def initialize(map, sound_engine = nil)
         @map = map
@@ -29,6 +29,7 @@ module Doom
         @player_x = 0
         @player_y = 0
         @exit_triggered = nil
+        @secrets_found = {}  # sector_index => true
         @crossed_linedefs = {}
       end
 
@@ -41,6 +42,7 @@ module Doom
         update_doors
         update_lifts
         check_walk_triggers
+        check_secrets
       end
 
       # Try to use a linedef (called when player presses use key)
@@ -405,6 +407,20 @@ module Doom
         dest = @teleport_dest
         @teleport_dest = nil
         dest
+      end
+
+      def check_secrets
+        sector = @map.sector_at(@player_x, @player_y)
+        return unless sector
+
+        sector_idx = @map.sectors.index(sector)
+        return unless sector_idx
+        return if @secrets_found[sector_idx]
+
+        # DOOM sector special 9 = secret
+        if sector.special == 9
+          @secrets_found[sector_idx] = true
+        end
       end
 
       def sector_has_tag?(sector_idx, tag)

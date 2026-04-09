@@ -1076,10 +1076,9 @@ module Doom
         }
         picked = @item_pickup ? @item_pickup.picked_up.size : 0
 
-        # Count secret sectors
+        # Secret sectors (type 9) tracked by SectorActions
         total_secrets = @map.sectors.count { |s| s.special == 9 }
-        # Secrets found: player visited a sector with special 9
-        found_secrets = 0  # TODO: track properly
+        found_secrets = @sector_actions ? @sector_actions.secrets_found.size : 0
 
         stats = {
           map: @current_map,
