@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'set'
+
 module Doom
   module Game
     # Manages animated sector actions (doors, lifts, etc.)
@@ -411,15 +413,29 @@ module Doom
 
 
       def check_secrets
-        sector = @map.sector_at(@player_x, @player_y)
-        return unless sector
+        # Build set of secret sector indices on first call
+        @secret_sectors ||= Set.new(
+          @map.sectors.each_with_index.filter_map { |s, i| i if s.special == 9 }
+        )
+        return if @secret_sectors.empty?
 
-        sector_idx = @map.sectors.index(sector)
-        return unless sector_idx
+        # Find which sector the player is in via BSP subsector lookup
+        subsector = @map.subsector_at(@player_x, @player_y)
+        return unless subsector
+
+        seg = @map.segs[subsector.first_seg]
+        return unless seg
+
+        ld = @map.linedefs[seg.linedef]
+        return unless ld
+
+        sd_idx = seg.direction == 0 ? ld.sidedef_right : ld.sidedef_left
+        return if sd_idx == 0xFFFF
+
+        sector_idx = @map.sidedefs[sd_idx].sector
         return if @secrets_found[sector_idx]
 
-        # DOOM sector special 9 = secret
-        if sector.special == 9
+        if @secret_sectors.include?(sector_idx)
           @secrets_found[sector_idx] = true
         end
       end
