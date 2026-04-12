@@ -38,6 +38,21 @@ module Doom
       wad = Wad::Reader.new(wad_path)
       puts "  #{wad.type}: #{wad.num_lumps} lumps"
 
+      # If it's a PWAD, we need a base IWAD for resources (palette, textures, etc.)
+      if wad.pwad?
+        iwad_path = find_iwad
+        raise Error, "PWAD requires a base IWAD (doom1.wad). Place it in the current directory or ~/.doom/" unless iwad_path
+        puts "  PWAD detected, loading base IWAD: #{iwad_path}"
+        base_wad = Wad::Reader.new(iwad_path)
+        base_wad.merge_pwad(wad)
+        wad = base_wad
+
+        # Auto-detect map name from PWAD lumps
+        pwad_map = wad.directory.find { |e| e.name =~ /^(E\dM\d|MAP\d\d)$/ }
+        map_name = pwad_map.name if pwad_map
+        puts "  Using map: #{map_name}"
+      end
+
       puts 'Loading palette...'
       palette = Wad::Palette.load(wad)
 
@@ -97,6 +112,17 @@ module Doom
       puts 'Starting game window...'
       window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai, menu, sound_engine)
       window.show
+    end
+
+    private
+
+    def find_iwad
+      candidates = [
+        File.join(Dir.pwd, 'doom1.wad'),
+        File.join(Dir.pwd, 'doom.wad'),
+        File.join(Dir.home, '.doom', 'doom1.wad'),
+      ]
+      candidates.find { |p| File.exist?(p) }
     end
   end
 end

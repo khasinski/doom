@@ -45,8 +45,60 @@ module Doom
         @directory[start_idx + 1...end_idx]
       end
 
+      def pwad?
+        @type == PWAD
+      end
+
+      def iwad?
+        @type == IWAD
+      end
+
+      # Merge a PWAD on top of this IWAD.
+      # PWAD lumps override IWAD lumps with the same name.
+      # Map lumps (between map markers) are replaced as a group.
+      def merge_pwad(pwad)
+        raise Error, "Can only merge a PWAD" unless pwad.pwad?
+        @lump_cache.clear
+
+        pwad.directory.each do |pwad_entry|
+          # Check if this lump already exists in the IWAD
+          existing_idx = @directory.index { |e| e.name == pwad_entry.name }
+          if existing_idx
+            # Replace it -- but we need to read from the PWAD file
+            @directory[existing_idx] = pwad_entry
+          else
+            # Append new lump
+            @directory << pwad_entry
+          end
+        end
+
+        # Keep the PWAD file open for reading its lumps
+        @pwad_files ||= []
+        @pwad_files << pwad
+        @num_lumps = @directory.size
+      end
+
+      # Override read_lump_at to check if entry belongs to a PWAD file
+      def read_lump_at(entry)
+        # Try PWAD files first (they may own this entry)
+        (@pwad_files || []).each do |pwad|
+          if pwad.directory.include?(entry)
+            return pwad.read_lump_own(entry)
+          end
+        end
+        @file.seek(entry.offset)
+        @file.read(entry.size)
+      end
+
+      # Read a lump that belongs to this WAD's own file
+      def read_lump_own(entry)
+        @file.seek(entry.offset)
+        @file.read(entry.size)
+      end
+
       def close
         @file.close
+        (@pwad_files || []).each(&:close)
       end
 
       private
