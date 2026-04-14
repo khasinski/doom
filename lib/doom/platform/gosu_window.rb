@@ -855,19 +855,22 @@ module Doom
       def draw_debug_into_framebuffer(framebuffer)
         yjit_status = defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled? ? 'ON' : 'OFF'
 
+        ang = (Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)
+
         lines = if @menu&.options&.[](:rubykaigi_mode)
                   [
                     "#{@fps_display} FPS",
                     "YJIT: #{yjit_status}  Y TO TOGGLE",
                     "RUBY #{RUBY_VERSION}",
                     "MAP: #{@current_map}",
+                    "POS: #{@renderer.player_x.round} #{@renderer.player_y.round} ANG: #{ang}",
                   ]
                 else
                   [
                     "FPS: #{@fps_display}",
                     "YJIT: #{yjit_status}",
                     "POS: #{@renderer.player_x.round} #{@renderer.player_y.round}",
-                    "ANG: #{(Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)}",
+                    "ANG: #{ang}",
                   ]
                 end
 
