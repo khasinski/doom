@@ -256,9 +256,20 @@ module Doom
           @status_bar.render(@renderer.framebuffer)
         end
 
+        # Debug info drawn into framebuffer with DOOM font (red text)
+        if @show_debug && @doom_font
+          draw_debug_into_framebuffer(@renderer.framebuffer)
+        end
+
         # Pickup message (drawn into framebuffer with DOOM font, 4 seconds like Chocolate Doom)
         if @doom_font && @item_pickup&.pickup_message && @item_pickup.message_tics > 0
-          @doom_font.draw_text(@renderer.framebuffer, @item_pickup.pickup_message, 2, 2)
+          if @show_debug
+            # Move to right side when debug is showing on left
+            msg_w = @doom_font.text_width(@item_pickup.pickup_message)
+            @doom_font.draw_text(@renderer.framebuffer, @item_pickup.pickup_message, 318 - msg_w, 2)
+          else
+            @doom_font.draw_text(@renderer.framebuffer, @item_pickup.pickup_message, 2, 2)
+          end
         end
 
         # Red tint when dead
@@ -826,12 +837,11 @@ module Doom
           )
           @screen_image.draw(0, 0, 0, SCALE, SCALE)
 
-          draw_debug_overlay if @show_debug
+          update_fps_counter if @show_debug
         end
       end
 
-      def draw_debug_overlay
-        # Update FPS counter (refresh every 0.5 seconds)
+      def update_fps_counter
         @fps_frames += 1
         now = Time.now
         elapsed = now - @fps_time
@@ -840,41 +850,30 @@ module Doom
           @fps_frames = 0
           @fps_time = now
         end
+      end
 
-        sector = @map.sector_at(@renderer.player_x, @renderer.player_y)
-        return unless sector
-
-        # Find sector index
-        sector_idx = @map.sectors.index(sector)
-
+      def draw_debug_into_framebuffer(framebuffer)
         yjit_status = defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled? ? 'ON' : 'OFF'
 
         lines = if @menu&.options&.[](:rubykaigi_mode)
-                  # RubyKaigi mode: clean benchmark dashboard
                   [
                     "#{@fps_display} FPS",
-                    "YJIT: #{yjit_status} (Y to toggle)",
-                    "Ruby #{RUBY_VERSION}",
-                    "Map: #{@current_map}",
+                    "YJIT: #{yjit_status}  Y TO TOGGLE",
+                    "RUBY #{RUBY_VERSION}",
+                    "MAP: #{@current_map}",
                   ]
                 else
                   [
                     "FPS: #{@fps_display}",
-                    "Sector #{sector_idx}",
-                    "Floor: #{sector.floor_height} (#{sector.floor_texture})",
-                    "Ceil:  #{sector.ceiling_height} (#{sector.ceiling_texture})",
-                    "Light: #{sector.light_level}",
-                    "Pos: #{@renderer.player_x.round}, #{@renderer.player_y.round}",
-                    "Heading: #{(Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)}",
-                    "YJIT: #{yjit_status} (Y to toggle)",
+                    "YJIT: #{yjit_status}",
+                    "POS: #{@renderer.player_x.round} #{@renderer.player_y.round}",
                   ]
                 end
 
-        y = 4
+        y = 2
         lines.each do |line|
-          @debug_font.draw_text(line, 6, y + 1, 1, 1, 1, Gosu::Color::BLACK)
-          @debug_font.draw_text(line, 5, y, 1, 1, 1, Gosu::Color::WHITE)
-          y += 18
+          @doom_font.draw_text(framebuffer, line, 2, y)
+          y += 10
         end
       end
 
