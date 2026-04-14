@@ -867,6 +867,7 @@ module Doom
                     "FPS: #{@fps_display}",
                     "YJIT: #{yjit_status}",
                     "POS: #{@renderer.player_x.round} #{@renderer.player_y.round}",
+                    "ANG: #{(Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)}",
                   ]
                 end
 
