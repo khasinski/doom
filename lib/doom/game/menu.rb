@@ -134,6 +134,10 @@ module Doom
         # Title screen
         @title = load_patch('TITLEPIC')
 
+        # RubyKaigi title screen (pre-rendered palette indices)
+        kaigi_path = File.join(File.expand_path('../../..', __dir__), 'assets', 'kaigi_title.dat')
+        @kaigi_title = File.exist?(kaigi_path) ? Marshal.load(File.binread(kaigi_path)) : nil
+
         # Main menu
         @m_doom = load_patch('M_DOOM')
         @m_newg = load_patch('M_NGAME')
@@ -161,7 +165,16 @@ module Doom
       end
 
       def render_title(framebuffer)
-        draw_fullscreen(framebuffer, @title) if @title
+        if @options[:rubykaigi_mode] && @kaigi_title
+          # Draw kaigi title (raw palette indices, 320x200, offset 20px down)
+          @kaigi_title.each_with_index do |color, i|
+            x = i % 320
+            y = (i / 320) + 20
+            framebuffer[y * 320 + x] = color if y < 240
+          end
+        elsif @title
+          draw_fullscreen(framebuffer, @title)
+        end
       end
 
       def render_main_menu(framebuffer)

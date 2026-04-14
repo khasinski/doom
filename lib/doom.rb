@@ -33,7 +33,7 @@ module Doom
   class Error < StandardError; end
 
   class << self
-    def run(wad_path, map_name: 'E1M1')
+    def run(wad_path, map_name: 'E1M1', rubykaigi: false)
       puts "Loading WAD: #{wad_path}"
       wad = Wad::Reader.new(wad_path)
       puts "  #{wad.type}: #{wad.num_lumps} lumps"
@@ -108,6 +108,12 @@ module Doom
       monster_ai = Game::MonsterAI.new(map, combat, player_state, sprites, {}, sound_engine)
       doom_font = Render::Font.new(wad, hud_graphics)
       menu = Game::Menu.new(wad, hud_graphics, doom_font)
+
+      # RubyKaigi mode: god mode, no aggression, benchmark HUD
+      if rubykaigi
+        menu.options[:rubykaigi_mode] = true
+        menu.options[:god_mode] = true
+      end
 
       puts 'Starting game window...'
       window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai, menu, sound_engine)

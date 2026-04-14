@@ -847,16 +847,28 @@ module Doom
         # Find sector index
         sector_idx = @map.sectors.index(sector)
 
-        lines = [
-          "FPS: #{@fps_display}",
-          "Sector #{sector_idx}",
-          "Floor: #{sector.floor_height} (#{sector.floor_texture})",
-          "Ceil:  #{sector.ceiling_height} (#{sector.ceiling_texture})",
-          "Light: #{sector.light_level}",
-          "Pos: #{@renderer.player_x.round}, #{@renderer.player_y.round}",
-          "Heading: #{(Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)}",
-          "YJIT: #{defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled? ? 'ON' : 'OFF'} (Y to toggle)",
-        ]
+        yjit_status = defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled? ? 'ON' : 'OFF'
+
+        lines = if @menu&.options&.[](:rubykaigi_mode)
+                  # RubyKaigi mode: clean benchmark dashboard
+                  [
+                    "#{@fps_display} FPS",
+                    "YJIT: #{yjit_status} (Y to toggle)",
+                    "Ruby #{RUBY_VERSION}",
+                    "Map: #{@current_map}",
+                  ]
+                else
+                  [
+                    "FPS: #{@fps_display}",
+                    "Sector #{sector_idx}",
+                    "Floor: #{sector.floor_height} (#{sector.floor_texture})",
+                    "Ceil:  #{sector.ceiling_height} (#{sector.ceiling_texture})",
+                    "Light: #{sector.light_level}",
+                    "Pos: #{@renderer.player_x.round}, #{@renderer.player_y.round}",
+                    "Heading: #{(Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)}",
+                    "YJIT: #{yjit_status} (Y to toggle)",
+                  ]
+                end
 
         y = 4
         lines.each do |line|
@@ -1011,6 +1023,7 @@ module Doom
           @player_state.god_mode = opts[:god_mode]
           @player_state.infinite_ammo = opts[:infinite_ammo]
           handle_option_toggle(:all_weapons, true) if opts[:all_weapons]
+          apply_rubykaigi_mode if opts[:rubykaigi_mode]
         end
 
         # Move player to start position
@@ -1044,8 +1057,26 @@ module Doom
         when :fullscreen
           self.fullscreen = value if respond_to?(:fullscreen=)
         when :rubykaigi_mode
-          # Placeholder for RubyKaigi mode
+          apply_rubykaigi_mode if value
         end
+      end
+
+      def apply_rubykaigi_mode
+        return unless @menu&.options&.[](:rubykaigi_mode)
+
+        # God mode: invincible for stress-free demos
+        @player_state.god_mode = true
+        @player_state.health = 100
+
+        # All weapons + full ammo
+        handle_option_toggle(:all_weapons, true)
+        @player_state.infinite_ammo = true
+
+        # Monsters don't attack (peaceful exploration)
+        @monster_ai.aggression = false if @monster_ai
+
+        # Force debug overlay on (shows FPS + YJIT status)
+        @show_debug = true
       end
 
       # DOOM thing flags: bit 0 = skill 1-2, bit 1 = skill 3, bit 2 = skill 4-5

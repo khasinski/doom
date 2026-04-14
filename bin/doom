@@ -8,8 +8,11 @@ unless ARGV.delete('--no-yjit')
   end
 end
 
+# Parse flags
+rubykaigi_mode = ARGV.delete('--rubykaigi') || ARGV.delete('--kaigi')
+
 # Parse arguments before loading heavy dependencies
-wad_path = ARGV[0]
+wad_path = ARGV.find { |a| !a.start_with?('-') }
 
 # Show help (before loading anything)
 if wad_path == '-h' || wad_path == '--help'
@@ -51,7 +54,7 @@ require_relative '../lib/doom'
 begin
   # Find or download WAD
   wad_path = Doom::WadDownloader.ensure_wad_available(wad_path)
-  Doom.run(wad_path)
+  Doom.run(wad_path, rubykaigi: rubykaigi_mode)
 rescue Doom::WadDownloader::DownloadError => e
   puts "Error: #{e.message}"
   exit 1
