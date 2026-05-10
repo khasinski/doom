@@ -923,6 +923,7 @@ module Doom
         map = Map::MapData.load(wad, map_name)
         @map = map
         @map_bounds = nil  # Recompute on next automap draw
+        @sector_colors = build_sector_colors
 
         # Rebuild all systems for new map
         @renderer = Render::Renderer.new(
