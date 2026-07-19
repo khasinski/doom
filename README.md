@@ -53,6 +53,17 @@ doom /path/to/doom.wad
 | Z | Toggle debug overlay |
 | Escape | Release mouse / Quit |
 
+## Frame rate
+
+Frame generation is decoupled from presentation: the engine renders as fast as
+it can and only presents to the display at its refresh rate, so the reported
+FPS is not clamped to vsync. The debug overlay (`Z`) shows both numbers --
+frames generated, and frames actually shown alongside the display's refresh
+rate.
+
+Turn it off with `UNCAPPED FPS` in the options menu, or start with `--vsync`
+to present every frame the old way.
+
 ## Requirements
 
 - Ruby 3.1+ (Ruby 4.0 with YJIT recommended for best performance)

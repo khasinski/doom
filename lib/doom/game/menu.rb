@@ -24,11 +24,12 @@ module Doom
       MAIN_ITEMS = %i[new_game options quit].freeze
 
       # Options menu items
-      OPTIONS_ITEMS = %i[god_mode infinite_ammo all_weapons fullscreen rubykaigi_mode].freeze
+      OPTIONS_ITEMS = %i[god_mode infinite_ammo all_weapons uncapped_fps fullscreen rubykaigi_mode].freeze
       OPTIONS_LABELS = {
         god_mode: "GOD MODE",
         infinite_ammo: "INFINITE AMMO",
         all_weapons: "ALL WEAPONS",
+        uncapped_fps: "UNCAPPED FPS",
         fullscreen: "FULLSCREEN",
         rubykaigi_mode: "RUBYKAIGI MODE",
       }.freeze
@@ -67,6 +68,7 @@ module Doom
           god_mode: false,
           infinite_ammo: false,
           all_weapons: false,
+          uncapped_fps: true,
           fullscreen: false,
           rubykaigi_mode: false,
         }

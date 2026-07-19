@@ -39,6 +39,53 @@ module Doom
         end
       end
 
+      # Ask SDL for the display's refresh rate.
+      #
+      # Timing our own buffer swaps cannot answer this: when the engine renders
+      # slower than the display refreshes -- which is the normal case here --
+      # the swap cadence measures our render time, not the monitor. SDL knows
+      # the real number, and Gosu bundles SDL, so we read it directly the same
+      # way SDLKeyboardGrab reaches for SDL_SetWindowKeyboardGrab.
+      module SDLDisplayMode
+        # SDL_DisplayMode { Uint32 format; int w; int h; int refresh_rate; void *driverdata; }
+        REFRESH_RATE_OFFSET = 12
+        STRUCT_SIZE = 32
+
+        def self.refresh_rate
+          require 'fiddle'
+          gosu_spec = Gem.loaded_specs['gosu']
+          lib_ext = RbConfig::CONFIG['DLEXT'] || 'so'
+          lib = Fiddle.dlopen(File.join(gosu_spec.full_gem_path, "lib", "gosu.#{lib_ext}"))
+
+          get_mode = Fiddle::Function.new(
+            lib['SDL_GetCurrentDisplayMode'],
+            [Fiddle::TYPE_INT, Fiddle::TYPE_VOIDP], Fiddle::TYPE_INT
+          )
+
+          buf = Fiddle::Pointer.malloc(STRUCT_SIZE)
+          return nil unless get_mode.call(0, buf).zero?
+
+          hz = buf[REFRESH_RATE_OFFSET, 4].unpack1('l')
+          # SDL reports 0 when the rate is unspecified (some virtual displays).
+          hz.positive? ? hz : nil
+        rescue StandardError, LoadError => e
+          warn "SDLDisplayMode.refresh_rate failed: #{e.class}: #{e.message}"
+          nil
+        end
+      end
+
+      # Frame generation is decoupled from presentation. Gosu's main loop is
+      # limited by the buffer swap, which blocks on vblank -- so drawing every
+      # iteration pins the whole engine to the monitor's refresh rate. Instead
+      # we render every iteration (in update) but only ask Gosu to present when
+      # a refresh interval has elapsed; needs_redraw? => false skips both the
+      # blit and the swap, letting the loop spin freely in between.
+      #
+      # Gosu 1.4 exposes no refresh-rate API, so we ask SDL (see
+      # SDLDisplayMode) and fall back to 60 Hz if it will not say.
+      DEFAULT_REFRESH_HZ = 60.0
+      PRESENT_INTERVAL_SLACK = 0.85  # Aim slightly early so we don't miss a vblank
+
       # Movement constants (matching Chocolate Doom P_Thrust / P_XYMovement)
       # DOOM: terminal walk speed = 7.55 units/tic = 264 units/sec
       # Continuous-time: v_terminal = thrust_rate / decay_rate
@@ -98,6 +145,16 @@ module Doom
         @fps_frames = 0
         @fps_time = Time.now
         @fps_display = 0.0
+
+        # Uncapped frame generation. Presented frames are counted separately so
+        # the overlay can show both the render rate and what the display got.
+        @uncapped_fps = !ARGV.include?('--vsync')
+        menu.options[:uncapped_fps] = @uncapped_fps if menu
+        @present_frames = 0
+        @present_fps_display = 0.0
+        @last_present_ms = 0
+        @refresh_hz = (SDLDisplayMode.refresh_rate || DEFAULT_REFRESH_HZ).to_f
+        @present_interval_ms = 1000.0 / @refresh_hz
 
         # Precompute sector colors for automap
         @sector_colors = build_sector_colors
@@ -222,8 +279,10 @@ module Doom
         @renderer.monster_ai = @monster_ai
         @renderer.leveltime = @leveltime
 
-        # Render the 3D world
+        # Render the 3D world. This is the generated-frame rate: it runs every
+        # loop iteration, whether or not the result gets presented.
         @renderer.render_frame
+        track_frame_rates
 
         # Render HUD on top
         if @weapon_renderer && !@player_state&.dead
@@ -551,7 +610,36 @@ module Doom
         end
       end
 
+      # Gosu calls this before draw; false skips both the blit and the buffer
+      # swap, so the main loop keeps generating frames without waiting on the
+      # display. Returning true unconditionally restores plain vsync behaviour.
+      def needs_redraw?
+        return true unless @uncapped_fps
+
+        (Gosu.milliseconds - @last_present_ms) >= (@present_interval_ms * PRESENT_INTERVAL_SLACK)
+      end
+
+      attr_reader :refresh_hz
+
+      # Frames generated vs frames actually shown. With uncapped rendering the
+      # first number can run well above the second, which is the whole point.
+      def track_frame_rates
+        @fps_frames += 1
+        now = Time.now
+        elapsed = now - @fps_time
+        return if elapsed < 0.5
+
+        @fps_display = (@fps_frames / elapsed).round(1)
+        @present_fps_display = (@present_frames / elapsed).round(1)
+        @fps_frames = 0
+        @present_frames = 0
+        @fps_time = now
+      end
+
       def draw
+        @present_frames += 1
+        @last_present_ms = Gosu.milliseconds
+
         # Intermission screen
         if @intermission
           fb = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
@@ -626,21 +714,19 @@ module Doom
       end
 
       def draw_debug_overlay
-        @fps_frames += 1
-        now = Time.now
-        elapsed = now - @fps_time
-        if elapsed >= 0.5
-          @fps_display = (@fps_frames / elapsed).round(1)
-          @fps_frames = 0
-          @fps_time = now
-        end
-
         yjit_status = defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled? ? 'ON' : 'OFF'
         ang = (Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)
 
+        # Shown vs generated: only worth spelling out when they differ.
+        shown = if @uncapped_fps
+                  "shown #{@present_fps_display} / #{@refresh_hz.round} Hz"
+                else
+                  'vsync'
+                end
+
         lines = if @menu&.options&.[](:rubykaigi_mode)
                   [
-                    "#{@fps_display} FPS",
+                    "#{@fps_display} FPS  (#{shown})",
                     "YJIT: #{yjit_status}  (Y to toggle)",
                     "Ruby #{RUBY_VERSION}",
                     "Map: #{@current_map}",
@@ -649,7 +735,7 @@ module Doom
                   ]
                 else
                   [
-                    "FPS: #{@fps_display}",
+                    "FPS: #{@fps_display}  (#{shown})",
                     "YJIT: #{yjit_status}",
                     "Pos: #{@renderer.player_x.round}, #{@renderer.player_y.round}",
                     "Ang: #{ang}",
@@ -843,6 +929,14 @@ module Doom
             @player_state.ammo_shells = @player_state.max_shells
             @player_state.ammo_rockets = @player_state.max_rockets
             @player_state.ammo_cells = @player_state.max_cells
+          end
+        when :uncapped_fps
+          @uncapped_fps = value
+          # Re-read on re-enable: the window may have moved to a display with a
+          # different refresh rate.
+          if value
+            @refresh_hz = (SDLDisplayMode.refresh_rate || DEFAULT_REFRESH_HZ).to_f
+            @present_interval_ms = 1000.0 / @refresh_hz
           end
         when :fullscreen
           self.fullscreen = value if respond_to?(:fullscreen=)
