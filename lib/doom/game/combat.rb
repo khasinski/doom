@@ -154,6 +154,8 @@ module Doom
       end
 
       attr_reader :dead_things, :projectiles, :explosions, :puffs, :sprites
+      # Rebound by Game::World once a player exists.
+      attr_writer :player
 
       def in_pain?(thing_idx)
         @pain_until[thing_idx] && @tic < @pain_until[thing_idx]

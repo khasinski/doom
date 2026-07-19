@@ -94,7 +94,12 @@ module Doom
 
       USE_DISTANCE = 64.0  # Max distance to use a linedef
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil, menu = nil, sound_engine = nil, random: Game::Random.new)
+      # The simulation now lives in Game::World; this class is input and
+      # output only. The world's subsystems are cached in ivars because the
+      # automap, debug overlay and HUD read them constantly -- bind_world keeps
+      # those caches honest whenever the world is rebuilt.
+      def initialize(renderer, palette, world, status_bar = nil, weapon_renderer = nil,
+                     animations = nil, menu = nil, sound_engine = nil)
         fullscreen = ARGV.include?('--fullscreen') || ARGV.include?('-f')
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
@@ -103,34 +108,15 @@ module Doom
 
         @renderer = renderer
         @palette = palette
-        @map = map
-        @random = random
-        @player_state = player_state
         @status_bar = status_bar
         @weapon_renderer = weapon_renderer
-        @sector_actions = sector_actions
         @animations = animations
-        @sector_effects = sector_effects
-        @item_pickup = item_pickup
-        @combat = combat
-        @monster_ai = monster_ai
         @menu = menu
         @doom_font = menu&.font
         @sound = sound_engine
-        @damage_multiplier = 1.0
         @skill = Game::Menu::SKILL_MEDIUM
-        @skill_hidden = {}  # Thing indices hidden by difficulty
-        @physics = Game::PlayerPhysics.new(map, player_state)
-        @physics.item_pickup = item_pickup
-        @physics.combat = combat
 
-        # The local player. Seeded from the pose the caller already set on the
-        # renderer; from here on the player is the source of truth and the
-        # renderer is only ever pointed at it.
-        @player = Game::Player.new(id: 0, state: player_state || Game::PlayerState.new)
-        @player.place(renderer.player_x, renderer.player_y, renderer.player_z,
-                      renderer.player_angle * 180.0 / Math::PI)
-        @leveltime = 0
+        bind_world(world)
         @pending_turn = 0.0  # Mouse turn accumulated between tics
         @tic_accumulator = 0.0
         @screen_image = nil
@@ -171,6 +157,25 @@ module Doom
         @palette_rgba = @all_palette_rgba[0]
       end
 
+      # Point this window at a world, refreshing every cached reference. Called
+      # on construction and whenever the world is rebuilt (new map, respawn).
+      def bind_world(world)
+        @world = world
+        @map = world.map
+        @random = world.random
+        @player = world.player(0) || world.add_player(world.map.player_start || Map::Thing.new(0, 0, 90, 1, 0))
+        @player_state = @player.state
+        @physics = world.physics_for(@player)
+        @combat = world.combat
+        @monster_ai = world.monster_ai
+        @item_pickup = world.item_pickup
+        @sector_actions = world.sector_actions
+        @sector_effects = world.sector_effects
+        @skill_hidden = world.skill_hidden
+        @damage_multiplier = world.damage_multiplier
+        @leveltime = world.leveltime
+      end
+
       def update
         # Calculate delta time for smooth animations
         now = Time.now
@@ -191,93 +196,22 @@ module Doom
 
         handle_input(delta_time)
 
-        # Advance game tics at 35/sec (DOOM's tic rate)
+        # Advance the simulation at 35/sec (DOOM's tic rate). Everything that
+        # decides what happens now lives in Game::World; this loop only decides
+        # how many tics are owed and hands over the input for each.
         @tic_accumulator += delta_time * 35.0
         while @tic_accumulator >= 1.0
-          @leveltime += 1
           @tic_accumulator -= 1.0
-          @player.snapshot!  # Freeze the pose we interpolate away from
-          @sector_effects&.update
-
-          # View bob feeds eye height, which feeds firing height and monster
-          # aim -- so it is simulation, not decoration, and must run on the tic
-          # clock. Smoothness comes from interpolating the pose in draw.
-          if @player_state
-            @player_state.update_bob(TIC_SECONDS)
-            @player_state.update_view_bob(TIC_SECONDS)
-          end
-          @player_state&.update_viewheight
-          run_player_tic(@player, build_ticcmd)
-          step_player_physics
-          @player_state&.update_attack  # Attack timing at 35fps like DOOM
-          health_before = @player_state&.health || 100
-
-          @combat&.update_player_pos(@player.x, @player.y, @player.z)
-          @combat&.update
-          @monster_ai&.update(@player.x, @player.y)
-
-          # Sound effects for player damage/death
-          if @sound && @player_state
-            health_now = @player_state.health
-            if health_now < health_before
-              if @player_state.dead
-                @sound.player_death
-              else
-                @sound.player_pain
-              end
-            end
-          end
-
-          @player_state&.update_damage_count
-          @item_pickup&.update_flash
-
-          # Sector damage (nukage, lava, etc.) every 32 tics
-          if @player_state && !@player_state.dead && (@leveltime % 32 == 0)
-            check_sector_damage
-          end
-
-          # Track death tic for death animation
-          if @player_state&.dead
-            @player_state.death_tic += 1
-          end
+          @leveltime = @world.run_tic(@player.id => build_ticcmd)
+          @item_pickup.update_flash
         end
+
         @animations&.update(@leveltime)
-
-        # Update HUD animations
         @status_bar&.update
+        @renderer.hidden_things = @world.hidden_things
 
-        # Update sector actions (doors, lifts, etc.)
-        if @sector_actions
-          @sector_actions.update_player_position(@player.x, @player.y)
-          @sector_actions.update
-
-          # Check for level exit
-          if @sector_actions.exit_triggered && !@intermission
-            trigger_level_exit(@sector_actions.exit_triggered)
-          end
-
-          # Check for teleport
-          if (dest = @sector_actions.pop_teleport)
-            @player.place(dest[:x], dest[:y], @player.z, dest[:angle])
-            @physics.reset
-            settle_player_height(dest[:x], dest[:y])
-          end
-        end
-
-        # Check item pickups
-        if @item_pickup
-          picked_before = @item_pickup.picked_up.size
-          @item_pickup.update(@player.x, @player.y)
-          @renderer.hidden_things = @skill_hidden.merge(@item_pickup.picked_up)
-          if @sound && @item_pickup.picked_up.size > picked_before
-            # Check if it was a weapon pickup (has :weapon key in ITEMS)
-            msg = @item_pickup.pickup_message
-            if msg && msg.include?('!')  # Weapon pickups end with !
-              @sound.weapon_pickup
-            else
-              @sound.item_pickup
-            end
-          end
+        if @world.exit_triggered && !@intermission
+          trigger_level_exit(@world.exit_triggered)
         end
 
         # Pass combat state to renderer for death frame rendering
@@ -363,131 +297,6 @@ module Doom
 
       # Apply one tic of intent to one player. Movement, firing and use all live
       # here so they advance at a fixed 35 Hz regardless of frame rate.
-      def run_player_tic(player, cmd)
-        @physics.run_tic(player, cmd)
-
-        if @player_state
-          @player_state.is_moving = cmd.moving?
-          @player_state.set_movement_momentum(player.momx, player.momy)
-        end
-
-        if cmd.fire? && @player_state
-          was_attacking = @player_state.attacking
-          @player_state.start_attack
-          # Fire hitscan on the first tic of the attack
-          if @player_state.attacking && !was_attacking && @combat
-            @combat.fire(player.x, player.y, player.z,
-                         player.cos_angle, player.sin_angle, @player_state.weapon)
-            @sound&.weapon_fire(@player_state.weapon)
-          end
-        end
-
-        # Use is edge-triggered: holding the key must not spam doors.
-        if cmd.use?
-          try_use_linedef if !@use_pressed && @sector_actions
-          @use_pressed = true
-        else
-          @use_pressed = false
-        end
-      end
-
-      def try_use_linedef
-        # Cast a ray forward to find a usable linedef
-        player_x = @player.x
-        player_y = @player.y
-        cos_angle = @player.cos_angle
-        sin_angle = @player.sin_angle
-
-        # Check point in front of player
-        use_x = player_x + cos_angle * USE_DISTANCE
-        use_y = player_y + sin_angle * USE_DISTANCE
-
-        # Find the closest linedef the player is facing
-        best_linedef = nil
-        best_idx = nil
-        best_dist = Float::INFINITY
-
-        @map.linedefs.each_with_index do |linedef, idx|
-          next if linedef.special == 0  # Skip non-special linedefs
-
-          v1 = @map.vertices[linedef.v1]
-          v2 = @map.vertices[linedef.v2]
-
-          # Check if player is close enough to the linedef
-          dist = point_to_line_distance(player_x, player_y, v1.x, v1.y, v2.x, v2.y)
-          next if dist > USE_DISTANCE
-          next if dist >= best_dist
-
-          # Check if player is facing the linedef (on the front side)
-          next unless facing_linedef?(player_x, player_y, cos_angle, sin_angle, v1, v2)
-
-          best_linedef = linedef
-          best_idx = idx
-          best_dist = dist
-        end
-
-        if best_linedef
-          @sector_actions.use_linedef(best_linedef, best_idx)
-        end
-      end
-
-      def point_to_line_distance(px, py, x1, y1, x2, y2)
-        # Vector from line start to point
-        dx = px - x1
-        dy = py - y1
-
-        # Line direction vector
-        line_dx = x2 - x1
-        line_dy = y2 - y1
-        line_len_sq = line_dx * line_dx + line_dy * line_dy
-
-        return Math.sqrt(dx * dx + dy * dy) if line_len_sq == 0
-
-        # Project point onto line, clamped to segment
-        t = ((dx * line_dx) + (dy * line_dy)) / line_len_sq
-        t = [[t, 0.0].max, 1.0].min
-
-        # Closest point on line segment
-        closest_x = x1 + t * line_dx
-        closest_y = y1 + t * line_dy
-
-        # Distance from point to closest point on segment
-        dist_x = px - closest_x
-        dist_y = py - closest_y
-        Math.sqrt(dist_x * dist_x + dist_y * dist_y)
-      end
-
-      def facing_linedef?(px, py, cos_angle, sin_angle, v1, v2)
-        # Calculate linedef normal (perpendicular to line)
-        line_dx = v2.x - v1.x
-        line_dy = v2.y - v1.y
-
-        # Normal points to the right of the line direction
-        normal_x = -line_dy
-        normal_y = line_dx
-
-        len = Math.sqrt(normal_x * normal_x + normal_y * normal_y)
-        return false if len == 0
-
-        normal_x /= len
-        normal_y /= len
-
-        # Determine which side the player is on
-        to_player_x = px - v1.x
-        to_player_y = py - v1.y
-        side = to_player_x * normal_x + to_player_y * normal_y
-
-        # Flip normal if player is on the back side (so we check facing toward the line)
-        if side < 0
-          normal_x = -normal_x
-          normal_y = -normal_y
-        end
-
-        # Check if player is facing toward the line (relaxed angle check)
-        dot_facing = cos_angle * (-normal_x) + sin_angle * (-normal_y)
-        dot_facing > 0.2  # ~78 degree cone, matching DOOM's generous use check
-      end
-
       def handle_weapon_switch
         if Gosu.button_down?(Gosu::KB_1)
           @player_state.switch_weapon(Game::PlayerState::WEAPON_FIST)
@@ -519,19 +328,6 @@ module Doom
         end
         return nil if max_x == min_x || max_y == min_y
         @map_bounds = { min_x: min_x, max_x: max_x, min_y: min_y, max_y: max_y }
-      end
-
-      def settle_player_height(x, y)
-        @physics.settle_at(x, y)
-        z = @physics.eye_z
-        @player.z = z if z
-      end
-
-      def step_player_physics
-        return unless @physics.floor_z
-        @physics.step(@player.x, @player.y)
-        z = @physics.eye_z
-        @player.z = z if z
       end
 
       def handle_mouse_look
@@ -811,56 +607,23 @@ module Doom
 
       # Sector damage types from DOOM (p_spec.c)
       # Type 5: 10 damage, Type 7: 5 damage, Type 4/16: 20 damage
-      SECTOR_DAMAGE = { 5 => 10, 7 => 5, 4 => 20, 16 => 20, 11 => 20 }.freeze
-
-      def check_sector_damage
-        sector = @map.sector_at(@player.x, @player.y)
-        return unless sector
-
-        damage = SECTOR_DAMAGE[sector.special]
-        if damage
-          @player_state.take_damage((damage * @damage_multiplier).to_i)
-          @sound&.player_pain
-        end
-      end
-
       def apply_death_tint(framebuffer)
         # Death keeps damage_count at max so the pain palette stays red
         @player_state.damage_count = 8 if @player_state&.dead
       end
 
       def respawn_player
-        @player_state.reset
-        @physics.reset
-        @player.momx = 0.0
-        @player.momy = 0.0
-
-        # Reset item pickup, combat, and monster AI state
-        sprites = @combat&.sprites
-        @item_pickup = Game::ItemPickup.new(@map, @player_state, @skill_hidden) if @item_pickup
-        @combat = Game::Combat.new(@map, @player_state, sprites, @skill_hidden, @sound, random: @random) if @combat && sprites
-        if @monster_ai && @combat
-          @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state, @combat.sprites, @skill_hidden, @sound,
-                                            random: @random)
-        end
-        @physics.item_pickup = @item_pickup
-        @physics.combat = @combat
+        @world.respawn(@player)
+        bind_world(@world)  # World rebuilds combat/AI/pickups, so recache them
 
         # Re-apply active cheats from menu options
-        if @menu
-          opts = @menu.options
-          @player_state.god_mode = opts[:god_mode]
-          @player_state.infinite_ammo = opts[:infinite_ammo]
-          handle_option_toggle(:all_weapons, true) if opts[:all_weapons]
-          apply_rubykaigi_mode if opts[:rubykaigi_mode]
-        end
+        return unless @menu
 
-        # Move player to start position
-        ps = @map.player_start
-        if ps
-          @player.place(ps.x, ps.y, 41, ps.angle)
-          settle_player_height(ps.x, ps.y)
-        end
+        opts = @menu.options
+        @player_state.god_mode = opts[:god_mode]
+        @player_state.infinite_ammo = opts[:infinite_ammo]
+        handle_option_toggle(:all_weapons, true) if opts[:all_weapons]
+        apply_rubykaigi_mode if opts[:rubykaigi_mode]
       end
 
       def handle_option_toggle(option, value)
@@ -976,33 +739,18 @@ module Doom
           wad, map, @renderer.textures, @palette, @renderer.colormap,
           @renderer.flats.values, @renderer.sprites, @animations
         )
-        ps = map.player_start
-        @player.place(ps.x, ps.y, 41, ps.angle)
+        # A new map means a new world; the RNG carries over so the run stays
+        # one continuous deterministic sequence across level changes.
+        skill_hidden = compute_skill_hidden(@skill || Game::Menu::SKILL_MEDIUM)
+        world = Game::World.new(map, sprites: @renderer.sprites, sound: @sound,
+                                     random: @random, skill_hidden: skill_hidden)
+        world.damage_multiplier = @damage_multiplier
+        world.item_pickup.ammo_multiplier = (@skill == Game::Menu::SKILL_BABY) ? 2 : 1
+        world.monster_ai.aggression = true
+        world.monster_ai.damage_multiplier = @damage_multiplier
+        world.add_player(map.player_start)
 
-        @player_state.reset
-        @sector_actions = Game::SectorActions.new(map, @sound)
-        @sector_effects = Game::SectorEffects.new(map, random: @random)
-
-        @skill_hidden = compute_skill_hidden(@skill || Game::Menu::SKILL_MEDIUM)
-        @item_pickup = Game::ItemPickup.new(map, @player_state, @skill_hidden)
-        @item_pickup.ammo_multiplier = (@skill == Game::Menu::SKILL_BABY) ? 2 : 1
-
-        combat_sprites = @renderer.sprites
-        @combat = Game::Combat.new(map, @player_state, combat_sprites, @skill_hidden, @sound, random: @random)
-        @monster_ai = Game::MonsterAI.new(map, @combat, @player_state, combat_sprites, @skill_hidden, @sound,
-                                          random: @random)
-        @monster_ai.aggression = true
-        @monster_ai.damage_multiplier = @damage_multiplier
-
-        @physics = Game::PlayerPhysics.new(map, @player_state)
-        @physics.skill_hidden = @skill_hidden
-        @physics.item_pickup = @item_pickup
-        @physics.combat = @combat
-        @player.momx = 0.0
-        @player.momy = 0.0
-        @leveltime = 0
-
-        settle_player_height(ps.x, ps.y)
+        bind_world(world)
       end
 
       def apply_difficulty(skill)
@@ -1016,26 +764,22 @@ module Doom
                              else 1.0
                              end
 
-        # Compute which things are hidden by this skill level
-        @skill_hidden = compute_skill_hidden(skill)
-        @physics.skill_hidden = @skill_hidden
+        # Push difficulty into the world before respawning: respawn rebuilds the
+        # actor subsystems from the world's settings, so setting them here only
+        # would be discarded.
+        @world.skill_hidden = compute_skill_hidden(skill)
+        @world.damage_multiplier = @damage_multiplier
+        @physics.skill_hidden = @world.skill_hidden
 
         # Baby mode: start with some armor
-        if skill == Game::Menu::SKILL_BABY
-          @player_state.armor = 50
-        end
-
-        if @monster_ai
-          @monster_ai.aggression = true
-          @monster_ai.damage_multiplier = @damage_multiplier
-        end
-
-        # Baby: double ammo from pickups (matching DOOM skill 1)
-        if @item_pickup
-          @item_pickup.ammo_multiplier = (skill == Game::Menu::SKILL_BABY) ? 2 : 1
-        end
+        @player_state.armor = 50 if skill == Game::Menu::SKILL_BABY
 
         respawn_player
+
+        @monster_ai.aggression = true
+        @monster_ai.damage_multiplier = @damage_multiplier
+        # Baby: double ammo from pickups (matching DOOM skill 1)
+        @item_pickup.ammo_multiplier = (skill == Game::Menu::SKILL_BABY) ? 2 : 1
       end
 
       def setup_yjit_toggle

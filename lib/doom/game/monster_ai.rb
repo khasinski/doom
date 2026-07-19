@@ -119,6 +119,8 @@ module Doom
 
       attr_reader :monsters, :monster_by_thing_idx
       attr_accessor :aggression, :damage_multiplier
+      # Rebound by Game::World once a player exists.
+      attr_writer :player
 
       # Called each game tic
       def update(player_x, player_y)

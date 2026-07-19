@@ -20,6 +20,9 @@ require_relative '../lib/doom/game/animations'
 require_relative '../lib/doom/game/sector_effects'
 require_relative '../lib/doom/game/item_pickup'
 require_relative '../lib/doom/game/combat'
+require_relative '../lib/doom/game/monster_ai'
+require_relative '../lib/doom/game/sector_actions'
+require_relative '../lib/doom/game/world'
 
 module Doom
   class Error < StandardError; end

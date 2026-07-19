@@ -55,6 +55,8 @@ module Doom
 
       attr_reader :picked_up, :pickup_message, :pickup_flash, :message_tics
       attr_accessor :ammo_multiplier, :hidden_things
+      # Rebound by Game::World once a player exists.
+      attr_writer :player
 
       def initialize(map, player_state, hidden_things = {})
         @map = map

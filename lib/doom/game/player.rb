@@ -14,6 +14,9 @@ module Doom
     class Player
       attr_accessor :id, :x, :y, :z, :angle
       attr_accessor :momx, :momy
+      # Edge-trigger latch for the use key, per player: holding the key must
+      # not spam doors, and each player needs its own latch.
+      attr_accessor :use_held
       attr_reader :state
       attr_reader :sin_angle, :cos_angle
 
@@ -29,6 +32,7 @@ module Doom
         @z = 41.0     # eye height
         @momx = 0.0
         @momy = 0.0
+        @use_held = false
         self.angle = 0.0
         snapshot!
       end

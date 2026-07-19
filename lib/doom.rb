@@ -22,6 +22,7 @@ require_relative 'doom/game/item_pickup'
 require_relative 'doom/game/combat'
 require_relative 'doom/game/sector_effects'
 require_relative 'doom/game/monster_ai'
+require_relative 'doom/game/world'
 require_relative 'doom/game/menu'
 require_relative 'doom/game/intermission'
 require_relative 'doom/wad/sound'
@@ -96,23 +97,23 @@ module Doom
       animations = Game::Animations.new(textures.texture_names, flat_names)
 
       puts 'Creating renderer...'
+      # No initial camera pose needed: the world owns the player, and draw aims
+      # the camera at it every frame.
       renderer = Render::Renderer.new(wad, map, textures, palette, colormap, flats, sprites, animations)
-      renderer.set_player(player_start.x, player_start.y, 41, player_start.angle)
 
-      puts 'Setting up player state and HUD...'
-      player_state = Game::PlayerState.new
-      status_bar = Render::StatusBar.new(hud_graphics, player_state)
-      weapon_renderer = Render::WeaponRenderer.new(hud_graphics, player_state)
+      puts 'Building world...'
       sound_mgr = Wad::SoundManager.new(wad)
       sound_engine = Game::SoundEngine.new(sound_mgr)
       # One RNG shared by every subsystem that touches game state -- its index is
       # part of the simulation, so all peers must draw from the same sequence.
       random = Game::Random.new
-      sector_actions = Game::SectorActions.new(map, sound_engine)
-      sector_effects = Game::SectorEffects.new(map, random: random)
-      item_pickup = Game::ItemPickup.new(map, player_state)
-      combat = Game::Combat.new(map, player_state, sprites, {}, sound_engine, random: random)
-      monster_ai = Game::MonsterAI.new(map, combat, player_state, sprites, {}, sound_engine, random: random)
+      world = Game::World.new(map, sprites: sprites, sound: sound_engine, random: random)
+      player = world.add_player(player_start)
+      player_state = player.state
+
+      puts 'Setting up HUD...'
+      status_bar = Render::StatusBar.new(hud_graphics, player_state)
+      weapon_renderer = Render::WeaponRenderer.new(hud_graphics, player_state)
       doom_font = Render::Font.new(wad, hud_graphics)
       menu = Game::Menu.new(wad, hud_graphics, doom_font)
 
@@ -123,7 +124,8 @@ module Doom
       end
 
       puts 'Starting game window...'
-      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai, menu, sound_engine, random: random)
+      window = Platform::GosuWindow.new(renderer, palette, world, status_bar, weapon_renderer,
+                                        animations, menu, sound_engine)
       window.show
     end
 
