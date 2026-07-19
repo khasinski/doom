@@ -11,7 +11,10 @@ require_relative 'doom/wad/texture'
 require_relative 'doom/wad/sprite'
 require_relative 'doom/wad/hud_graphics'
 require_relative 'doom/map/data'
+require_relative 'doom/game/random'
 require_relative 'doom/game/player_state'
+require_relative 'doom/game/player'
+require_relative 'doom/game/ticcmd'
 require_relative 'doom/game/player_physics'
 require_relative 'doom/game/sector_actions'
 require_relative 'doom/game/animations'
@@ -102,11 +105,14 @@ module Doom
       weapon_renderer = Render::WeaponRenderer.new(hud_graphics, player_state)
       sound_mgr = Wad::SoundManager.new(wad)
       sound_engine = Game::SoundEngine.new(sound_mgr)
+      # One RNG shared by every subsystem that touches game state -- its index is
+      # part of the simulation, so all peers must draw from the same sequence.
+      random = Game::Random.new
       sector_actions = Game::SectorActions.new(map, sound_engine)
-      sector_effects = Game::SectorEffects.new(map)
+      sector_effects = Game::SectorEffects.new(map, random: random)
       item_pickup = Game::ItemPickup.new(map, player_state)
-      combat = Game::Combat.new(map, player_state, sprites, {}, sound_engine)
-      monster_ai = Game::MonsterAI.new(map, combat, player_state, sprites, {}, sound_engine)
+      combat = Game::Combat.new(map, player_state, sprites, {}, sound_engine, random: random)
+      monster_ai = Game::MonsterAI.new(map, combat, player_state, sprites, {}, sound_engine, random: random)
       doom_font = Render::Font.new(wad, hud_graphics)
       menu = Game::Menu.new(wad, hud_graphics, doom_font)
 
@@ -117,7 +123,7 @@ module Doom
       end
 
       puts 'Starting game window...'
-      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai, menu, sound_engine)
+      window = Platform::GosuWindow.new(renderer, palette, map, player_state, status_bar, weapon_renderer, sector_actions, animations, sector_effects, item_pickup, combat, monster_ai, menu, sound_engine, random: random)
       window.show
     end
 

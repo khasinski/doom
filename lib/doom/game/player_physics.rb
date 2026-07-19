@@ -18,6 +18,22 @@ module Doom
       INITIAL_FALL_MOMZ = -2.0       # First-tic kick when momz==0 (P_ZMovement uses -GRAVITY*2)
       FALL_IMPACT_THRESHOLD = -8.0   # momz < -GRAVITY*8 triggers viewheight squat
 
+      TICRATE = 35.0
+
+      # Horizontal movement runs per-tic, not per-frame. A frame-rate-dependent
+      # integration can never be deterministic, and lockstep needs every peer to
+      # get the same result from the same ticcmd.
+      #
+      # FRICTION is DOOM's exact per-tic value (ORIG_FRICTION 0xE800/65536).
+      # Momentum is carried in units/sec, so THRUST_PER_TIC is chosen to hold
+      # the same terminal speed the old continuous model had:
+      #   v_terminal = thrust * FRICTION / (1 - FRICTION)
+      FRICTION = 0.90625
+      TERMINAL_SPEED = 264.0                                            # units/sec
+      THRUST_PER_TIC = TERMINAL_SPEED * (1.0 - FRICTION) / FRICTION     # ~27.3
+      SIDE_THRUST_SCALE = 0.8      # DOOM strafes slower than it walks
+      STOPSPEED = 0.5              # Snap-to-zero threshold (units/sec)
+
       # Solid thing types with their collision radii (from mobjinfo[] MF_SOLID).
       SOLID_THING_RADIUS = {
         9 => 20, 65 => 20, 66 => 20, 67 => 20, 68 => 20, # Shotgun Guy variants
@@ -120,6 +136,90 @@ module Doom
           @floor_z = ground
           @momz = 0.0
         end
+      end
+
+      # Advance one player by one tic from its ticcmd: turn, thrust, friction,
+      # then move with wall sliding. This is the whole horizontal simulation,
+      # and it is a pure function of (player, cmd, map) -- no wall clock, no
+      # frame rate, no Kernel#rand. That is what makes lockstep possible.
+      def run_tic(player, cmd)
+        player.turn(cmd.angleturn) if cmd.angleturn != 0.0
+
+        if cmd.forwardmove != 0.0
+          thrust = cmd.forwardmove * THRUST_PER_TIC
+          player.momx += player.cos_angle * thrust
+          player.momy += player.sin_angle * thrust
+        end
+
+        if cmd.sidemove != 0.0
+          thrust = cmd.sidemove * THRUST_PER_TIC * SIDE_THRUST_SCALE
+          # Strafe right is 90 degrees clockwise from facing.
+          player.momx += player.sin_angle * thrust
+          player.momy -= player.cos_angle * thrust
+        end
+
+        if !cmd.moving? && player.momx.abs < STOPSPEED && player.momy.abs < STOPSPEED
+          player.momx = 0.0
+          player.momy = 0.0
+        else
+          player.momx *= FRICTION
+          player.momy *= FRICTION
+        end
+
+        return unless player.momx.abs > STOPSPEED || player.momy.abs > STOPSPEED
+
+        move(player, player.momx / TICRATE, player.momy / TICRATE)
+      end
+
+      # Move a player by (dx, dy) with collision and wall sliding, settling it
+      # onto the floor wherever it ends up.
+      def move(player, dx, dy)
+        old_x = player.x
+        old_y = player.y
+        new_x = old_x + dx
+        new_y = old_y + dy
+
+        if valid_move?(old_x, old_y, new_x, new_y)
+          player.move_to(new_x, new_y)
+          settle(player, new_x, new_y)
+          return
+        end
+
+        # Wall sliding: project movement along the blocking wall
+        slide_x, slide_y = compute_slide(old_x, old_y, dx, dy)
+        if slide_x && (slide_x != 0.0 || slide_y != 0.0)
+          sx = old_x + slide_x
+          sy = old_y + slide_y
+          if valid_move?(old_x, old_y, sx, sy)
+            player.move_to(sx, sy)
+            settle(player, sx, sy)
+            scale = [dx.abs, dy.abs].max.nonzero? || 1
+            player.momx = slide_x / scale * player.momx.abs
+            player.momy = slide_y / scale * player.momy.abs
+            return
+          end
+        end
+
+        # Fallback: try axis-aligned sliding
+        if dx != 0.0 && valid_move?(old_x, old_y, new_x, old_y)
+          player.move_to(new_x, old_y)
+          settle(player, new_x, old_y)
+          player.momy = 0.0
+        elsif dy != 0.0 && valid_move?(old_x, old_y, old_x, new_y)
+          player.move_to(old_x, new_y)
+          settle(player, old_x, new_y)
+          player.momx = 0.0
+        else
+          player.momx = 0.0
+          player.momy = 0.0
+        end
+      end
+
+      # Settle onto the floor and push the resulting eye height to the player.
+      def settle(player, x, y)
+        settle_at(x, y)
+        z = eye_z
+        player.z = z if z
       end
 
       # When valid_move? fails, find the nearest blocking wall and return a

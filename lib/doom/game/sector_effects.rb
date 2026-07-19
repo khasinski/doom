@@ -10,8 +10,9 @@ module Doom
       FASTDARK     = 15  # Dark duration for fast strobe (tics)
       SLOWDARK     = 35  # Dark duration for slow strobe (tics)
 
-      def initialize(map)
+      def initialize(map, random: Random.new)
         @map = map
+        @random = random
         @effects = []
         @scroll_sides = []
         spawn_specials
@@ -29,21 +30,21 @@ module Doom
         @map.sectors.each do |sector|
           case sector.special
           when 1      # Flickering lights
-            @effects << LightFlash.new(sector, find_min_light(sector))
+            @effects << LightFlash.new(sector, find_min_light(sector), @random)
           when 2      # Fast strobe
-            @effects << StrobeFlash.new(sector, find_min_light(sector), FASTDARK, false)
+            @effects << StrobeFlash.new(sector, find_min_light(sector), FASTDARK, false, @random)
           when 3      # Slow strobe
-            @effects << StrobeFlash.new(sector, find_min_light(sector), SLOWDARK, false)
+            @effects << StrobeFlash.new(sector, find_min_light(sector), SLOWDARK, false, @random)
           when 4      # Fast strobe + 20% damage
-            @effects << StrobeFlash.new(sector, find_min_light(sector), FASTDARK, false)
+            @effects << StrobeFlash.new(sector, find_min_light(sector), FASTDARK, false, @random)
           when 8      # Glowing light
             @effects << Glow.new(sector, find_min_light(sector))
           when 12     # Sync strobe slow
-            @effects << StrobeFlash.new(sector, find_min_light(sector), SLOWDARK, true)
+            @effects << StrobeFlash.new(sector, find_min_light(sector), SLOWDARK, true, @random)
           when 13     # Sync strobe fast
-            @effects << StrobeFlash.new(sector, find_min_light(sector), FASTDARK, true)
+            @effects << StrobeFlash.new(sector, find_min_light(sector), FASTDARK, true, @random)
           when 17     # Fire flicker
-            @effects << FireFlicker.new(sector, find_min_light(sector))
+            @effects << FireFlicker.new(sector, find_min_light(sector), @random)
           end
         end
 
@@ -82,11 +83,12 @@ module Doom
 
       # T_LightFlash (type 1): mostly bright with brief random dark flickers
       class LightFlash
-        def initialize(sector, minlight)
+        def initialize(sector, minlight, random)
           @sector = sector
+          @random = random
           @maxlight = sector.light_level
           @minlight = minlight
-          @count = (rand(65)) + 1
+          @count = (@random.rand(65)) + 1
         end
 
         def update
@@ -95,24 +97,25 @@ module Doom
 
           if @sector.light_level == @maxlight
             @sector.light_level = @minlight
-            @count = (rand(8)) + 1       # dark for 1-8 tics
+            @count = (@random.rand(8)) + 1       # dark for 1-8 tics
           else
             @sector.light_level = @maxlight
-            @count = (rand(2) == 0 ? 1 : 65)  # bright for 1 or 65 tics (P_Random()&64)
+            @count = (@random.rand(2) == 0 ? 1 : 65)  # bright for 1 or 65 tics (P_Random()&64)
           end
         end
       end
 
       # T_StrobeFlash (types 2, 3, 4, 12, 13): regular strobe blink
       class StrobeFlash
-        def initialize(sector, minlight, darktime, in_sync)
+        def initialize(sector, minlight, darktime, in_sync, random)
           @sector = sector
+          @random = random
           @maxlight = sector.light_level
           @minlight = minlight
           @minlight = 0 if @minlight == @maxlight
           @darktime = darktime
           @brighttime = STROBEBRIGHT
-          @count = in_sync ? 1 : (rand(8)) + 1
+          @count = in_sync ? 1 : (@random.rand(8)) + 1
         end
 
         def update
@@ -157,10 +160,11 @@ module Doom
 
       # T_FireFlicker (type 17): random fire-like flickering
       class FireFlicker
-        def initialize(sector, minlight)
+        def initialize(sector, minlight, random)
           @sector = sector
           @maxlight = sector.light_level
           @minlight = minlight + 16  # fire doesn't go as dark
+          @random = random
           @count = 4
         end
 
@@ -168,7 +172,7 @@ module Doom
           @count -= 1
           return if @count > 0
 
-          amount = (rand(4)) * 16  # 0, 16, 32, or 48
+          amount = (@random.rand(4)) * 16  # 0, 16, 32, or 48
           level = @maxlight - amount
           @sector.light_level = level < @minlight ? @minlight : level
           @count = 4

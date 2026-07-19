@@ -74,6 +74,11 @@ module Doom
         end
       end
 
+      # Movement now lives in Game::PlayerPhysics and runs per tic, so the old
+      # continuous-time thrust/friction constants moved there with it.
+      TURN_SPEED = 3.0       # Degrees per tic
+      TIC_SECONDS = 1.0 / 35.0
+
       # Frame generation is decoupled from presentation. Gosu's main loop is
       # limited by the buffer swap, which blocks on vblank -- so drawing every
       # iteration pins the whole engine to the monitor's refresh rate. Instead
@@ -85,21 +90,11 @@ module Doom
       # SDLDisplayMode) and fall back to 60 Hz if it will not say.
       DEFAULT_REFRESH_HZ = 60.0
       PRESENT_INTERVAL_SLACK = 0.85  # Aim slightly early so we don't miss a vblank
-
-      # Movement constants (matching Chocolate Doom P_Thrust / P_XYMovement)
-      # DOOM: terminal walk speed = 7.55 units/tic = 264 units/sec
-      # Continuous-time: v_terminal = thrust_rate / decay_rate
-      # decay_rate = -ln(0.90625) * 35 = 3.44/sec
-      # thrust_rate = 264 * 3.44 = 908 units/sec^2
-      MOVE_THRUST_RATE = 264.0 * 3.44     # Thrust rate (units/sec^2)
-      FRICTION_DECAY_RATE = 3.44           # Friction decay (1/sec)
-      STOPSPEED = 0.5                      # Snap-to-zero threshold (units/sec)
-      TURN_SPEED = 3.0       # Degrees per frame
       MOUSE_SENSITIVITY = 0.15  # Mouse look sensitivity
 
       USE_DISTANCE = 64.0  # Max distance to use a linedef
 
-      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil, menu = nil, sound_engine = nil)
+      def initialize(renderer, palette, map, player_state = nil, status_bar = nil, weapon_renderer = nil, sector_actions = nil, animations = nil, sector_effects = nil, item_pickup = nil, combat = nil, monster_ai = nil, menu = nil, sound_engine = nil, random: Game::Random.new)
         fullscreen = ARGV.include?('--fullscreen') || ARGV.include?('-f')
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
@@ -109,6 +104,7 @@ module Doom
         @renderer = renderer
         @palette = palette
         @map = map
+        @random = random
         @player_state = player_state
         @status_bar = status_bar
         @weapon_renderer = weapon_renderer
@@ -127,9 +123,15 @@ module Doom
         @physics = Game::PlayerPhysics.new(map, player_state)
         @physics.item_pickup = item_pickup
         @physics.combat = combat
-        @move_momx = 0.0
-        @move_momy = 0.0
+
+        # The local player. Seeded from the pose the caller already set on the
+        # renderer; from here on the player is the source of truth and the
+        # renderer is only ever pointed at it.
+        @player = Game::Player.new(id: 0, state: player_state || Game::PlayerState.new)
+        @player.place(renderer.player_x, renderer.player_y, renderer.player_z,
+                      renderer.player_angle * 180.0 / Math::PI)
         @leveltime = 0
+        @pending_turn = 0.0  # Mouse turn accumulated between tics
         @tic_accumulator = 0.0
         @screen_image = nil
         @mouse_captured = false
@@ -189,26 +191,30 @@ module Doom
 
         handle_input(delta_time)
 
-        # Update player state (per-frame for smooth bob)
-        if @player_state
-          @player_state.update_bob(delta_time)
-          @player_state.update_view_bob(delta_time)
-        end
-
         # Advance game tics at 35/sec (DOOM's tic rate)
         @tic_accumulator += delta_time * 35.0
         while @tic_accumulator >= 1.0
           @leveltime += 1
           @tic_accumulator -= 1.0
+          @player.snapshot!  # Freeze the pose we interpolate away from
           @sector_effects&.update
+
+          # View bob feeds eye height, which feeds firing height and monster
+          # aim -- so it is simulation, not decoration, and must run on the tic
+          # clock. Smoothness comes from interpolating the pose in draw.
+          if @player_state
+            @player_state.update_bob(TIC_SECONDS)
+            @player_state.update_view_bob(TIC_SECONDS)
+          end
           @player_state&.update_viewheight
+          run_player_tic(@player, build_ticcmd)
           step_player_physics
           @player_state&.update_attack  # Attack timing at 35fps like DOOM
           health_before = @player_state&.health || 100
 
-          @combat&.update_player_pos(@renderer.player_x, @renderer.player_y, @renderer.player_z)
+          @combat&.update_player_pos(@player.x, @player.y, @player.z)
           @combat&.update
-          @monster_ai&.update(@renderer.player_x, @renderer.player_y)
+          @monster_ai&.update(@player.x, @player.y)
 
           # Sound effects for player damage/death
           if @sound && @player_state
@@ -242,7 +248,7 @@ module Doom
 
         # Update sector actions (doors, lifts, etc.)
         if @sector_actions
-          @sector_actions.update_player_position(@renderer.player_x, @renderer.player_y)
+          @sector_actions.update_player_position(@player.x, @player.y)
           @sector_actions.update
 
           # Check for level exit
@@ -252,7 +258,7 @@ module Doom
 
           # Check for teleport
           if (dest = @sector_actions.pop_teleport)
-            @renderer.set_player(dest[:x], dest[:y], @renderer.player_z, dest[:angle])
+            @player.place(dest[:x], dest[:y], @player.z, dest[:angle])
             @physics.reset
             settle_player_height(dest[:x], dest[:y])
           end
@@ -261,7 +267,7 @@ module Doom
         # Check item pickups
         if @item_pickup
           picked_before = @item_pickup.picked_up.size
-          @item_pickup.update(@renderer.player_x, @renderer.player_y)
+          @item_pickup.update(@player.x, @player.y)
           @renderer.hidden_things = @skill_hidden.merge(@item_pickup.picked_up)
           if @sound && @item_pickup.picked_up.size > picked_before
             # Check if it was a weapon pickup (has :weapon key in ITEMS)
@@ -303,7 +309,11 @@ module Doom
         end
       end
 
-      def handle_input(delta_time)
+      # Per-frame input sampling. Produces nothing but intent: the simulation
+      # itself runs per-tic in run_player_tic. Mouse motion is accumulated here
+      # because frames are more frequent than tics and dropping the surplus
+      # would lose part of every flick.
+      def handle_input(_delta_time)
         # Handle respawn when dead
         if @player_state&.dead
           if @player_state.death_tic > 35  # 1 second delay before respawn allowed
@@ -315,102 +325,78 @@ module Doom
           return  # No other input while dead
         end
 
-        # Mouse look
-        handle_mouse_look
+        handle_mouse_look          # accumulates into @pending_turn
+        handle_weapon_switch if @player_state
+      end
 
-        # Keyboard turning
-        if Gosu.button_down?(Gosu::KB_LEFT)
-          @renderer.turn(TURN_SPEED)
-        end
-        if Gosu.button_down?(Gosu::KB_RIGHT)
-          @renderer.turn(-TURN_SPEED)
-        end
+      # Collect this tic's intent. Everything that moves the player must come
+      # through here, so that replacing it with a ticcmd off the network is the
+      # only change multiplayer needs.
+      def build_ticcmd
+        return Game::Ticcmd.none if @player_state&.dead
 
-        # Apply thrust from input (P_Thrust: additive, scaled by delta_time)
-        thrust = MOVE_THRUST_RATE * delta_time
-        has_input = false
+        forward = 0.0
+        side = 0.0
+        forward += 1.0 if Gosu.button_down?(Gosu::KB_UP) || Gosu.button_down?(Gosu::KB_W)
+        forward -= 1.0 if Gosu.button_down?(Gosu::KB_DOWN) || Gosu.button_down?(Gosu::KB_S)
+        side += 1.0 if Gosu.button_down?(Gosu::KB_D)
+        side -= 1.0 if Gosu.button_down?(Gosu::KB_A)
 
-        if Gosu.button_down?(Gosu::KB_UP) || Gosu.button_down?(Gosu::KB_W)
-          @move_momx += @renderer.cos_angle * thrust
-          @move_momy += @renderer.sin_angle * thrust
-          has_input = true
+        turn = @pending_turn
+        @pending_turn = 0.0
+        turn += TURN_SPEED if Gosu.button_down?(Gosu::KB_LEFT)
+        turn -= TURN_SPEED if Gosu.button_down?(Gosu::KB_RIGHT)
+
+        buttons = 0
+        if (@mouse_captured && Gosu.button_down?(Gosu::MS_LEFT)) ||
+           Gosu.button_down?(Gosu::KB_LEFT_CONTROL) || Gosu.button_down?(Gosu::KB_RIGHT_CONTROL) ||
+           Gosu.button_down?(Gosu::KB_X) || Gosu.button_down?(Gosu::KB_LEFT_SHIFT) ||
+           Gosu.button_down?(Gosu::KB_RIGHT_SHIFT)
+          buttons |= Game::Ticcmd::BTN_FIRE
         end
-        if Gosu.button_down?(Gosu::KB_DOWN) || Gosu.button_down?(Gosu::KB_S)
-          @move_momx -= @renderer.cos_angle * thrust
-          @move_momy -= @renderer.sin_angle * thrust
-          has_input = true
-        end
-        if Gosu.button_down?(Gosu::KB_A)
-          @move_momx -= @renderer.sin_angle * thrust
-          @move_momy += @renderer.cos_angle * thrust
-          has_input = true
-        end
-        if Gosu.button_down?(Gosu::KB_D)
-          @move_momx += @renderer.sin_angle * thrust
-          @move_momy -= @renderer.cos_angle * thrust
-          has_input = true
+        if Gosu.button_down?(Gosu::KB_SPACE) || Gosu.button_down?(Gosu::KB_E)
+          buttons |= Game::Ticcmd::BTN_USE
         end
 
-        # Apply friction (continuous-time equivalent of *= 0.90625 per tic)
-        decay = Math.exp(-FRICTION_DECAY_RATE * delta_time)
-        if !has_input && @move_momx.abs < STOPSPEED && @move_momy.abs < STOPSPEED
-          @move_momx = 0.0
-          @move_momy = 0.0
-        else
-          @move_momx *= decay
-          @move_momy *= decay
-        end
+        Game::Ticcmd.new(forward, side, turn, buttons)
+      end
 
-        # Track movement state for weapon/view bob
+      # Apply one tic of intent to one player. Movement, firing and use all live
+      # here so they advance at a fixed 35 Hz regardless of frame rate.
+      def run_player_tic(player, cmd)
+        @physics.run_tic(player, cmd)
+
         if @player_state
-          @player_state.is_moving = has_input
-          @player_state.set_movement_momentum(@move_momx, @move_momy)
+          @player_state.is_moving = cmd.moving?
+          @player_state.set_movement_momentum(player.momx, player.momy)
         end
 
-        # Apply momentum with collision detection (scale by delta_time for frame-rate independence)
-        if @move_momx.abs > STOPSPEED || @move_momy.abs > STOPSPEED
-          try_move(@move_momx * delta_time, @move_momy * delta_time)
-        end
-
-        # Handle firing (left click, Ctrl, X, or Shift)
-        if @player_state && ((@mouse_captured && Gosu.button_down?(Gosu::MS_LEFT)) ||
-            Gosu.button_down?(Gosu::KB_LEFT_CONTROL) || Gosu.button_down?(Gosu::KB_RIGHT_CONTROL) ||
-            Gosu.button_down?(Gosu::KB_X) || Gosu.button_down?(Gosu::KB_LEFT_SHIFT) ||
-            Gosu.button_down?(Gosu::KB_RIGHT_SHIFT))
+        if cmd.fire? && @player_state
           was_attacking = @player_state.attacking
           @player_state.start_attack
-          # Fire hitscan on the first frame of the attack
+          # Fire hitscan on the first tic of the attack
           if @player_state.attacking && !was_attacking && @combat
-            @combat.fire(@renderer.player_x, @renderer.player_y, @renderer.player_z,
-                         @renderer.cos_angle, @renderer.sin_angle, @player_state.weapon)
+            @combat.fire(player.x, player.y, player.z,
+                         player.cos_angle, player.sin_angle, @player_state.weapon)
             @sound&.weapon_fire(@player_state.weapon)
           end
         end
 
-        # Handle weapon switching with number keys
-        handle_weapon_switch if @player_state
-
-        # Handle use key (spacebar or E)
-        handle_use_key if @sector_actions
-      end
-
-      def handle_use_key
-        use_down = Gosu.button_down?(Gosu::KB_SPACE) || Gosu.button_down?(Gosu::KB_E)
-
-        if use_down && !@use_pressed
+        # Use is edge-triggered: holding the key must not spam doors.
+        if cmd.use?
+          try_use_linedef if !@use_pressed && @sector_actions
           @use_pressed = true
-          try_use_linedef
-        elsif !use_down
+        else
           @use_pressed = false
         end
       end
 
       def try_use_linedef
         # Cast a ray forward to find a usable linedef
-        player_x = @renderer.player_x
-        player_y = @renderer.player_y
-        cos_angle = @renderer.cos_angle
-        sin_angle = @renderer.sin_angle
+        player_x = @player.x
+        player_y = @player.y
+        cos_angle = @player.cos_angle
+        sin_angle = @player.sin_angle
 
         # Check point in front of player
         use_x = player_x + cos_angle * USE_DISTANCE
@@ -520,49 +506,6 @@ module Doom
         end
       end
 
-      def try_move(dx, dy)
-        old_x = @renderer.player_x
-        old_y = @renderer.player_y
-        new_x = old_x + dx
-        new_y = old_y + dy
-
-        # Check if new position is valid and path doesn't cross blocking linedefs
-        if @physics.valid_move?(old_x, old_y, new_x, new_y)
-          @renderer.move_to(new_x, new_y)
-          settle_player_height(new_x, new_y)
-        else
-          # Wall sliding: project movement along the blocking wall
-          slide_x, slide_y = @physics.compute_slide(old_x, old_y, dx, dy)
-          if slide_x && (slide_x != 0.0 || slide_y != 0.0)
-            sx = old_x + slide_x
-            sy = old_y + slide_y
-            if @physics.valid_move?(old_x, old_y, sx, sy)
-              @renderer.move_to(sx, sy)
-              settle_player_height(sx, sy)
-              # Redirect momentum along the wall
-              @move_momx = slide_x / ([dx.abs, dy.abs].max.nonzero? || 1) * @move_momx.abs
-              @move_momy = slide_y / ([dx.abs, dy.abs].max.nonzero? || 1) * @move_momy.abs
-              return
-            end
-          end
-
-          # Fallback: try axis-aligned sliding
-          if dx != 0.0 && @physics.valid_move?(old_x, old_y, new_x, old_y)
-            @renderer.move_to(new_x, old_y)
-            settle_player_height(new_x, old_y)
-            @move_momy *= 0.0
-          elsif dy != 0.0 && @physics.valid_move?(old_x, old_y, old_x, new_y)
-            @renderer.move_to(old_x, new_y)
-            settle_player_height(old_x, new_y)
-            @move_momx *= 0.0
-          else
-            # Fully blocked - kill momentum
-            @move_momx = 0.0
-            @move_momy = 0.0
-          end
-        end
-      end
-
       # Lazily computed and cached on first access; cleared by load_next_map.
       def map_bounds
         return @map_bounds if defined?(@map_bounds) && @map_bounds
@@ -581,14 +524,14 @@ module Doom
       def settle_player_height(x, y)
         @physics.settle_at(x, y)
         z = @physics.eye_z
-        @renderer.set_z(z) if z
+        @player.z = z if z
       end
 
       def step_player_physics
         return unless @physics.floor_z
-        @physics.step(@renderer.player_x, @renderer.player_y)
+        @physics.step(@player.x, @player.y)
         z = @physics.eye_z
-        @renderer.set_z(z) if z
+        @player.z = z if z
       end
 
       def handle_mouse_look
@@ -597,7 +540,9 @@ module Doom
         current_x = mouse_x
         if @last_mouse_x
           delta_x = current_x - @last_mouse_x
-          @renderer.turn(-delta_x * MOUSE_SENSITIVITY) if delta_x != 0
+          # Accumulate rather than turn: the turn is applied by the next ticcmd,
+          # so fast mouse motion between tics is summed instead of dropped.
+          @pending_turn -= delta_x * MOUSE_SENSITIVITY if delta_x != 0
         end
 
         # Keep mouse centered
@@ -639,6 +584,11 @@ module Doom
       def draw
         @present_frames += 1
         @last_present_ms = Gosu.milliseconds
+
+        # Aim the camera at the local player. The simulation runs at 35 Hz but
+        # we draw as fast as we can, so interpolate between the previous tic's
+        # pose and the current one by however far into the tic we are.
+        @renderer.apply_view(*@player.view_pose(@tic_accumulator))
 
         # Intermission screen
         if @intermission
@@ -715,7 +665,7 @@ module Doom
 
       def draw_debug_overlay
         yjit_status = defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled? ? 'ON' : 'OFF'
-        ang = (Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI).round(1)
+        ang = (Math.atan2(@player.sin_angle, @player.cos_angle) * 180.0 / Math::PI).round(1)
 
         # Shown vs generated: only worth spelling out when they differ.
         shown = if @uncapped_fps
@@ -730,14 +680,14 @@ module Doom
                     "YJIT: #{yjit_status}  (Y to toggle)",
                     "Ruby #{RUBY_VERSION}",
                     "Map: #{@current_map}",
-                    "Pos: #{@renderer.player_x.round}, #{@renderer.player_y.round}",
+                    "Pos: #{@player.x.round}, #{@player.y.round}",
                     "Ang: #{ang}",
                   ]
                 else
                   [
                     "FPS: #{@fps_display}  (#{shown})",
                     "YJIT: #{yjit_status}",
-                    "Pos: #{@renderer.player_x.round}, #{@renderer.player_y.round}",
+                    "Pos: #{@player.x.round}, #{@player.y.round}",
                     "Ang: #{ang}",
                   ]
                 end
@@ -864,7 +814,7 @@ module Doom
       SECTOR_DAMAGE = { 5 => 10, 7 => 5, 4 => 20, 16 => 20, 11 => 20 }.freeze
 
       def check_sector_damage
-        sector = @map.sector_at(@renderer.player_x, @renderer.player_y)
+        sector = @map.sector_at(@player.x, @player.y)
         return unless sector
 
         damage = SECTOR_DAMAGE[sector.special]
@@ -882,14 +832,17 @@ module Doom
       def respawn_player
         @player_state.reset
         @physics.reset
-        @move_momx = 0.0
-        @move_momy = 0.0
+        @player.momx = 0.0
+        @player.momy = 0.0
 
         # Reset item pickup, combat, and monster AI state
         sprites = @combat&.sprites
         @item_pickup = Game::ItemPickup.new(@map, @player_state, @skill_hidden) if @item_pickup
-        @combat = Game::Combat.new(@map, @player_state, sprites, @skill_hidden, @sound) if @combat && sprites
-        @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state, @combat.sprites, @skill_hidden, @sound) if @monster_ai && @combat
+        @combat = Game::Combat.new(@map, @player_state, sprites, @skill_hidden, @sound, random: @random) if @combat && sprites
+        if @monster_ai && @combat
+          @monster_ai = Game::MonsterAI.new(@map, @combat, @player_state, @combat.sprites, @skill_hidden, @sound,
+                                            random: @random)
+        end
         @physics.item_pickup = @item_pickup
         @physics.combat = @combat
 
@@ -905,7 +858,7 @@ module Doom
         # Move player to start position
         ps = @map.player_start
         if ps
-          @renderer.set_player(ps.x, ps.y, 41, ps.angle)
+          @player.place(ps.x, ps.y, 41, ps.angle)
           settle_player_height(ps.x, ps.y)
         end
       end
@@ -1024,19 +977,20 @@ module Doom
           @renderer.flats.values, @renderer.sprites, @animations
         )
         ps = map.player_start
-        @renderer.set_player(ps.x, ps.y, 41, ps.angle)
+        @player.place(ps.x, ps.y, 41, ps.angle)
 
         @player_state.reset
         @sector_actions = Game::SectorActions.new(map, @sound)
-        @sector_effects = Game::SectorEffects.new(map)
+        @sector_effects = Game::SectorEffects.new(map, random: @random)
 
         @skill_hidden = compute_skill_hidden(@skill || Game::Menu::SKILL_MEDIUM)
         @item_pickup = Game::ItemPickup.new(map, @player_state, @skill_hidden)
         @item_pickup.ammo_multiplier = (@skill == Game::Menu::SKILL_BABY) ? 2 : 1
 
         combat_sprites = @renderer.sprites
-        @combat = Game::Combat.new(map, @player_state, combat_sprites, @skill_hidden, @sound)
-        @monster_ai = Game::MonsterAI.new(map, @combat, @player_state, combat_sprites, @skill_hidden, @sound)
+        @combat = Game::Combat.new(map, @player_state, combat_sprites, @skill_hidden, @sound, random: @random)
+        @monster_ai = Game::MonsterAI.new(map, @combat, @player_state, combat_sprites, @skill_hidden, @sound,
+                                          random: @random)
         @monster_ai.aggression = true
         @monster_ai.damage_multiplier = @damage_multiplier
 
@@ -1044,8 +998,8 @@ module Doom
         @physics.skill_hidden = @skill_hidden
         @physics.item_pickup = @item_pickup
         @physics.combat = @combat
-        @move_momx = 0.0
-        @move_momy = 0.0
+        @player.momx = 0.0
+        @player.momy = 0.0
         @leveltime = 0
 
         settle_player_height(ps.x, ps.y)
@@ -1141,9 +1095,9 @@ module Doom
         img.save("#{prefix}.png")
 
         # Save player state and sector info
-        sector = @map.sector_at(@renderer.player_x, @renderer.player_y)
+        sector = @map.sector_at(@player.x, @player.y)
         sector_idx = sector ? @map.sectors.index(sector) : nil
-        angle_deg = Math.atan2(@renderer.sin_angle, @renderer.cos_angle) * 180.0 / Math::PI
+        angle_deg = Math.atan2(@player.sin_angle, @player.cos_angle) * 180.0 / Math::PI
 
         # Sprite diagnostics
         sprites_info = @renderer.sprite_diagnostics
@@ -1159,7 +1113,7 @@ module Doom
         end
 
         File.write("#{prefix}.txt", <<~INFO)
-          pos: #{@renderer.player_x.round(1)}, #{@renderer.player_y.round(1)}, #{@renderer.player_z.round(1)}
+          pos: #{@player.x.round(1)}, #{@player.y.round(1)}, #{@player.z.round(1)}
           angle: #{angle_deg.round(1)}
           sector: #{sector_idx}
           floor: #{sector&.floor_height} (#{sector&.floor_texture})
@@ -1258,11 +1212,11 @@ module Doom
         end
 
         # Draw player
-        px = to_sx.call(@renderer.player_x)
-        py = to_sy.call(@renderer.player_y)
+        px = to_sx.call(@player.x)
+        py = to_sy.call(@player.y)
 
-        cos_a = @renderer.cos_angle
-        sin_a = @renderer.sin_angle
+        cos_a = @player.cos_angle
+        sin_a = @player.sin_angle
 
         # FOV cone
         fov_len = 40.0

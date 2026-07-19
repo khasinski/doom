@@ -96,9 +96,10 @@ module Doom
       # Shotgun: 7 pellets, each 1*5..3*5 = 5-15
       # Fist/chainsaw: 1*2..3*2 = 2-10
 
-      def initialize(map, player_state, sprites, hidden_things = {}, sound_engine = nil)
+      def initialize(map, player_state, sprites, hidden_things = {}, sound_engine = nil, random: Random.new)
         @map = map
         @player = player_state
+        @random = random
         @sprites = sprites
         @hidden_things = hidden_things
         @sound = sound_engine
@@ -257,7 +258,7 @@ module Doom
 
             if hit_wall || hit_monster
               explode(new_x, new_y, hit_monster) if proj.type == :rocket
-              hit_monster ? apply_damage(hit_monster, (rand(8) + 1) * 5) : nil unless proj.type == :rocket
+              hit_monster ? apply_damage(hit_monster, (@random.rand(8) + 1) * 5) : nil unless proj.type == :rocket
               hit = true
             end
           elsif proj.target == :player
@@ -270,7 +271,7 @@ module Doom
                 info = MONSTER_PROJECTILES[proj.type]
                 if info
                   min_d, max_d = info[:damage]
-                  @player.take_damage(rand(min_d..max_d))
+                  @player.take_damage(@random.rand(min_d..max_d))
                 end
               end
               # Spawn fireball explosion
@@ -293,7 +294,7 @@ module Doom
       def explode(x, y, direct_hit_idx)
         # Direct hit damage
         if direct_hit_idx
-          damage = (rand(8) + 1) * ROCKET_DAMAGE
+          damage = (@random.rand(8) + 1) * ROCKET_DAMAGE
           apply_damage(direct_hit_idx, damage)
         end
 
@@ -366,12 +367,12 @@ module Doom
         pellets.times do
           # Add random spread
           if spread > 0
-            angle = Math.atan2(sin_a, cos_a) + (rand - 0.5) * spread * 2
+            angle = Math.atan2(sin_a, cos_a) + (@random.rand - 0.5) * spread * 2
             ca = Math.cos(angle)
             sa = Math.sin(angle)
           else
             # Slight pistol/chaingun spread
-            angle = Math.atan2(sin_a, cos_a) + (rand - 0.5) * 0.04
+            angle = Math.atan2(sin_a, cos_a) + (@random.rand - 0.5) * 0.04
             ca = Math.cos(angle)
             sa = Math.sin(angle)
           end
@@ -401,7 +402,7 @@ module Doom
           @puffs << { x: puff_x, y: puff_y, z: puff_z, tic: @tic }
 
           if best_idx
-            damage = (rand(3) + 1) * multiplier
+            damage = (@random.rand(3) + 1) * multiplier
             apply_damage(best_idx, damage)
           end
         end
@@ -431,7 +432,7 @@ module Doom
         end
 
         if best_idx
-          damage = (rand(3) + 1) * multiplier
+          damage = (@random.rand(3) + 1) * multiplier
           apply_damage(best_idx, damage)
         end
       end
@@ -458,7 +459,7 @@ module Doom
           # Pain state: monster flinches (not barrels)
           if thing.type != BARREL_TYPE
             pain_chance = PAIN_CHANCE[thing.type] || 128
-            if rand(256) < pain_chance
+            if @random.rand(256) < pain_chance
               @pain_until[thing_idx] = @tic + PAIN_DURATION
               @sound&.monster_pain(thing.type)
             end

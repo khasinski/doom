@@ -89,10 +89,12 @@ module Doom
                                 :reactiontime, :last_saw_player,
                                 :attacking, :attack_frame_tic, :fired)
 
-      def initialize(map, combat, player_state, sprites_mgr = nil, hidden_things = {}, sound_engine = nil)
+      def initialize(map, combat, player_state, sprites_mgr = nil, hidden_things = {}, sound_engine = nil,
+                     random: Random.new)
         @map = map
         @combat = combat
         @player = player_state
+        @random = random
         @sprites_mgr = sprites_mgr
         @monsters = []
         @aggression = true  # Monsters fight back (toggle with C)
@@ -264,7 +266,7 @@ module Doom
           check_dist -= 128 if atk[:type] == :projectile  # Pure ranged fire more
           check_dist = [check_dist, 0].max
           check_dist = [check_dist, 200].min  # Cap: always >= 22% chance to fire
-          return false if rand(256) < check_dist
+          return false if @random.rand(256) < check_dist
         end
 
         # Start attack animation (damage applied later on fire frame)
@@ -296,15 +298,15 @@ module Doom
         case atk[:type]
         when :melee
           min_dmg, max_dmg = atk[:damage]
-          damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
+          damage = (@random.rand(min_dmg..max_dmg) * @damage_multiplier).to_i
           @player.take_damage(damage) if damage > 0
 
         when :hitscan
           hit_chance = HITSCAN_ACCURACY * (1.0 - dist / (MISSILE_RANGE * 2))
           hit_chance = [hit_chance, 0.15].max
-          if rand < hit_chance
+          if @random.rand < hit_chance
             min_dmg, max_dmg = atk[:damage]
-            damage = (rand(min_dmg..max_dmg) * @damage_multiplier).to_i
+            damage = (@random.rand(min_dmg..max_dmg) * @damage_multiplier).to_i
             @player.take_damage(damage) if damage > 0
           end
 
@@ -390,7 +392,7 @@ module Doom
         end
 
         # Randomly swap X/Y priority
-        if rand > 0.22 || deltay.abs > deltax.abs
+        if @random.rand > 0.22 || deltay.abs > deltax.abs
           dir_x, dir_y = dir_y, dir_x
         end
 
@@ -413,7 +415,7 @@ module Doom
         end
 
         # Try all other directions
-        start = rand(8)
+        start = @random.rand(8)
         8.times do |i|
           d = (start + i) % 8
           next if d == OPPOSITE[old_dir]
@@ -433,7 +435,7 @@ module Doom
       def try_walk(mon)
         speed = MONSTER_SPEED[mon.type] || 8
         if try_move(mon, speed)
-          mon.movecount = rand(16)
+          mon.movecount = @random.rand(16)
           true
         else
           false

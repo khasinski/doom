@@ -116,7 +116,7 @@ module Doom
         @y_slope_floor = Array.new(HALF_HEIGHT + 1, 0.0)
       end
 
-      attr_reader :player_x, :player_y, :player_z, :sin_angle, :cos_angle, :framebuffer
+      attr_reader :player_x, :player_y, :player_z, :player_angle, :sin_angle, :cos_angle, :framebuffer
       attr_reader :wad, :textures, :colormap, :flats, :sprites
       attr_writer :hidden_things, :combat, :monster_ai, :leveltime
       attr_accessor :skip_background_fill
@@ -207,6 +207,19 @@ module Doom
           results << info
         end
         results
+      end
+
+      # Point the camera at a pose. This is the renderer's real input now that
+      # Game::Player owns the player: game logic mutates the player, and the
+      # camera is aimed once per frame at an interpolated pose. Angle is in
+      # radians here, unlike the older degree-based setters below.
+      def apply_view(x, y, z, angle_radians)
+        @player_x = x
+        @player_y = y
+        @player_z = z
+        @player_angle = angle_radians
+        @sin_angle = Math.sin(angle_radians)
+        @cos_angle = Math.cos(angle_radians)
       end
 
       def set_player(x, y, z, angle)
