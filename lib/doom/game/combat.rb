@@ -117,7 +117,6 @@ module Doom
         @explosions = []     # Active explosions (for rendering)
         @puffs = []          # Bullet puff effects
         @players = []
-        @pvp = false
         @tic = 0
       end
 
@@ -130,7 +129,6 @@ module Doom
       # has nobody else to hit, so with it off every targeting path below stays
       # exactly the one it was before deathmatch existed -- same hits, same RNG
       # draws, same order.
-      attr_accessor :pvp
 
       # Spawn a monster projectile (fireball, etc.)
       # Matches Chocolate Doom's P_SpawnMissile: calculates momz for vertical aim
@@ -239,11 +237,14 @@ module Doom
         )
       end
 
-      # Players a shot fired by `shooter` may hit: everyone alive but the
-      # shooter, and nobody at all outside deathmatch.
+      # Players a shot fired by `shooter` may hit: everyone alive except the
+      # shooter, who cannot hit themselves with a bullet or a fist.
+      #
+      # Not gated on the mode. Vanilla DOOM has no friendly-fire switch --
+      # P_DamageMobj checks nothing about who is shooting whom -- so co-op
+      # players hurt each other exactly as deathmatch ones do. In single player
+      # this is empty anyway, the only player being the shooter.
       def player_targets(shooter)
-        return [] unless @pvp
-
         @players.reject { |pl| pl.state.dead || pl.equal?(shooter) }
       end
 
@@ -385,11 +386,12 @@ module Doom
         @explosions << { x: x, y: y, tic: @tic, sprite: 'MISL' }
       end
 
-      # Splash reaches the shooter too, which is how a deathmatch suicide
-      # happens: firing a rocket at your own feet costs you a frag.
+      # Splash reaches the shooter too, which is how a rocket suicide happens.
+      #
+      # In every mode, single player included. PIT_RadiusAttack damages every
+      # shootable thing in range and never excludes the bomb source, which is
+      # why firing a rocket at your own feet has always been fatal in DOOM.
       def splash_players(x, y, radius, max_damage, attacker)
-        return unless @pvp
-
         @players.each do |pl|
           next if pl.state.dead
 

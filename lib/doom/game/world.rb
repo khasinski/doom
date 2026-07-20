@@ -53,7 +53,6 @@ module Doom
         @item_pickup = ItemPickup.new(map, nil, skill_hidden)
         @combat = Combat.new(map, nil, sprites, skill_hidden, sound, random: random)
         @monster_ai = MonsterAI.new(map, @combat, nil, sprites, skill_hidden, sound, random: random)
-        @combat.pvp = deathmatch?
       end
 
       def deathmatch?
@@ -212,7 +211,6 @@ module Doom
           physics.combat = @combat
         end
         @combat.players = @players
-        @combat.pvp = deathmatch?
       end
 
       def primary

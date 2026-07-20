@@ -36,15 +36,15 @@ RSpec.describe 'deathmatch' do
   # A player backed up to within 30 units of a wall with a loaded rocket
   # launcher. Splash from a rocket that detonates that close reaches back far
   # enough to kill its own shooter in two shots.
-  def cornered_rocketeer(frag_limit: nil)
+  def cornered_rocketeer(frag_limit: nil, mode: :deathmatch, solo: false)
     map = Doom::Map::MapData.load(@wad, 'E1M1')
-    world = Doom::Game::World.new(map, sprites: @sprites, mode: :deathmatch,
+    world = Doom::Game::World.new(map, sprites: @sprites, mode: mode,
                                         frag_limit: frag_limit,
                                         random: Doom::Game::Random.new(0))
     start = map.player_start
     player = world.add_player(start, id: 0)
     # Player 1 is parked well out of the blast so the score is unambiguous.
-    world.add_player(start, id: 1).place(start.x, start.y - 600, 41.0, 0)
+    world.add_player(start, id: 1).place(start.x, start.y - 600, 41.0, 0) unless solo
 
     player.place(start.x, start.y, Doom::Game::PlayerState::VIEWHEIGHT, 270)
     wall = world.combat.send(:trace_wall, player.x, player.y, player.cos_angle, player.sin_angle)
@@ -81,12 +81,14 @@ RSpec.describe 'deathmatch' do
       expect(shooter.state.health).to eq(100)
     end
 
-    it 'has no friendly fire in co-op' do
+    it 'hurts co-op partners too, as vanilla does' do
+      # DOOM has no friendly-fire switch: P_DamageMobj checks nothing about
+      # who is shooting whom, so co-op players hurt each other exactly as
+      # deathmatch ones do.
       world, _shooter, victim = duel(mode: :coop)
       200.times { world.run_tic(0 => FIRE) }
 
-      expect(victim.state.health).to eq(100)
-      expect(victim.state.dead).to be(false)
+      expect(victim.state.health).to be < 100
     end
   end
 
@@ -115,11 +117,22 @@ RSpec.describe 'deathmatch' do
       expect(player.frags).to eq(-1)
     end
 
-    it 'scores nothing in co-op' do
+    it 'lets you blow yourself up in single player, as vanilla does' do
+      # PIT_RadiusAttack never excludes the bomb source, so your own rocket
+      # has always been able to kill you, in every mode.
+      world, player = cornered_rocketeer(mode: :coop, solo: true)
+      60.times { world.run_tic(0 => FIRE) }
+
+      expect(player.state.health).to be < 100
+    end
+
+    it 'scores in co-op as well, which is what vanilla counts' do
+      # P_KillMobj credits the frag without consulting the mode.
       world, shooter, victim = duel(mode: :coop)
       200.times { world.run_tic(0 => FIRE) }
 
-      expect([shooter.frags, victim.frags]).to eq([0, 0])
+      expect(victim.state.dead).to be(true)
+      expect(shooter.frags).to eq(1)
     end
 
     it 'survives respawning' do
