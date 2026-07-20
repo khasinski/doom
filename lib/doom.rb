@@ -44,7 +44,14 @@ module Doom
   class Error < StandardError; end
 
   class << self
-    def run(wad_path, map_name: 'E1M1', rubykaigi: false)
+    def run(wad_path, map_name: 'E1M1', rubykaigi: false, net: nil)
+      session = build_session(net, map_name)
+      if session
+        # The host decides the map, seed and mode; a client is told them. Wait
+        # for that before loading anything, so both sides load the same level.
+        map_name = wait_for_session(session) || map_name
+      end
+
       puts "Loading WAD: #{wad_path}"
       wad = Wad::Reader.new(wad_path)
       puts "  #{wad.type}: #{wad.num_lumps} lumps"
@@ -112,9 +119,14 @@ module Doom
       sound_engine = Game::SoundEngine.new(sound_mgr)
       # One RNG shared by every subsystem that touches game state -- its index is
       # part of the simulation, so all peers must draw from the same sequence.
-      random = Game::Random.new
-      world = Game::World.new(map, sprites: sprites, sound: sound_engine, random: random)
-      player = world.add_player
+      # In a session the seed and mode come from the host, so every peer builds
+      # the same world; solo play picks its own.
+      random = Game::Random.new(session ? session.seed : 0)
+      world = Game::World.new(map, sprites: sprites, sound: sound_engine, random: random,
+                                   mode: session ? session.mode : :coop)
+      ids = session ? session.player_ids : [0]
+      ids.each { |id| world.add_player(id: id) }
+      player = world.player(session ? session.local_id : 0)
       player_state = player.state
 
       puts 'Setting up HUD...'
@@ -131,11 +143,46 @@ module Doom
 
       puts 'Starting game window...'
       window = Platform::GosuWindow.new(renderer, palette, world, status_bar, weapon_renderer,
-                                        animations, menu, sound_engine)
+                                        animations, menu, sound_engine, session: session)
+      # A networked game skips the title screen: the other players are already
+      # waiting, and there is nothing to configure that the host has not set.
+      menu.instance_variable_set(:@state, Game::Menu::STATE_NONE) if session
       window.show
+    ensure
+      session&.quit
     end
 
     private
+
+    def build_session(net, map_name)
+      return nil unless net
+
+      case net[:role]
+      when :host
+        puts "Hosting on port #{net[:port]}, waiting for #{net[:players]} players..."
+        Net::Session.host(port: net[:port], players: net[:players],
+                          map: map_name, mode: net[:mode])
+      when :client
+        puts "Connecting to #{net[:host]}:#{net[:port]}..."
+        Net::Session.connect(host: net[:host], port: net[:port])
+      end
+    end
+
+    # Block until the handshake finishes. This is the one place blocking is
+    # right: there is no game to render yet.
+    def wait_for_session(session, timeout: 120)
+      deadline = Time.now + timeout
+      until session.started?
+        raise Error, 'timed out waiting for the other players' if Time.now > deadline
+
+        session.poll
+        sleep 0.02
+      end
+
+      puts "  Joined as player #{session.local_id} of #{session.num_players} " \
+           "(#{session.mode}, map #{session.map_name})"
+      session.map_name
+    end
 
     def find_iwad
       candidates = [

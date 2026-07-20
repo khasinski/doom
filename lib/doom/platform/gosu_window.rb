@@ -99,7 +99,7 @@ module Doom
       # automap, debug overlay and HUD read them constantly -- bind_world keeps
       # those caches honest whenever the world is rebuilt.
       def initialize(renderer, palette, world, status_bar = nil, weapon_renderer = nil,
-                     animations = nil, menu = nil, sound_engine = nil)
+                     animations = nil, menu = nil, sound_engine = nil, session: nil)
         fullscreen = ARGV.include?('--fullscreen') || ARGV.include?('-f')
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
@@ -115,6 +115,8 @@ module Doom
         @doom_font = menu&.font
         @sound = sound_engine
         @skill = Game::Menu::SKILL_MEDIUM
+        @session = session
+        @local_player_id = session&.local_id || 0
 
         bind_world(world)
         @pending_turn = 0.0  # Mouse turn accumulated between tics
@@ -157,13 +159,39 @@ module Doom
         @palette_rgba = @all_palette_rgba[0]
       end
 
+      def advance_local
+        while @tic_accumulator >= 1.0
+          @tic_accumulator -= 1.0
+          @leveltime = @world.run_tic(@player.id => build_ticcmd)
+          @item_pickup.update_flash
+        end
+      end
+
+      # Networked: input is sampled on the local clock but tics only run once
+      # every player's command for them has arrived. A stall is normal -- it
+      # means someone else's packet is late -- so we keep drawing and say who
+      # we are waiting for rather than freezing silently.
+      def advance_networked
+        @session.poll
+
+        while @tic_accumulator >= 1.0
+          @tic_accumulator -= 1.0
+          @session.submit(build_ticcmd)
+        end
+        @session.transmit
+
+        ran = @session.run(@world, limit: 10)
+        ran.times { @item_pickup.update_flash }
+        @leveltime = @world.leveltime
+      end
+
       # Point this window at a world, refreshing every cached reference. Called
       # on construction and whenever the world is rebuilt (new map, respawn).
       def bind_world(world)
         @world = world
         @map = world.map
         @random = world.random
-        @player = world.player(0) || world.add_player(world.map.player_start || Map::Thing.new(0, 0, 90, 1, 0))
+        @player = world.player(@local_player_id) || world.add_player(id: @local_player_id)
         @player_state = @player.state
         @physics = world.physics_for(@player)
         @combat = world.combat
@@ -200,11 +228,7 @@ module Doom
         # decides what happens now lives in Game::World; this loop only decides
         # how many tics are owed and hands over the input for each.
         @tic_accumulator += delta_time * 35.0
-        while @tic_accumulator >= 1.0
-          @tic_accumulator -= 1.0
-          @leveltime = @world.run_tic(@player.id => build_ticcmd)
-          @item_pickup.update_flash
-        end
+        @session ? advance_networked : advance_local
 
         @animations&.update(@leveltime)
         @status_bar&.update
@@ -460,6 +484,33 @@ module Doom
           @screen_image.draw(0, 0, 0, SCALE, SCALE)
 
           draw_debug_overlay if @show_debug
+          draw_net_status if @session
+        end
+      end
+
+      # A lockstep stall looks exactly like a freeze unless we say otherwise,
+      # and a desync means everything on screen is already wrong -- both are
+      # worth interrupting the player for.
+      def draw_net_status
+        lines = []
+
+        unless @session.started?
+          lines << (@session.host? ? 'WAITING FOR PLAYERS' : 'CONNECTING...')
+        end
+
+        waiting = @session.waiting_on
+        lines << "WAITING FOR PLAYER #{waiting.join(', ')}" if waiting.any?
+
+        desync = @session.desyncs.first
+        lines << "DESYNC AT TIC #{desync.tic} (#{Array(desync.sections).join(', ')})" if desync
+
+        return if lines.empty?
+
+        y = height / 3
+        lines.each do |line|
+          @debug_font.draw_text(line, 22, y + 2, 2, 1, 1, Gosu::Color::BLACK)
+          @debug_font.draw_text(line, 20, y, 2, 1, 1, Gosu::Color::YELLOW)
+          y += 30
         end
       end
 

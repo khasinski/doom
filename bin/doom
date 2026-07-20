@@ -19,11 +19,35 @@ end
 # Parse flags
 rubykaigi_mode = ARGV.delete('--rubykaigi') || ARGV.delete('--kaigi')
 
+# Multiplayer flags, parsed before the heavy requires so a bad invocation
+# fails fast rather than after a WAD load. Accepts --flag value and --flag=value.
+def take_flag(name)
+  idx = ARGV.index { |a| a == name || a.start_with?(name + '=') }
+  return nil unless idx
+
+  arg = ARGV.delete_at(idx)
+  return arg.split('=', 2).last if arg.include?('=')
+
+  ARGV.delete_at(idx)
+end
+
+net_host = ARGV.delete('--host')
+net_connect = take_flag('--connect')
+net_port = (take_flag('--port') || 5029).to_i
+net_players = (take_flag('--players') || 2).to_i
+net_mode = ARGV.delete('--deathmatch') ? :deathmatch : :coop
+
 # Parse arguments before loading heavy dependencies
 wad_path = ARGV.find { |a| !a.start_with?('-') }
 
+# Match the flags themselves, not the WAD argument: ARGV.find skips anything
+# starting with a dash, so `doom --help` never matched and fell through to
+# launching the game.
+wants_help = ARGV.include?('-h') || ARGV.include?('--help')
+wants_version = ARGV.include?('-v') || ARGV.include?('--version')
+
 # Show help (before loading anything)
-if wad_path == '-h' || wad_path == '--help'
+if wants_help
   puts "DOOM - Ruby port of the classic 1993 game"
   puts
   puts "Usage: doom [OPTIONS] [WAD_FILE]"
@@ -33,6 +57,14 @@ if wad_path == '-h' || wad_path == '--help'
   puts "  -v, --version  Show version"
   puts "  --bench        Run headless renderer benchmark (auto-downloads Freedoom)"
   puts "                 Subflags: --json --frames=N --warmup=N --map=E1M1 --wad=PATH"
+  puts "  --vsync        Present every frame instead of uncapping generation"
+  puts
+  puts "Multiplayer (lockstep peer-to-peer, as in the original):"
+  puts "  --host                 Host a game and wait for others to join"
+  puts "  --connect HOST[:PORT]  Join a hosted game"
+  puts "  --port N               Port to host on or connect to (default 5029)"
+  puts "  --players N            Players to wait for when hosting (default 2)"
+  puts "  --deathmatch           Deathmatch instead of co-op"
   puts
   puts "If no WAD file is specified, doom will look for doom1.wad in:"
   puts "  1. Current directory"
@@ -52,7 +84,7 @@ if wad_path == '-h' || wad_path == '--help'
   exit 0
 end
 
-if wad_path == '-v' || wad_path == '--version'
+if wants_version
   require_relative '../lib/doom/version'
   puts "DOOM Ruby v#{Doom::VERSION}"
   exit 0
@@ -64,7 +96,15 @@ require_relative '../lib/doom'
 begin
   # Find or download WAD
   wad_path = Doom::WadDownloader.ensure_wad_available(wad_path)
-  Doom.run(wad_path, rubykaigi: rubykaigi_mode)
+  net = if net_host
+          { role: :host, port: net_port, players: net_players, mode: net_mode }
+        elsif net_connect
+          host, _, port = net_connect.rpartition(':')
+          host = net_connect if host.empty?
+          { role: :client, host: host, port: port.empty? ? net_port : port.to_i }
+        end
+
+  Doom.run(wad_path, rubykaigi: rubykaigi_mode, net: net)
 rescue Doom::WadDownloader::DownloadError => e
   puts "Error: #{e.message}"
   exit 1
