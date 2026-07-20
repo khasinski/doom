@@ -12,6 +12,7 @@ require_relative '../lib/doom/wad/sprite'
 require_relative '../lib/doom/map/data'
 require_relative '../lib/doom/render/renderer'
 require_relative '../lib/doom/game/random'
+require_relative '../lib/doom/game/state_hash'
 require_relative '../lib/doom/game/player_state'
 require_relative '../lib/doom/game/player'
 require_relative '../lib/doom/game/ticcmd'
@@ -23,6 +24,7 @@ require_relative '../lib/doom/game/combat'
 require_relative '../lib/doom/game/monster_ai'
 require_relative '../lib/doom/game/sector_actions'
 require_relative '../lib/doom/game/world'
+require_relative '../lib/doom/net/desync_monitor'
 
 module Doom
   class Error < StandardError; end

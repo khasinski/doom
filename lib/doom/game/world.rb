@@ -124,6 +124,17 @@ module Doom
         @sector_actions.exit_triggered
       end
 
+      # Fingerprint of the whole simulation, for lockstep desync detection.
+      def state_hash
+        StateHash.of(self)
+      end
+
+      # Same fingerprint broken down by section, so a desync can say which part
+      # of the world drifted rather than only that something did.
+      def state_hash_sections
+        StateHash.sections(self)
+      end
+
       # Advance the whole simulation by one tic.
       #
       # `cmds` maps player id => Ticcmd; a player with no command coasts on a
