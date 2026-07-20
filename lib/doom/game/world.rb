@@ -22,16 +22,21 @@ module Doom
         4 => 20, 5 => 10, 7 => 5, 16 => 20, 11 => 20,
       }.freeze
 
-      attr_reader :map, :players, :random, :leveltime
+      MODES = %i[coop deathmatch].freeze
+
+      attr_reader :map, :players, :random, :leveltime, :mode
       attr_reader :combat, :monster_ai, :item_pickup, :sector_actions, :sector_effects
       attr_reader :physics_by_id
       attr_accessor :damage_multiplier, :skill_hidden
 
-      def initialize(map, sprites:, sound: nil, random: Random.new, skill_hidden: {})
+      def initialize(map, sprites:, sound: nil, random: Random.new, skill_hidden: {}, mode: :coop)
+        raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
+
         @map = map
         @sprites = sprites
         @sound = sound
         @random = random
+        @mode = mode
         @skill_hidden = skill_hidden
         @damage_multiplier = 1.0
         @leveltime = 0
@@ -46,8 +51,12 @@ module Doom
         @monster_ai = MonsterAI.new(map, @combat, nil, sprites, skill_hidden, sound, random: random)
       end
 
-      # Spawn a player at a map start.
-      def add_player(start_thing, id: @players.size)
+      # Spawn a player. With no explicit start, the world picks one for this
+      # player id: its own co-op start in co-op, a random one in deathmatch.
+      def add_player(start_thing = nil, id: @players.size)
+        start_thing ||= spawn_point_for(id)
+        raise ArgumentError, 'map has no player start' unless start_thing
+
         player = Player.new(id: id)
         player.place(start_thing.x, start_thing.y, PlayerState::VIEWHEIGHT, start_thing.angle)
 
@@ -67,25 +76,44 @@ module Doom
         @players.find { |p| p.id == id }
       end
 
-      # Wipe monster/item/projectile state and put the player back at its start.
-      # Monsters are rebuilt rather than revived because their HP, death and
-      # pain state live in Combat keyed by thing index.
+      # Where player `id` enters the map. Deathmatch draws from the map's DM
+      # spawns through the shared RNG, so every peer picks the same one.
+      def spawn_point_for(id)
+        if @mode == :deathmatch
+          starts = @map.deathmatch_starts
+          return starts[@random.rand(starts.size)] unless starts.empty?
+        end
+
+        @map.player_start_for(id)
+      end
+
+      # Bring one player back to life at its spawn point, leaving the rest of
+      # the world alone. This is what multiplayer death does: the others are
+      # still playing, so monsters and items must not reset under them.
       def respawn(player = primary)
         return unless player
 
         player.state.reset
-        rebuild_actor_subsystems
+        start = spawn_point_for(player.id)
+        return unless start
 
         physics = physics_for(player)
         physics.reset
-        physics.item_pickup = @item_pickup
-        physics.combat = @combat
-
-        start = @map.player_start
-        return unless start
-
         player.place(start.x, start.y, PlayerState::VIEWHEIGHT, start.angle)
         physics.settle(player, player.x, player.y)
+      end
+
+      # Single-player death: wipe monster/item/projectile state and start the
+      # level over. Monsters are rebuilt rather than revived because their HP,
+      # death and pain state live in Combat keyed by thing index.
+      def restart_level(player = primary)
+        return unless player
+
+        rebuild_actor_subsystems
+        physics = physics_for(player)
+        physics.item_pickup = @item_pickup
+        physics.combat = @combat
+        respawn(player)
       end
 
       def physics_for(player)

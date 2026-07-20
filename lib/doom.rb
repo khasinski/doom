@@ -108,7 +108,7 @@ module Doom
       # part of the simulation, so all peers must draw from the same sequence.
       random = Game::Random.new
       world = Game::World.new(map, sprites: sprites, sound: sound_engine, random: random)
-      player = world.add_player(player_start)
+      player = world.add_player
       player_state = player.state
 
       puts 'Setting up HUD...'

@@ -613,8 +613,10 @@ module Doom
       end
 
       def respawn_player
-        @world.respawn(@player)
-        bind_world(@world)  # World rebuilds combat/AI/pickups, so recache them
+        # Single player: death restarts the level, so the world rebuilds its
+        # actor subsystems and the cached references must be refreshed.
+        @world.restart_level(@player)
+        bind_world(@world)
 
         # Re-apply active cheats from menu options
         return unless @menu
@@ -748,7 +750,7 @@ module Doom
         world.item_pickup.ammo_multiplier = (@skill == Game::Menu::SKILL_BABY) ? 2 : 1
         world.monster_ai.aggression = true
         world.monster_ai.damage_multiplier = @damage_multiplier
-        world.add_player(map.player_start)
+        world.add_player
 
         bind_world(world)
       end

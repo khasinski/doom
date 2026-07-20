@@ -167,6 +167,74 @@ RSpec.describe Doom::Game::World do
     end
   end
 
+  describe 'spawn points' do
+    it 'gives each player its own co-op start' do
+      w = new_world
+      w.add_player(id: 1)
+      starts = w.map.player_starts
+      skip 'Map lacks a second co-op start' unless starts[1]
+
+      expect([w.player(0).x, w.player(0).y]).to eq([starts[0].x.to_f, starts[0].y.to_f])
+      expect([w.player(1).x, w.player(1).y]).to eq([starts[1].x.to_f, starts[1].y.to_f])
+      expect([w.player(1).x, w.player(1).y]).not_to eq([w.player(0).x, w.player(0).y])
+    end
+
+    it 'falls back to player 1 start when the map lacks one for that id' do
+      w = new_world
+      # Id 9 has no co-op start on any map.
+      p = w.add_player(id: 9)
+      start = w.map.player_start
+      expect([p.x, p.y]).to eq([start.x.to_f, start.y.to_f])
+    end
+
+    describe 'deathmatch' do
+      def dm_world(seed = 0)
+        map = Doom::Map::MapData.load(@wad, 'E1M1')
+        described_class.new(map, sprites: @sprites, mode: :deathmatch,
+                                 random: Doom::Game::Random.new(seed))
+      end
+
+      it 'spawns at a deathmatch start, not the co-op one' do
+        w = dm_world
+        p = w.add_player
+        dm = w.map.deathmatch_starts
+        skip 'Map has no deathmatch starts' if dm.empty?
+
+        expect(dm.map { |t| [t.x.to_f, t.y.to_f] }).to include([p.x, p.y])
+      end
+
+      it 'picks spawns through the shared RNG so peers agree' do
+        # Deathmatch spawn choice is simulation: if two peers picked
+        # differently the worlds would diverge on the first respawn.
+        a = dm_world(5)
+        b = dm_world(5)
+        pa = a.add_player
+        pb = b.add_player
+        6.times do
+          a.respawn(pa)
+          b.respawn(pb)
+        end
+
+        expect([pa.x, pa.y]).to eq([pb.x, pb.y])
+      end
+
+      it 'does not always reuse the same spawn' do
+        w = dm_world(1)
+        p = w.add_player
+        skip 'Map has too few deathmatch starts' if w.map.deathmatch_starts.size < 2
+
+        seen = Array.new(12) { w.respawn(p); [p.x, p.y] }.uniq
+        expect(seen.size).to be > 1
+      end
+
+      it 'rejects an unknown mode' do
+        map = Doom::Map::MapData.load(@wad, 'E1M1')
+        expect { described_class.new(map, sprites: @sprites, mode: :ctf) }
+          .to raise_error(ArgumentError, /ctf/)
+      end
+    end
+  end
+
   describe 'several players' do
     # Two players in the same world, placed by hand so the geometry of each
     # case is explicit.
@@ -304,20 +372,48 @@ RSpec.describe Doom::Game::World do
       expect([p.x, p.y]).to eq([start.x.to_f, start.y.to_f])
     end
 
+    it 'leaves the rest of the world alone' do
+      # With other players still in the level, one death must not reset the
+      # monsters and items out from under them.
+      w = new_world
+      old_combat = w.combat
+      old_pickup = w.item_pickup
+
+      w.respawn(w.player(0))
+
+      expect(w.combat).to equal(old_combat)
+      expect(w.item_pickup).to equal(old_pickup)
+    end
+  end
+
+  describe '#restart_level' do
     it 'rebuilds the actor subsystems' do
       w = new_world
       old_combat = w.combat
-      w.respawn(w.player(0))
+      old_ai = w.monster_ai
+
+      w.restart_level(w.player(0))
+
       expect(w.combat).not_to equal(old_combat)
-      expect(w.monster_ai).not_to equal(old_combat)
+      expect(w.monster_ai).not_to equal(old_ai)
     end
 
     it 'rebinds physics to the rebuilt subsystems' do
       w = new_world
-      w.respawn(w.player(0))
+      w.restart_level(w.player(0))
       physics = w.physics_for(w.player(0))
       expect(physics.instance_variable_get(:@combat)).to equal(w.combat)
       expect(physics.instance_variable_get(:@item_pickup)).to equal(w.item_pickup)
+    end
+
+    it 'restores the player and can still be ticked' do
+      w = new_world
+      p = w.player(0)
+      p.state.health = 5
+      w.restart_level(p)
+
+      expect(p.state.health).to eq(100)
+      expect { 30.times { w.run_tic(0 => forward) } }.not_to raise_error
     end
 
     it 'can still be ticked after a respawn' do

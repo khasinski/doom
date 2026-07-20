@@ -180,6 +180,40 @@ RSpec.describe Doom::Map::MapData do
     end
   end
 
+  describe 'multiplayer starts' do
+    it 'reads all four co-op starts, in player order' do
+      starts = @map.player_starts
+      expect(starts.size).to eq(4)
+      expect(starts.compact.map(&:type)).to eq([1, 2, 3, 4])
+    end
+
+    it 'places the co-op starts at distinct positions' do
+      positions = @map.player_starts.compact.map { |t| [t.x, t.y] }
+      expect(positions.uniq.size).to eq(positions.size)
+    end
+
+    it 'reads deathmatch starts' do
+      dm = @map.deathmatch_starts
+      expect(dm).not_to be_empty
+      expect(dm.map(&:type).uniq).to eq([11])
+    end
+
+    it 'keeps deathmatch starts out of the co-op list' do
+      expect(@map.player_starts.compact).not_to include(*@map.deathmatch_starts)
+    end
+
+    describe '#player_start_for' do
+      it 'returns that player\'s own start' do
+        expect(@map.player_start_for(0)).to equal(@map.player_starts[0])
+        expect(@map.player_start_for(2)).to equal(@map.player_starts[2])
+      end
+
+      it 'falls back to player 1 for an id the map has no start for' do
+        expect(@map.player_start_for(9)).to equal(@map.player_start)
+      end
+    end
+  end
+
   describe '#sector_at' do
     it 'finds sector at player start' do
       start = @map.player_start

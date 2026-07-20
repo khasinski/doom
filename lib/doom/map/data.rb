@@ -241,8 +241,30 @@ module Doom
         end
       end
 
+      # Thing types 1-4 are the co-op starts for players 1-4; type 11 is a
+      # deathmatch spawn point. Every stock WAD carries all of them -- until
+      # now only type 1 was ever read.
+      COOP_START_TYPES = (1..4).to_a.freeze
+      DEATHMATCH_START_TYPE = 11
+
       def player_start
         @things.find { |t| t.type == 1 }
+      end
+
+      # Co-op starts indexed by player number, so player N spawns at start N.
+      # Sparse on maps that only define some: index 2 may be nil while 0 is not.
+      def player_starts
+        COOP_START_TYPES.map { |type| @things.find { |t| t.type == type } }
+      end
+
+      # Start for player `id` (0-based), falling back to player 1's start so a
+      # map without enough co-op starts is still playable.
+      def player_start_for(id)
+        player_starts[id] || player_start
+      end
+
+      def deathmatch_starts
+        @things.select { |t| t.type == DEATHMATCH_START_TYPE }
       end
 
       # BLOCKMAP: 128-unit grid index into linedefs. Each block lists the
