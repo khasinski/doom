@@ -24,7 +24,10 @@ require_relative '../lib/doom/game/combat'
 require_relative '../lib/doom/game/monster_ai'
 require_relative '../lib/doom/game/sector_actions'
 require_relative '../lib/doom/game/world'
+require_relative '../lib/doom/net/protocol'
+require_relative '../lib/doom/net/transport'
 require_relative '../lib/doom/net/desync_monitor'
+require_relative '../lib/doom/net/lockstep'
 
 module Doom
   class Error < StandardError; end

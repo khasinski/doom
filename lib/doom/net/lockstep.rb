@@ -1,0 +1,155 @@
+# frozen_string_literal: true
+
+module Doom
+  module Net
+    # Lockstep tic scheduling, with no socket attached.
+    #
+    # Every peer simulates every player. Only ticcmds travel, and a tic runs
+    # only once the commands of all players for that tic are in hand. Two peers
+    # feeding equal commands to equal worlds stay equal; nothing else needs to
+    # be synchronised.
+    #
+    # Local input is scheduled `delay` tics into the future, which is what buys
+    # the network time to deliver it: input sampled now is consumed a few tics
+    # from now, by which point everyone has it. The first `delay` tics run on
+    # neutral commands, so the game starts without waiting for anybody.
+    #
+    # When a command is missing the simulation stalls rather than guessing.
+    # That is the deal lockstep makes: everyone waits for the slowest peer, and
+    # nobody ever has to take back something that already happened.
+    class Lockstep
+      DEFAULT_DELAY = 2  # ~57ms at 35Hz
+
+      attr_reader :local_id, :player_ids, :delay, :run_tic, :make_tic
+
+      def initialize(local_id:, player_ids:, delay: DEFAULT_DELAY)
+        raise ArgumentError, 'delay must be >= 1' if delay < 1
+        raise ArgumentError, 'local_id must be one of player_ids' unless player_ids.include?(local_id)
+
+        @local_id = local_id
+        @player_ids = player_ids.dup.freeze
+        @delay = delay
+        @buffer = {}       # tic => { player_id => Ticcmd }
+        @local_sent = {}   # tic => Ticcmd, kept for retransmission padding
+        @run_tic = 1       # next tic to simulate
+        @make_tic = delay + 1  # tic the next local sample is for
+
+        # Prime the opening tics so play starts immediately instead of waiting
+        # a delay's worth of round trips for commands nobody has sent yet.
+        (1..delay).each do |tic|
+          @player_ids.each { |id| store(tic, id, Game::Ticcmd.none) }
+        end
+      end
+
+      # Schedule this frame's input. Returns the tic it was scheduled for, which
+      # is what the sender must label the outgoing packet with.
+      def submit_local(cmd)
+        tic = @make_tic
+        @make_tic += 1
+        store(tic, @local_id, cmd)
+        @local_sent[tic] = cmd
+        # Prune here too, not only when tics run: a stalled peer keeps sampling
+        # input while unable to advance, which is exactly when the history
+        # would otherwise grow without bound.
+        prune
+        tic
+      end
+
+      # A command from a peer. Commands for tics already simulated are dropped;
+      # duplicates are ignored rather than overwriting, since the transport
+      # deliberately resends recent commands and a late copy must not change a
+      # tic that is already decided.
+      def receive(tic, player_id, cmd)
+        return false if tic < @run_tic
+        return false unless @player_ids.include?(player_id)
+        return false if @buffer.dig(tic, player_id)
+
+        store(tic, player_id, cmd)
+        true
+      end
+
+      def ready?
+        missing_for(@run_tic).empty?
+      end
+
+      # Players holding up the current tic. Worth surfacing: a stall with no
+      # explanation looks like a freeze.
+      def waiting_on
+        missing_for(@run_tic)
+      end
+
+      def stalled?
+        !ready?
+      end
+
+      # Commands for the current tic, advancing to the next. Returns nil if the
+      # tic is not ready.
+      def take_cmds
+        return nil unless ready?
+
+        cmds = @buffer.delete(@run_tic)
+        @run_tic += 1
+        prune
+        cmds
+      end
+
+      # Run every tic whose commands have arrived. Returns how many ran, so a
+      # caller can tell a stall from an idle moment.
+      def run_ready(world, limit: 10)
+        ran = 0
+        while ran < limit && (cmds = take_cmds)
+          world.run_tic(cmds)
+          ran += 1
+        end
+        ran
+      end
+
+      # The last `count` local commands, oldest first, as [tic, cmd] pairs.
+      def recent_local(count)
+        @local_sent.keys.sort.last(count).map { |tic| [tic, @local_sent[tic]] }
+      end
+
+      # Local commands to put in a packet for a peer that is waiting on `ack`.
+      #
+      # Resending from the peer's own position, rather than just the newest
+      # few, is what makes loss survivable: a fixed window drops a command for
+      # good once it slides past, and lockstep never skips a tic, so both sides
+      # would deadlock on it. `count` still bounds the packet.
+      def local_since(ack, count)
+        tics = @local_sent.keys.sort
+        pending = tics.select { |tic| tic >= ack }
+        pending = tics.last(count) if pending.empty?
+        pending.first(count).map { |tic| [tic, @local_sent[tic]] }
+      end
+
+      # The lowest tic still missing locally: what peers should resend from.
+      def ack_tic
+        @run_tic
+      end
+
+      private
+
+      def store(tic, player_id, cmd)
+        (@buffer[tic] ||= {})[player_id] = cmd
+      end
+
+      def missing_for(tic)
+        have = @buffer[tic] || {}
+        @player_ids.reject { |id| have.key?(id) }
+      end
+
+      # Sent commands are kept by count, not by how far the local simulation
+      # has moved on: a peer that lost a packet is stalled precisely on a tic
+      # we have already run, and resending it is the only thing that frees them.
+      LOCAL_HISTORY = 64
+
+      def prune
+        @buffer.delete_if { |tic, _| tic < @run_tic }
+        return if @local_sent.size <= LOCAL_HISTORY
+
+        keep = @local_sent.keys.sort.last(LOCAL_HISTORY)
+        @local_sent.select! { |tic, _| keep.include?(tic) }
+      end
+    end
+  end
+end
