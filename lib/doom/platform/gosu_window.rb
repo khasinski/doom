@@ -210,9 +210,21 @@ module Doom
         delta_time = now - @last_update_time
         @last_update_time = now
 
-        # Menu is active -- only update menu animation, skip game logic
+        # Menu is active -- only update menu animation, skip game logic.
+        #
+        # Except in a networked game, which must never stop simulating. Peers
+        # are waiting on our ticcmds and lockstep cannot skip a tic, so a
+        # paused peer stops the whole session; if the pause outlasts the
+        # commands the others still hold, it wedges permanently. DOOM does not
+        # pause netgames either. Input is neutral while the menu has focus, so
+        # navigating it does not also drive the player.
         if @menu&.active?
           @menu.update
+
+          if @session
+            @tic_accumulator += delta_time * 35.0
+            advance_networked
+          end
           return
         end
 
@@ -295,6 +307,7 @@ module Doom
       # through here, so that replacing it with a ticcmd off the network is the
       # only change multiplayer needs.
       def build_ticcmd
+        return Game::Ticcmd.none if @menu&.active?
         return Game::Ticcmd.none if @player_state&.dead
 
         forward = 0.0

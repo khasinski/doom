@@ -215,6 +215,7 @@ module Doom
         return unless @started
 
         @peer_acks[msg[:player_id]] = msg[:ack].to_i
+        @lockstep.note_ack(msg[:player_id], msg[:ack].to_i)
         msg[:cmds].each { |tic, cmd| @lockstep.receive(tic, msg[:player_id], cmd) }
       end
 

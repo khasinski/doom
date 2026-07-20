@@ -30,6 +30,7 @@ module Doom
         @player_ids = player_ids.dup.freeze
         @delay = delay
         @buffer = {}       # tic => { player_id => Ticcmd }
+        @peer_acks = {}    # player_id => lowest tic they still need
         @local_sent = {}   # tic => Ticcmd, kept for retransmission padding
         @run_tic = 1       # next tic to simulate
         @make_tic = delay + 1  # tic the next local sample is for
@@ -127,6 +128,15 @@ module Doom
         @run_tic
       end
 
+      # Where a peer says it has got to. Recorded so we never discard a command
+      # that somebody still needs.
+      def note_ack(player_id, tic)
+        return unless @player_ids.include?(player_id) && player_id != @local_id
+
+        current = @peer_acks[player_id]
+        @peer_acks[player_id] = tic if current.nil? || tic > current
+      end
+
       private
 
       def store(tic, player_id, cmd)
@@ -138,13 +148,23 @@ module Doom
         @player_ids.reject { |id| have.key?(id) }
       end
 
-      # Sent commands are kept by count, not by how far the local simulation
-      # has moved on: a peer that lost a packet is stalled precisely on a tic
-      # we have already run, and resending it is the only thing that frees them.
-      LOCAL_HISTORY = 64
+      # Sent commands are kept until every peer has acknowledged them, not for a
+      # fixed number of tics. A peer stalled on a tic we already ran is freed
+      # only by us resending it, and if we have thrown it away it exists
+      # nowhere: they wait forever. That is what a paused peer looks like --
+      # it stops acknowledging, and a fixed window of 64 tics meant any pause
+      # longer than two seconds permanently broke the session.
+      #
+      # LOCAL_HISTORY is now only a backstop against a peer that is never
+      # coming back, at roughly a minute of tics rather than two seconds.
+      LOCAL_HISTORY = 2048
 
       def prune
         @buffer.delete_if { |tic, _| tic < @run_tic }
+
+        # Anything at or above the least-caught-up peer must be kept.
+        floor = @peer_acks.values.min
+        @local_sent.delete_if { |tic, _| floor && tic < floor }
         return if @local_sent.size <= LOCAL_HISTORY
 
         keep = @local_sent.keys.sort.last(LOCAL_HISTORY)

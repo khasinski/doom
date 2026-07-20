@@ -174,9 +174,72 @@ RSpec.describe Doom::Net::Lockstep do
     end
   end
 
+  # A peer that opens a menu, hits a long GC pause or briefly loses its link
+  # stops acknowledging. Everything it has not acknowledged has to survive, or
+  # it comes back to find the commands it needs no longer exist anywhere and
+  # waits on them forever.
+  describe 'a peer that goes away and comes back' do
+    def play_round(a, b)
+      a.submit_local(cmd)
+      b.submit_local(cmd)
+      deliver(a, b)
+      deliver(b, a)
+      while a.take_cmds; end
+      while b.take_cmds; end
+    end
+
+    def deliver(from, to)
+      from.local_since(to.ack_tic, 8).each { |tic, c| to.receive(tic, from.local_id, c) }
+      from.note_ack(to.local_id, to.ack_tic)
+    end
+
+    let(:a) { described_class.new(local_id: 0, player_ids: ids, delay: 2) }
+    let(:b) { described_class.new(local_id: 1, player_ids: ids, delay: 2) }
+
+    def pause_and_resume(pause_tics)
+      20.times { play_round(a, b) }
+
+      # b is away: it neither sends nor receives, and stops acknowledging.
+      pause_tics.times do
+        a.submit_local(cmd)
+        while a.take_cmds; end
+      end
+
+      before = b.run_tic
+      300.times { play_round(a, b) }
+      [before, b.run_tic]
+    end
+
+    it 'recovers from a short absence' do
+      before, after = pause_and_resume(20)
+      expect(after).to be > before
+    end
+
+    it 'recovers from an absence longer than a fixed resend window' do
+      # This is the regression: with the old fixed 64-tic history, a pause of
+      # about two seconds wedged the session permanently.
+      before, after = pause_and_resume(200)
+      expect(after).to be > before
+    end
+
+    it 'catches the absent peer all the way up' do
+      pause_and_resume(200)
+      expect(b.run_tic).to eq(a.run_tic)
+    end
+
+    it 'keeps the commands an unacknowledged peer still needs' do
+      20.times { play_round(a, b) }
+      stuck_at = b.ack_tic
+      300.times { a.submit_local(cmd) }
+
+      expect(a.local_since(stuck_at, 1).first&.first).to eq(stuck_at)
+    end
+  end
+
   describe 'memory' do
-    it 'bounds the local history over a long session' do
-      2000.times { step.submit_local(cmd) }
+    it 'bounds the local history when no peer ever acknowledges' do
+      # Backstop for a peer that is never coming back.
+      (described_class::LOCAL_HISTORY + 500).times { step.submit_local(cmd) }
       sent = step.instance_variable_get(:@local_sent)
       expect(sent.size).to be <= described_class::LOCAL_HISTORY
     end
