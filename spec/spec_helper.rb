@@ -28,6 +28,7 @@ require_relative '../lib/doom/net/protocol'
 require_relative '../lib/doom/net/transport'
 require_relative '../lib/doom/net/desync_monitor'
 require_relative '../lib/doom/net/lockstep'
+require_relative '../lib/doom/net/session'
 
 module Doom
   class Error < StandardError; end

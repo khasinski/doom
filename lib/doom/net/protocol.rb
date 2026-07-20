@@ -19,6 +19,7 @@ module Doom
       TICCMD = 3  # Input for one or more tics
       HASH   = 4  # State fingerprint for a checkpoint tic
       QUIT   = 5  # I am leaving
+      PEERS  = 6  # Everyone else's address, so the mesh can form
 
       MAX_CMDS_PER_PACKET = 32
       MAX_PACKET_SIZE = 512
@@ -57,6 +58,16 @@ module Doom
         [VERSION, QUIT, player_id].pack('CCC')
       end
 
+      # `entries` is [[player_id, host, port], ...]. The host sends this so
+      # clients can talk to each other directly instead of relaying everything
+      # through it, which would add a hop of latency to every command.
+      def encode_peers(entries)
+        body = entries.map do |player_id, host, port|
+          [player_id].pack('C') + encode_string(host) + [port].pack('S<')
+        end.join
+        [VERSION, PEERS, entries.size].pack('CCC') + body
+      end
+
       def decode(bytes)
         return nil if bytes.nil? || bytes.bytesize < 2
 
@@ -70,7 +81,30 @@ module Doom
         when TICCMD then decode_ticcmds(bytes)
         when HASH   then decode_hash(bytes)
         when QUIT   then decode_quit(bytes)
+        when PEERS  then decode_peers(bytes)
         end
+      end
+
+      def decode_peers(bytes)
+        return nil if bytes.bytesize < 3
+
+        count = bytes.unpack('CCC')[2]
+        offset = 3
+        entries = []
+
+        count.times do
+          return nil if bytes.bytesize < offset + 1
+
+          player_id = bytes[offset].unpack1('C')
+          host, offset = decode_string(bytes, offset + 1)
+          return nil if host.nil?
+          return nil if bytes.bytesize < offset + 2
+
+          entries << [player_id, host, bytes[offset, 2].unpack1('S<')]
+          offset += 2
+        end
+
+        { type: PEERS, peers: entries }
       end
 
       def decode_hello(bytes)

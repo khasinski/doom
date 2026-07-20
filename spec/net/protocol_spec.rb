@@ -127,6 +127,37 @@ RSpec.describe Doom::Net::Protocol do
     end
   end
 
+  describe 'peers' do
+    let(:entries) { [[0, '192.168.1.10', 5029], [2, '10.0.0.3', 40_000]] }
+
+    it 'round-trips the address list' do
+      msg = described_class.decode(described_class.encode_peers(entries))
+      expect(msg[:type]).to eq(described_class::PEERS)
+      expect(msg[:peers]).to eq(entries)
+    end
+
+    it 'handles an empty list' do
+      expect(described_class.decode(described_class.encode_peers([]))[:peers]).to eq([])
+    end
+
+    it 'survives a high port number' do
+      msg = described_class.decode(described_class.encode_peers([[1, '127.0.0.1', 65_535]]))
+      expect(msg[:peers].first.last).to eq(65_535)
+    end
+
+    it 'drops a truncated list' do
+      packet = described_class.encode_peers(entries)
+      expect(described_class.decode(packet[0, packet.bytesize - 3])).to be_nil
+    end
+
+    it 'never raises on truncation at any length' do
+      packet = described_class.encode_peers(entries)
+      (0..packet.bytesize).each do |n|
+        expect { described_class.decode(packet[0, n]) }.not_to raise_error
+      end
+    end
+  end
+
   describe 'quit' do
     it 'round-trips' do
       msg = described_class.decode(described_class.encode_quit(3))
