@@ -485,7 +485,22 @@ module Doom
 
           draw_debug_overlay if @show_debug
           draw_net_status if @session
+          draw_match_status if @world.deathmatch?
         end
+      end
+
+      # Deathmatch scoreboard. One line of frags, and the result once someone
+      # has hit the limit -- the world decides who won, this only reports it.
+      def draw_match_status
+        score = @world.frags.map { |id, frags| "P#{id + 1} #{frags}" }.join('  ')
+        @debug_font.draw_text(score, 20, 20, 2, 1, 1, Gosu::Color::YELLOW)
+
+        winner = @world.match_winner
+        return unless winner
+
+        line = "PLAYER #{winner.id + 1} WINS -- #{winner.frags} FRAGS"
+        @debug_font.draw_text(line, 22, (height / 3) + 2, 2, 1, 1, Gosu::Color::BLACK)
+        @debug_font.draw_text(line, 20, height / 3, 2, 1, 1, Gosu::Color::YELLOW)
       end
 
       # A lockstep stall looks exactly like a freeze unless we say otherwise,
@@ -668,9 +683,16 @@ module Doom
       end
 
       def respawn_player
-        # Single player: death restarts the level, so the world rebuilds its
-        # actor subsystems and the cached references must be refreshed.
-        @world.restart_level(@player)
+        if @world.deathmatch?
+          # Deathmatch death is personal: everyone else is still playing, so
+          # only this player comes back. restart_level would revive the monsters
+          # and restore the items under them.
+          @world.respawn(@player)
+        else
+          # Single player: death restarts the level, so the world rebuilds its
+          # actor subsystems and the cached references must be refreshed.
+          @world.restart_level(@player)
+        end
         bind_world(@world)
 
         # Re-apply active cheats from menu options

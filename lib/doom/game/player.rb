@@ -17,6 +17,9 @@ module Doom
       # Edge-trigger latch for the use key, per player: holding the key must
       # not spam doors, and each player needs its own latch.
       attr_accessor :use_held
+      # Deathmatch score. It lives on the player rather than in a side table so
+      # it survives respawning, which throws away the whole PlayerState.
+      attr_accessor :frags
       attr_reader :state
       attr_reader :sin_angle, :cos_angle
 
@@ -33,6 +36,7 @@ module Doom
         @momx = 0.0
         @momy = 0.0
         @use_held = false
+        @frags = 0
         self.angle = 0.0
         snapshot!
       end
