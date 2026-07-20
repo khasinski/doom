@@ -89,7 +89,14 @@ module Doom
         3005 => :caco,    # Cacodemon
       }.freeze
 
-      Projectile = Struct.new(:x, :y, :z, :dx, :dy, :dz, :type, :spawn_tic, :sprite_prefix, :target)
+      # Radius used when a shot or a rocket is tested against a player. Matches
+      # the 16 the monster-projectile collision already assumed.
+      PLAYER_RADIUS = 16
+
+      # `owner` is the Player who fired, so a kill can be credited. Monster
+      # projectiles leave it nil: DOOM gives no frag for a death by monster.
+      Projectile = Struct.new(:x, :y, :z, :dx, :dy, :dz, :type, :spawn_tic, :sprite_prefix,
+                              :target, :owner)
 
       # Weapon damage: DOOM does (P_Random()%3 + 1) * multiplier
       # Pistol/chaingun: 1*5..3*5 = 5-15 per bullet
@@ -116,6 +123,12 @@ module Doom
       # Every player the world knows about. Projectile collision, splash damage
       # and monster aim all consider all of them, not one bound player.
       attr_accessor :players
+
+      # Whether players can hurt each other. The World turns this on for
+      # deathmatch only: co-op in DOOM has no friendly fire, and single player
+      # has nobody else to hit, so with it off every targeting path below stays
+      # exactly the one it was before deathmatch existed -- same hits, same RNG
+      # draws, same order.
 
       # Spawn a monster projectile (fireball, etc.)
       # Matches Chocolate Doom's P_SpawnMissile: calculates momz for vertical aim
@@ -145,7 +158,7 @@ module Doom
 
         @projectiles << Projectile.new(
           monster_x + ndx * 2, monster_y + ndy * 2, monster_z,
-          ndx, ndy, ndz, proj_type, @tic, info[:sprite], :player
+          ndx, ndy, ndz, proj_type, @tic, info[:sprite], :player, nil
         )
       end
 
@@ -196,30 +209,69 @@ module Doom
         @puffs.reject! { |p| @tic - p[:tic] > 12 }
       end
 
-      # Fire the current weapon
-      def fire(px, py, pz, cos_a, sin_a, weapon)
+      # Fire the current weapon. `shooter` is the Player pulling the trigger,
+      # needed to credit a deathmatch kill and to stop a shot from hitting the
+      # person who fired it.
+      def fire(px, py, pz, cos_a, sin_a, weapon, shooter = nil)
         case weapon
         when PlayerState::WEAPON_PISTOL, PlayerState::WEAPON_CHAINGUN
-          hitscan(px, py, pz, cos_a, sin_a, 1, 0.0, 5)
+          hitscan(px, py, pz, cos_a, sin_a, 1, 0.0, 5, shooter)
         when PlayerState::WEAPON_SHOTGUN
-          hitscan(px, py, pz, cos_a, sin_a, 7, Math::PI / 32, 5)
+          hitscan(px, py, pz, cos_a, sin_a, 7, Math::PI / 32, 5, shooter)
         when PlayerState::WEAPON_ROCKET
-          spawn_rocket(px, py, pz, cos_a, sin_a)
+          spawn_rocket(px, py, pz, cos_a, sin_a, shooter)
         when PlayerState::WEAPON_FIST
-          melee(px, py, cos_a, sin_a, 2, 64)
+          melee(px, py, cos_a, sin_a, 2, 64, shooter)
         when PlayerState::WEAPON_CHAINSAW
-          melee(px, py, cos_a, sin_a, 2, 64)
+          melee(px, py, cos_a, sin_a, 2, 64, shooter)
         end
       end
 
       private
 
-      def spawn_rocket(px, py, pz, cos_a, sin_a)
+      def spawn_rocket(px, py, pz, cos_a, sin_a, shooter = nil)
         @projectiles << Projectile.new(
           px + cos_a * 20, py + sin_a * 20, pz,
           cos_a * ROCKET_SPEED, sin_a * ROCKET_SPEED, 0.0,
-          :rocket, @tic, 'MISL', :monsters
+          :rocket, @tic, 'MISL', :monsters, shooter
         )
+      end
+
+      # Players a shot fired by `shooter` may hit: everyone alive except the
+      # shooter, who cannot hit themselves with a bullet or a fist.
+      #
+      # Not gated on the mode. Vanilla DOOM has no friendly-fire switch --
+      # P_DamageMobj checks nothing about who is shooting whom -- so co-op
+      # players hurt each other exactly as deathmatch ones do. In single player
+      # this is empty anyway, the only player being the shooter.
+      def player_targets(shooter)
+        @players.reject { |pl| pl.state.dead || pl.equal?(shooter) }
+      end
+
+      # Damage a player and score the kill in the same place, so no damage path
+      # can quietly forget to. `attacker` is the Player responsible, or nil when
+      # a monster or the level itself did it.
+      def damage_player(victim, damage, attacker)
+        return if damage <= 0
+        return if victim.state.dead
+
+        victim.state.take_damage(damage)
+        return unless victim.state.dead
+
+        record_frag(victim, attacker)
+      end
+
+      # DOOM's scoring: killing someone else is worth a frag, killing yourself
+      # costs one, and being killed by a monster or the environment is worth
+      # nothing either way.
+      def record_frag(victim, attacker)
+        return unless attacker
+
+        if attacker.equal?(victim)
+          victim.frags -= 1
+        else
+          attacker.frags += 1
+        end
       end
 
       def update_projectiles
@@ -252,8 +304,19 @@ module Doom
               end
             end
 
-            if hit_wall || hit_monster
-              explode(new_x, new_y, hit_monster) if proj.type == :rocket
+            # In deathmatch a rocket also detonates on a player. There is no
+            # separate direct-hit damage: exploding on top of someone already
+            # deals full splash, which is close enough to DOOM's direct hit and
+            # keeps the RNG draws the same as any other detonation.
+            hit_player = player_targets(proj.owner).find do |pl|
+              radius = PLAYER_RADIUS + ROCKET_RADIUS
+              dx = new_x - pl.x
+              dy = new_y - pl.y
+              (dx * dx) + (dy * dy) < radius * radius
+            end
+
+            if hit_wall || hit_monster || hit_player
+              explode(new_x, new_y, hit_monster, proj.owner) if proj.type == :rocket
               hit_monster ? apply_damage(hit_monster, (@random.rand(8) + 1) * 5) : nil unless proj.type == :rocket
               hit = true
             end
@@ -274,7 +337,7 @@ module Doom
                 info = MONSTER_PROJECTILES[proj.type]
                 if info
                   min_d, max_d = info[:damage]
-                  struck.state.take_damage(@random.rand(min_d..max_d))
+                  damage_player(struck, @random.rand(min_d..max_d), nil)
                 end
               end
               # Spawn fireball explosion
@@ -294,7 +357,7 @@ module Doom
         end
       end
 
-      def explode(x, y, direct_hit_idx)
+      def explode(x, y, direct_hit_idx, owner = nil)
         # Direct hit damage
         if direct_hit_idx
           damage = (@random.rand(8) + 1) * ROCKET_DAMAGE
@@ -317,8 +380,26 @@ module Doom
           apply_damage(idx, damage) if damage > 0
         end
 
+        splash_players(x, y, SPLASH_RADIUS, SPLASH_DAMAGE, owner)
+
         # Spawn explosion visual
         @explosions << { x: x, y: y, tic: @tic, sprite: 'MISL' }
+      end
+
+      # Splash reaches the shooter too, which is how a rocket suicide happens.
+      #
+      # In every mode, single player included. PIT_RadiusAttack damages every
+      # shootable thing in range and never excludes the bomb source, which is
+      # why firing a rocket at your own feet has always been fatal in DOOM.
+      def splash_players(x, y, radius, max_damage, attacker)
+        @players.each do |pl|
+          next if pl.state.dead
+
+          dist = Math.hypot(x - pl.x, y - pl.y)
+          next unless dist < radius
+
+          damage_player(pl, (max_damage * (1.0 - (dist / radius))).to_i, attacker)
+        end
       end
 
       def update_explosions
@@ -366,7 +447,7 @@ module Doom
         t > 0.0 && t < 1.0 && u >= 0.0 && u <= 1.0
       end
 
-      def hitscan(px, py, pz, cos_a, sin_a, pellets, spread, multiplier)
+      def hitscan(px, py, pz, cos_a, sin_a, pellets, spread, multiplier, shooter = nil)
         pellets.times do
           # Add random spread
           if spread > 0
@@ -383,6 +464,7 @@ module Doom
           wall_dist = trace_wall(px, py, ca, sa)
 
           best_idx = nil
+          best_player = nil
           best_dist = wall_dist
 
           @map.things.each_with_index do |thing, idx|
@@ -398,21 +480,36 @@ module Doom
             end
           end
 
+          # Players compete with monsters for the same ray: whoever is nearest
+          # takes the bullet, so you cannot shoot through someone to hit the
+          # imp behind them.
+          player_targets(shooter).each do |pl|
+            hit_dist = ray_circle_hit(px, py, ca, sa, pl.x, pl.y, PLAYER_RADIUS)
+            next unless hit_dist && hit_dist > 0 && hit_dist < best_dist
+
+            best_dist = hit_dist
+            best_player = pl
+            best_idx = nil
+          end
+
           # Spawn bullet puff at hit location
           puff_x = px + ca * best_dist
           puff_y = py + sa * best_dist
           puff_z = pz
           @puffs << { x: puff_x, y: puff_y, z: puff_z, tic: @tic }
 
-          if best_idx
+          if best_player
+            damage_player(best_player, (@random.rand(3) + 1) * multiplier, shooter)
+          elsif best_idx
             damage = (@random.rand(3) + 1) * multiplier
             apply_damage(best_idx, damage)
           end
         end
       end
 
-      def melee(px, py, cos_a, sin_a, multiplier, range)
+      def melee(px, py, cos_a, sin_a, multiplier, range, shooter = nil)
         best_idx = nil
+        best_player = nil
         best_dist = range.to_f
 
         @map.things.each_with_index do |thing, idx|
@@ -434,7 +531,22 @@ module Doom
           end
         end
 
-        if best_idx
+        player_targets(shooter).each do |pl|
+          dx = pl.x - px
+          dy = pl.y - py
+          dist = Math.hypot(dx, dy)
+          next if dist > range + PLAYER_RADIUS
+          next if (dx * cos_a) + (dy * sin_a) < 0  # behind the swing
+          next unless dist < best_dist
+
+          best_dist = dist
+          best_player = pl
+          best_idx = nil
+        end
+
+        if best_player
+          damage_player(best_player, (@random.rand(3) + 1) * multiplier, shooter)
+        elsif best_idx
           damage = (@random.rand(3) + 1) * multiplier
           apply_damage(best_idx, damage)
         end
@@ -489,7 +601,8 @@ module Doom
         end
 
         # Splash damage reaches every player in radius, including the one who
-        # set it off.
+        # set it off. Nobody is credited: the barrel is not a player, and we do
+        # not track who shot it.
         @players.each do |pl|
           next if pl.state.dead
 
@@ -497,7 +610,7 @@ module Doom
           next unless dist < BARREL_SPLASH_RADIUS
 
           damage = (BARREL_SPLASH_DAMAGE * (1.0 - (dist / BARREL_SPLASH_RADIUS))).to_i
-          pl.state.take_damage(damage) if damage > 0
+          damage_player(pl, damage, nil)
         end
       end
 

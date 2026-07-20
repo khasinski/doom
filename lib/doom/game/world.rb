@@ -27,9 +27,12 @@ module Doom
       attr_reader :map, :players, :random, :leveltime, :mode
       attr_reader :combat, :monster_ai, :item_pickup, :sector_actions, :sector_effects
       attr_reader :physics_by_id
+      # Frags needed to win, or nil for an open-ended match.
+      attr_reader :frag_limit
       attr_accessor :damage_multiplier, :skill_hidden
 
-      def initialize(map, sprites:, sound: nil, random: Random.new, skill_hidden: {}, mode: :coop)
+      def initialize(map, sprites:, sound: nil, random: Random.new, skill_hidden: {}, mode: :coop,
+                     frag_limit: nil)
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
 
         @map = map
@@ -37,6 +40,7 @@ module Doom
         @sound = sound
         @random = random
         @mode = mode
+        @frag_limit = frag_limit
         @skill_hidden = skill_hidden
         @damage_multiplier = 1.0
         @leveltime = 0
@@ -49,6 +53,10 @@ module Doom
         @item_pickup = ItemPickup.new(map, nil, skill_hidden)
         @combat = Combat.new(map, nil, sprites, skill_hidden, sound, random: random)
         @monster_ai = MonsterAI.new(map, @combat, nil, sprites, skill_hidden, sound, random: random)
+      end
+
+      def deathmatch?
+        @mode == :deathmatch
       end
 
       # Spawn a player. With no explicit start, the world picks one for this
@@ -118,6 +126,35 @@ module Doom
 
       def physics_for(player)
         @physics_by_id[player.id]
+      end
+
+      # Deathmatch score, player id => frags.
+      def frags
+        @players.to_h { |p| [p.id, p.frags] }
+      end
+
+      # Who is winning. Ties break on the lowest player id rather than on
+      # @players order, so every peer names the same leader.
+      def frag_leader
+        @players.min_by { |p| [-p.frags, p.id] }
+      end
+
+      def frag_limit_reached?
+        return false unless @frag_limit
+
+        @players.any? { |p| p.frags >= @frag_limit }
+      end
+
+      # The player who won, or nil while the match is still on.
+      #
+      # Note what this deliberately does not do: end run_tic. The frag limit is
+      # local configuration and, unlike the mode and the seed, it does not
+      # travel in the handshake, so a peer started with a different --frags
+      # would stop simulating at a different tic and desync every other peer.
+      # The world answers the question; the presentation layer says so on
+      # screen.
+      def match_winner
+        frag_limit_reached? ? frag_leader : nil
       end
 
       def exit_triggered
@@ -214,7 +251,7 @@ module Doom
         return unless state.attacking && !was_attacking
 
         @combat.fire(player.x, player.y, player.z,
-                     player.cos_angle, player.sin_angle, state.weapon)
+                     player.cos_angle, player.sin_angle, state.weapon, player)
         @sound&.weapon_fire(state.weapon)
       end
 

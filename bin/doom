@@ -36,6 +36,10 @@ net_connect = take_flag('--connect')
 net_port = (take_flag('--port') || 5029).to_i
 net_players = (take_flag('--players') || 2).to_i
 net_mode = ARGV.delete('--deathmatch') ? :deathmatch : :coop
+# Frag limit: 0 or absent means play on forever. Every peer has to pass the
+# same value -- it is not part of the handshake, only what the match reports.
+net_frags = take_flag('--frags').to_i
+net_frags = nil unless net_frags.positive?
 
 # Parse arguments before loading heavy dependencies
 wad_path = ARGV.find { |a| !a.start_with?('-') }
@@ -65,6 +69,7 @@ if wants_help
   puts "  --port N               Port to host on or connect to (default 5029)"
   puts "  --players N            Players to wait for when hosting (default 2)"
   puts "  --deathmatch           Deathmatch instead of co-op"
+  puts "  --frags N              Frags to win a deathmatch (default: no limit)"
   puts
   puts "If no WAD file is specified, doom will look for doom1.wad in:"
   puts "  1. Current directory"
@@ -104,7 +109,7 @@ begin
           { role: :client, host: host, port: port.empty? ? net_port : port.to_i }
         end
 
-  Doom.run(wad_path, rubykaigi: rubykaigi_mode, net: net)
+  Doom.run(wad_path, rubykaigi: rubykaigi_mode, net: net, frag_limit: net_frags)
 rescue Doom::WadDownloader::DownloadError => e
   puts "Error: #{e.message}"
   exit 1

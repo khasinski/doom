@@ -54,6 +54,9 @@ module Doom
             p.id, s.health, s.armor, s.weapon, (s.dead ? 1 : 0),
             s.ammo_bullets, s.ammo_shells, s.ammo_rockets, s.ammo_cells,
             s.keys.count { |_, v| v },
+            # Frags are simulation state: peers that disagree on the score
+            # disagree on who won, and that must show up as a desync.
+            p.frags,
           ].pack('q<*') +
             [p.x, p.y, p.z, p.angle, p.momx, p.momy].pack('E*')
         end.join

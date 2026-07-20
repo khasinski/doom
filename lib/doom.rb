@@ -44,7 +44,7 @@ module Doom
   class Error < StandardError; end
 
   class << self
-    def run(wad_path, map_name: 'E1M1', rubykaigi: false, net: nil)
+    def run(wad_path, map_name: 'E1M1', rubykaigi: false, net: nil, frag_limit: nil)
       session = build_session(net, map_name)
       if session
         # The host decides the map, seed and mode; a client is told them. Wait
@@ -123,7 +123,8 @@ module Doom
       # the same world; solo play picks its own.
       random = Game::Random.new(session ? session.seed : 0)
       world = Game::World.new(map, sprites: sprites, sound: sound_engine, random: random,
-                                   mode: session ? session.mode : :coop)
+                                   mode: session ? session.mode : :coop,
+                                   frag_limit: frag_limit)
       ids = session ? session.player_ids : [0]
       ids.each { |id| world.add_player(id: id) }
       player = world.player(session ? session.local_id : 0)
