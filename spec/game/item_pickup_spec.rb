@@ -12,7 +12,15 @@ RSpec.describe Doom::Game::ItemPickup do
   after(:all) { @wad&.close }
 
   let(:player) { Doom::Game::PlayerState.new }
-  subject(:pickup) { described_class.new(@map, player) }
+  # ItemPickup takes a player entity now; reuse one actor so it keeps identity
+  # while moving, and share the PlayerState the assertions read.
+  let(:actor) { Doom::Game::Player.new(state: player) }
+  subject(:pickup) { described_class.new(@map) }
+
+  def at(x, y, z = 41.0)
+    actor.place(x, y, z, 0)
+    actor
+  end
 
   describe '#update' do
     it 'picks up health bonus when player is near' do
@@ -22,7 +30,7 @@ RSpec.describe Doom::Game::ItemPickup do
       thing, idx = bonus
 
       player.health = 99
-      pickup.update(thing.x.to_f, thing.y.to_f)
+      pickup.update(at(thing.x.to_f, thing.y.to_f))
 
       expect(player.health).to eq(100)
       expect(pickup.picked_up[idx]).to be true
@@ -30,7 +38,7 @@ RSpec.describe Doom::Game::ItemPickup do
 
     it 'does not pick up items when too far' do
       initial_health = player.health
-      pickup.update(-99999, -99999)
+      pickup.update(at(-99999, -99999))
       expect(player.health).to eq(initial_health)
     end
 
@@ -40,8 +48,8 @@ RSpec.describe Doom::Game::ItemPickup do
       thing, _ = bonus
 
       player.health = 98
-      pickup.update(thing.x.to_f, thing.y.to_f)
-      pickup.update(thing.x.to_f, thing.y.to_f)
+      pickup.update(at(thing.x.to_f, thing.y.to_f))
+      pickup.update(at(thing.x.to_f, thing.y.to_f))
       expect(player.health).to eq(99) # only +1, not +2
     end
   end
@@ -53,7 +61,7 @@ RSpec.describe Doom::Game::ItemPickup do
       thing, _ = shotgun
 
       expect(player.has_weapons[2]).to be false
-      pickup.update(thing.x.to_f, thing.y.to_f)
+      pickup.update(at(thing.x.to_f, thing.y.to_f))
       expect(player.has_weapons[2]).to be true
       expect(player.ammo_shells).to be > 0
     end
@@ -65,7 +73,7 @@ RSpec.describe Doom::Game::ItemPickup do
       skip 'No armor bonus in map' unless bonus
       thing, _ = bonus
 
-      pickup.update(thing.x.to_f, thing.y.to_f)
+      pickup.update(at(thing.x.to_f, thing.y.to_f))
       expect(player.armor).to eq(1)
     end
 
@@ -75,7 +83,7 @@ RSpec.describe Doom::Game::ItemPickup do
       skip 'No green armor in map' unless ga
       thing, _ = ga
 
-      pickup.update(thing.x.to_f, thing.y.to_f)
+      pickup.update(at(thing.x.to_f, thing.y.to_f))
       expect(player.armor).to eq(150) # unchanged
     end
   end

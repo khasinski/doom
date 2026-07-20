@@ -87,13 +87,12 @@ module Doom
       MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
                                 :active, :chase_timer, :type, :attack_cooldown,
                                 :reactiontime, :last_saw_player,
-                                :attacking, :attack_frame_tic, :fired)
+                                :attacking, :attack_frame_tic, :fired, :target)
 
-      def initialize(map, combat, player_state, sprites_mgr = nil, hidden_things = {}, sound_engine = nil,
+      def initialize(map, combat, _player_state = nil, sprites_mgr = nil, hidden_things = {}, sound_engine = nil,
                      random: Random.new)
         @map = map
         @combat = combat
-        @player = player_state
         @random = random
         @sprites_mgr = sprites_mgr
         @monsters = []
@@ -110,7 +109,7 @@ module Doom
           mon = MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
             DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME, 0,
-            false, 0, false
+            false, 0, false, nil
           )
           @monsters << mon
           @monster_by_thing_idx[idx] = mon
@@ -119,13 +118,16 @@ module Doom
 
       attr_reader :monsters, :monster_by_thing_idx
       attr_accessor :aggression, :damage_multiplier
-      # Rebound by Game::World once a player exists.
-      attr_writer :player
-
-      # Called each game tic
-      def update(player_x, player_y)
+      # Called each game tic with every live player. Each monster keeps its own
+      # target so a second player walking past does not yank a monster off the
+      # one it is already fighting; it re-picks only when its target dies or
+      # leaves.
+      def update(players)
+        players = Array(players)
         @tic_counter += 1
         @monsters.each do |mon|
+          target = select_target(mon, players)
+          next unless target
           next if @combat.dead?(mon.thing_idx)
 
           # Pain state: monster is stunned, skip movement and attacks
@@ -143,7 +145,7 @@ module Doom
               fire_idx = FIRE_FRAME_INDEX[prefix] || 1
               fire_tic = fire_idx * ATTACK_FRAME_TICS
               if !mon.fired && mon.attack_frame_tic >= fire_tic
-                execute_attack(mon, player_x, player_y)
+                execute_attack(mon, target)
                 mon.fired = true
               end
 
@@ -158,17 +160,32 @@ module Doom
             mon.chase_timer -= 1
             if mon.chase_timer <= 0
               mon.chase_timer = CHASE_TICS
-              chase(mon, player_x, player_y)
+              chase(mon, target)
             end
           else
-            look(mon, player_x, player_y)
+            look(mon, target)
           end
         end
       end
 
       private
 
-      def look(mon, player_x, player_y)
+      # Keep fighting the current target while it is alive and still present;
+      # otherwise take the nearest living player. Monsters that have not woken
+      # up yet always look at the nearest one.
+      def select_target(mon, players)
+        current = mon.target
+        return current if current && !current.state.dead && players.include?(current)
+
+        living = players.reject { |p| p.state.dead }
+        return nil if living.empty?
+
+        mon.target = living.min_by { |p| ((p.x - mon.x)**2) + ((p.y - mon.y)**2) }
+      end
+
+      def look(mon, target)
+        player_x = target.x
+        player_y = target.y
         dx = player_x - mon.x
         dy = player_y - mon.y
         dist = Math.sqrt(dx * dx + dy * dy)
@@ -191,7 +208,9 @@ module Doom
         end
       end
 
-      def chase(mon, player_x, player_y)
+      def chase(mon, target)
+        player_x = target.x
+        player_y = target.y
         speed = MONSTER_SPEED[mon.type] || 8
 
         # Tick down attack cooldown
@@ -213,8 +232,8 @@ module Doom
         end
 
         # Only attempt attacks when: movecount == 0, has LOS, and in range
-        if @aggression && mon.attack_cooldown <= 0 && mon.movecount <= 0 && can_see && !@player.dead
-          attacked = try_attack(mon, player_x, player_y, dist)
+        if @aggression && mon.attack_cooldown <= 0 && mon.movecount <= 0 && can_see && !target.state.dead
+          attacked = try_attack(mon, target, dist)
         end
 
         # Move -- but ranged monsters stop advancing when they have LOS and are close enough
@@ -230,7 +249,7 @@ module Doom
           else
             mon.movecount -= 1
             if mon.movecount < 0 || !try_move(mon, speed)
-              new_chase_dir(mon, player_x, player_y)
+              new_chase_dir(mon, target)
             end
           end
         end
@@ -247,7 +266,9 @@ module Doom
 
       # Decide whether to start an attack (does NOT apply damage yet)
       # Matches Chocolate Doom's P_CheckMissileRange from p_enemy.c
-      def try_attack(mon, player_x, player_y, dist)
+      def try_attack(mon, target, dist)
+        player_x = target.x
+        player_y = target.y
         if mon.reactiontime > 0
           mon.reactiontime -= 1
           return false
@@ -280,7 +301,9 @@ module Doom
       end
 
       # Called on the fire frame of the attack animation
-      def execute_attack(mon, player_x, player_y)
+      def execute_attack(mon, target)
+        player_x = target.x
+        player_y = target.y
         atk = MONSTER_ATTACK[mon.type]
         return unless atk
 
@@ -301,7 +324,7 @@ module Doom
         when :melee
           min_dmg, max_dmg = atk[:damage]
           damage = (@random.rand(min_dmg..max_dmg) * @damage_multiplier).to_i
-          @player.take_damage(damage) if damage > 0
+          target.state.take_damage(damage) if damage > 0
 
         when :hitscan
           hit_chance = HITSCAN_ACCURACY * (1.0 - dist / (MISSILE_RANGE * 2))
@@ -309,14 +332,14 @@ module Doom
           if @random.rand < hit_chance
             min_dmg, max_dmg = atk[:damage]
             damage = (@random.rand(min_dmg..max_dmg) * @damage_multiplier).to_i
-            @player.take_damage(damage) if damage > 0
+            target.state.take_damage(damage) if damage > 0
           end
 
         when :projectile
           # P_SpawnMissile: z = source->z + 32 (chest height)
           sector = @map.sector_at(mon.x, mon.y)
           spawn_z = (sector ? sector.floor_height : 0) + 32
-          @combat.spawn_monster_projectile(mon.x, mon.y, spawn_z, mon.type, @damage_multiplier)
+          @combat.spawn_monster_projectile(mon.x, mon.y, spawn_z, mon.type, @damage_multiplier, target)
         end
       end
 
@@ -366,7 +389,9 @@ module Doom
         true
       end
 
-      def new_chase_dir(mon, player_x, player_y)
+      def new_chase_dir(mon, target)
+        player_x = target.x
+        player_y = target.y
         deltax = player_x - mon.x
         deltay = player_y - mon.y
         old_dir = mon.movedir

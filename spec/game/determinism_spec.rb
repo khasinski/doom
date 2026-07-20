@@ -26,8 +26,10 @@ RSpec.describe 'simulation determinism' do
     map = Doom::Map::MapData.load(@wad, 'E1M1')
     rng = Doom::Game::Random.new(seed)
     player = Doom::Game::PlayerState.new
-    combat = Doom::Game::Combat.new(map, player, @sprites, {}, nil, random: rng)
-    ai = Doom::Game::MonsterAI.new(map, combat, player, @sprites, {}, nil, random: rng)
+    combat = Doom::Game::Combat.new(map, nil, @sprites, {}, nil, random: rng)
+    ai = Doom::Game::MonsterAI.new(map, combat, nil, @sprites, {}, nil, random: rng)
+    actor = Doom::Game::Player.new(state: player)
+    at = ->(x, y, z = 41.0) { actor.place(x, y, z, 0); actor }
     effects = Doom::Game::SectorEffects.new(map, random: rng)
 
     # Park the player next to a real monster and wake every monster up, so the
@@ -49,9 +51,9 @@ RSpec.describe 'simulation determinism' do
     tics.times do |t|
       px += Math.cos(t * 0.05) * 2
       py += Math.sin(t * 0.05) * 2
-      combat.update_player_pos(px, py, 41.0)
+      combat.players = [at.call(px, py, 41.0)]
       combat.update
-      ai.update(px, py)
+      ai.update([at.call(px, py)])
       effects.update
 
       # Keep shooting so damage rolls and pain chances are drawn constantly.

@@ -55,12 +55,9 @@ module Doom
 
       attr_reader :picked_up, :pickup_message, :pickup_flash, :message_tics
       attr_accessor :ammo_multiplier, :hidden_things
-      # Rebound by Game::World once a player exists.
-      attr_writer :player
 
-      def initialize(map, player_state, hidden_things = {})
+      def initialize(map, _player_state = nil, hidden_things = {})
         @map = map
-        @player = player_state
         @picked_up = {}
         @hidden_things = hidden_things
         @ammo_multiplier = 1
@@ -75,18 +72,22 @@ module Doom
         @message_tics -= 1 if @message_tics > 0
       end
 
-      def update(player_x, player_y)
+      # Pick up for one player. `picked_up` stays global on purpose: in coop an
+      # item taken by anyone is gone for everyone, as in DOOM. Deathmatch
+      # respawning is a separate concern.
+      def update(player)
+        state = player.state
         @map.things.each_with_index do |thing, idx|
           next if @hidden_things[idx]
           next if @picked_up[idx]
           item = ITEMS[thing.type]
           next unless item
 
-          dx = (player_x - thing.x).abs
-          dy = (player_y - thing.y).abs
+          dx = (player.x - thing.x).abs
+          dy = (player.y - thing.y).abs
           next if dx >= PICKUP_DIST || dy >= PICKUP_DIST
 
-          if try_pickup(item)
+          if try_pickup(item, state)
             @picked_up[idx] = true
             @pickup_message = PICKUP_MESSAGES[thing.type]
             @pickup_flash = FLASH_TICS
@@ -114,93 +115,93 @@ module Doom
 
       private
 
-      def try_pickup(item)
+      def try_pickup(item, state)
         case item[:cat]
         when :weapon
-          give_weapon(item)
+          give_weapon(item, state)
         when :ammo
-          give_ammo(item[:ammo], item[:amount])
+          give_ammo(item[:ammo], item[:amount], state)
         when :backpack
-          give_backpack
+          give_backpack(state)
         when :health
-          give_health(item[:amount], item[:max])
+          give_health(item[:amount], item[:max], state)
         when :armor
-          give_armor(item)
+          give_armor(item, state)
         when :key
-          give_key(item[:key])
+          give_key(item[:key], state)
         else
           false
         end
       end
 
-      def give_weapon(item)
+      def give_weapon(item, state)
         weapon_idx = item[:weapon]
-        had_weapon = @player.has_weapons[weapon_idx]
+        had_weapon = state.has_weapons[weapon_idx]
 
-        @player.has_weapons[weapon_idx] = true
-        ammo_given = item[:ammo] ? give_ammo(item[:ammo], item[:amount]) : false
+        state.has_weapons[weapon_idx] = true
+        ammo_given = item[:ammo] ? give_ammo(item[:ammo], item[:amount], state) : false
 
         unless had_weapon
-          @player.switch_weapon(weapon_idx) unless @player.attacking
+          state.switch_weapon(weapon_idx) unless state.attacking
           return true
         end
 
         ammo_given
       end
 
-      def give_ammo(type, amount)
+      def give_ammo(type, amount, state)
         amount = amount * @ammo_multiplier
         case type
         when :bullets
-          return false if @player.ammo_bullets >= @player.max_bullets
-          @player.ammo_bullets = [@player.ammo_bullets + amount, @player.max_bullets].min
+          return false if state.ammo_bullets >= state.max_bullets
+          state.ammo_bullets = [state.ammo_bullets + amount, state.max_bullets].min
         when :shells
-          return false if @player.ammo_shells >= @player.max_shells
-          @player.ammo_shells = [@player.ammo_shells + amount, @player.max_shells].min
+          return false if state.ammo_shells >= state.max_shells
+          state.ammo_shells = [state.ammo_shells + amount, state.max_shells].min
         when :rockets
-          return false if @player.ammo_rockets >= @player.max_rockets
-          @player.ammo_rockets = [@player.ammo_rockets + amount, @player.max_rockets].min
+          return false if state.ammo_rockets >= state.max_rockets
+          state.ammo_rockets = [state.ammo_rockets + amount, state.max_rockets].min
         when :cells
-          return false if @player.ammo_cells >= @player.max_cells
-          @player.ammo_cells = [@player.ammo_cells + amount, @player.max_cells].min
+          return false if state.ammo_cells >= state.max_cells
+          state.ammo_cells = [state.ammo_cells + amount, state.max_cells].min
         end
         true
       end
 
-      def give_backpack
-        @player.max_bullets = 400
-        @player.max_shells = 100
-        @player.max_rockets = 100
-        @player.max_cells = 600
-        give_ammo(:bullets, 10)
-        give_ammo(:shells, 4)
-        give_ammo(:rockets, 1)
-        give_ammo(:cells, 20)
+      def give_backpack(state)
+        state.max_bullets = 400
+        state.max_shells = 100
+        state.max_rockets = 100
+        state.max_cells = 600
+        give_ammo(:bullets, 10, state)
+        give_ammo(:shells, 4, state)
+        give_ammo(:rockets, 1, state)
+        give_ammo(:cells, 20, state)
         true
       end
 
-      def give_health(amount, max)
-        return false if @player.health >= max
-        @player.health = [@player.health + amount, max].min
+      def give_health(amount, max, state)
+        return false if state.health >= max
+        state.health = [state.health + amount, max].min
         true
       end
 
-      def give_armor(item)
+      def give_armor(item, state)
         if item[:armor_type]
           # Green/blue armor: only pick up if better than current
-          return false if @player.armor >= item[:amount]
-          @player.armor = item[:amount]
+          return false if state.armor >= item[:amount]
+          state.armor = item[:amount]
         else
           # Armor bonus: +1, up to max
-          return false if @player.armor >= item[:max]
-          @player.armor = [@player.armor + item[:amount], item[:max]].min
+          return false if state.armor >= item[:max]
+          state.armor = [state.armor + item[:amount], item[:max]].min
         end
         true
       end
 
-      def give_key(key)
-        return false if @player.keys[key]
-        @player.keys[key] = true
+      def give_key(key, state)
+        return false if state.keys[key]
+        state.keys[key] = true
         true
       end
     end

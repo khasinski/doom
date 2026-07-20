@@ -105,6 +105,24 @@ RSpec.describe Doom::Game::World do
   end
 
   describe 'determinism' do
+    # Park the player next to a monster and wake everything up. Left at the map
+    # start the world is nearly inert, and the comparison below would pass no
+    # matter how nondeterministic the engine was.
+    def new_busy_world(seed)
+      w = new_world(seed)
+      target = w.map.things.find do |t|
+        Doom::Game::Combat::MONSTER_HP[t.type] && t.type != Doom::Game::Combat::BARREL_TYPE
+      end
+      w.player(0).place(target.x - 96.0, target.y.to_f, Doom::Game::PlayerState::VIEWHEIGHT, 0)
+      w.monster_ai.monsters.each do |m|
+        m.active = true
+        m.reactiontime = 0
+        m.movecount = 0
+        m.chase_timer = 0
+      end
+      w
+    end
+
     def digest(world)
       p = world.player(0)
       [
@@ -125,8 +143,8 @@ RSpec.describe Doom::Game::World do
     end
 
     it 'reaches identical state from the same seed and the same ticcmds' do
-      a = new_world(9)
-      b = new_world(9)
+      a = new_busy_world(9)
+      b = new_busy_world(9)
       cmds.each { |c| a.run_tic(0 => c) }
       cmds.each { |c| b.run_tic(0 => c) }
 
@@ -134,8 +152,8 @@ RSpec.describe Doom::Game::World do
     end
 
     it 'diverges from a different seed' do
-      a = new_world(9)
-      b = new_world(77)
+      a = new_busy_world(9)
+      b = new_busy_world(77)
       cmds.each { |c| a.run_tic(0 => c) }
       cmds.each { |c| b.run_tic(0 => c) }
 
@@ -143,9 +161,132 @@ RSpec.describe Doom::Game::World do
     end
 
     it 'consumes randomness during the run' do
-      w = new_world(0)
+      w = new_busy_world(0)
       cmds.each { |c| w.run_tic(0 => c) }
       expect(w.random.index).not_to eq(0)
+    end
+  end
+
+  describe 'several players' do
+    # Two players in the same world, placed by hand so the geometry of each
+    # case is explicit.
+    def two_player_world
+      w = new_world(3)
+      w.add_player(w.map.player_start, id: 1)
+      w
+    end
+
+    def first_monster(world)
+      world.monster_ai.monsters.first
+    end
+
+    it 'ticks every player from its own command' do
+      w = two_player_world
+      a = w.player(0)
+      b = w.player(1)
+      a_start = [a.x, a.y]
+      b_start = [b.x, b.y]
+
+      40.times { w.run_tic(0 => forward) }
+
+      expect([a.x, a.y]).not_to eq(a_start)
+      expect([b.x, b.y]).to eq(b_start)
+    end
+
+    it 'gives each player independent health and ammo' do
+      w = two_player_world
+      w.player(0).state.take_damage(30)
+      w.player(0).state.ammo_bullets = 7
+
+      expect(w.player(1).state.health).to eq(100)
+      expect(w.player(1).state.ammo_bullets).not_to eq(7)
+    end
+
+    describe 'monster targeting' do
+      it 'picks the nearer player' do
+        w = two_player_world
+        mon = first_monster(w)
+
+        w.player(0).place(mon.x + 64, mon.y, 41, 0)
+        w.player(1).place(mon.x + 900, mon.y, 41, 0)
+        w.monster_ai.send(:select_target, mon, w.players)
+
+        expect(mon.target).to equal(w.player(0))
+      end
+
+      it 'keeps its target while that player lives, even if another comes closer' do
+        # Otherwise a second player walking past would yank monsters off
+        # whoever they were already fighting.
+        w = two_player_world
+        mon = first_monster(w)
+
+        w.player(0).place(mon.x + 64, mon.y, 41, 0)
+        w.player(1).place(mon.x + 900, mon.y, 41, 0)
+        w.monster_ai.send(:select_target, mon, w.players)
+
+        w.player(1).place(mon.x + 8, mon.y, 41, 0)
+        w.monster_ai.send(:select_target, mon, w.players)
+
+        expect(mon.target).to equal(w.player(0))
+      end
+
+      it 'switches when its target dies' do
+        w = two_player_world
+        mon = first_monster(w)
+
+        w.player(0).place(mon.x + 64, mon.y, 41, 0)
+        w.player(1).place(mon.x + 900, mon.y, 41, 0)
+        w.monster_ai.send(:select_target, mon, w.players)
+
+        w.player(0).state.dead = true
+        w.monster_ai.send(:select_target, mon, w.players)
+
+        expect(mon.target).to equal(w.player(1))
+      end
+
+      it 'has no target when every player is dead' do
+        w = two_player_world
+        mon = first_monster(w)
+        w.players.each { |p| p.state.dead = true }
+
+        expect(w.monster_ai.send(:select_target, mon, w.players)).to be_nil
+      end
+    end
+
+    it 'splashes a barrel explosion onto every player in radius' do
+      w = two_player_world
+      barrel = w.map.things.find { |t| t.type == Doom::Game::Combat::BARREL_TYPE }
+      skip 'No barrel in map' unless barrel
+
+      w.players.each { |p| p.place(barrel.x + 8, barrel.y.to_f, 41, 0) }
+      w.combat.send(:barrel_explode, barrel.x.to_f, barrel.y.to_f, nil)
+
+      expect(w.player(0).state.health).to be < 100
+      expect(w.player(1).state.health).to be < 100
+    end
+
+    it 'lets a monster fireball hit a player it was not aimed at' do
+      w = two_player_world
+      mon = first_monster(w)
+
+      # Spawn at chest height above the actual floor, as MonsterAI does. A
+      # fireball that dips below floor_height counts as hitting a wall, so a
+      # hardcoded z would make this test explode short of anyone.
+      sector = w.map.sector_at(mon.x, mon.y)
+      spawn_z = sector.floor_height + 32
+      eye_z = sector.floor_height + Doom::Game::PlayerState::VIEWHEIGHT
+
+      aimed_at = w.player(0)
+      aimed_at.place(mon.x + 300, mon.y, eye_z, 0)
+      w.combat.spawn_monster_projectile(mon.x, mon.y, spawn_z.to_f, 3001, 1.0, aimed_at)
+      skip 'Monster type does not throw fireballs' if w.combat.projectiles.empty?
+
+      # Park the other player directly in the fireball's path.
+      w.player(1).place(mon.x + 60, mon.y, eye_z, 0)
+      20.times { w.combat.update }
+
+      expect(w.player(1).state.health).to be < 100
+      expect(aimed_at.state.health).to eq(100)  # stopped before reaching them
     end
   end
 

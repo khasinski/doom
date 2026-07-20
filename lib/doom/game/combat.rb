@@ -96,9 +96,9 @@ module Doom
       # Shotgun: 7 pellets, each 1*5..3*5 = 5-15
       # Fist/chainsaw: 1*2..3*2 = 2-10
 
-      def initialize(map, player_state, sprites, hidden_things = {}, sound_engine = nil, random: Random.new)
+      def initialize(map, _player_state = nil, sprites = nil, hidden_things = {}, sound_engine = nil,
+                     random: Random.new)
         @map = map
-        @player = player_state
         @random = random
         @sprites = sprites
         @hidden_things = hidden_things
@@ -109,29 +109,25 @@ module Doom
         @projectiles = []    # Active projectiles in flight
         @explosions = []     # Active explosions (for rendering)
         @puffs = []          # Bullet puff effects
-        @player_x = 0.0
-        @player_y = 0.0
-        @player_z = 0.0
+        @players = []
         @tic = 0
       end
 
-      def update_player_pos(x, y, z = nil)
-        @player_x = x
-        @player_y = y
-        @player_z = z if z
-      end
+      # Every player the world knows about. Projectile collision, splash damage
+      # and monster aim all consider all of them, not one bound player.
+      attr_accessor :players
 
       # Spawn a monster projectile (fireball, etc.)
       # Matches Chocolate Doom's P_SpawnMissile: calculates momz for vertical aim
-      def spawn_monster_projectile(monster_x, monster_y, monster_z, monster_type, damage_multiplier)
+      def spawn_monster_projectile(monster_x, monster_y, monster_z, monster_type, damage_multiplier, target)
         proj_type = MONSTER_PROJECTILE_TYPE[monster_type]
         return unless proj_type
 
         info = MONSTER_PROJECTILES[proj_type]
         return unless info
 
-        dx = @player_x - monster_x
-        dy = @player_y - monster_y
+        dx = target.x - monster_x
+        dy = target.y - monster_y
         dist = Math.sqrt(dx * dx + dy * dy)
         return if dist < 1
 
@@ -142,7 +138,7 @@ module Doom
 
         # P_SpawnMissile: momz = (target.z - source.z) / (dist / speed)
         # This makes the projectile arc toward the target's height
-        target_z = @player_z - 16  # Aim at player center (z + height/2, roughly)
+        target_z = target.z - 16  # Aim at player center (z + height/2, roughly)
         travel_tics = dist / speed
         travel_tics = 1.0 if travel_tics < 1.0
         ndz = (target_z - monster_z) / travel_tics
@@ -154,8 +150,6 @@ module Doom
       end
 
       attr_reader :dead_things, :projectiles, :explosions, :puffs, :sprites
-      # Rebound by Game::World once a player exists.
-      attr_writer :player
 
       def in_pain?(thing_idx)
         @pain_until[thing_idx] && @tic < @pain_until[thing_idx]
@@ -206,9 +200,9 @@ module Doom
       def fire(px, py, pz, cos_a, sin_a, weapon)
         case weapon
         when PlayerState::WEAPON_PISTOL, PlayerState::WEAPON_CHAINGUN
-          hitscan(px, py, cos_a, sin_a, 1, 0.0, 5)
+          hitscan(px, py, pz, cos_a, sin_a, 1, 0.0, 5)
         when PlayerState::WEAPON_SHOTGUN
-          hitscan(px, py, cos_a, sin_a, 7, Math::PI / 32, 5)
+          hitscan(px, py, pz, cos_a, sin_a, 7, Math::PI / 32, 5)
         when PlayerState::WEAPON_ROCKET
           spawn_rocket(px, py, pz, cos_a, sin_a)
         when PlayerState::WEAPON_FIST
@@ -264,16 +258,23 @@ module Doom
               hit = true
             end
           elsif proj.target == :player
-            # Monster projectile: check player collision
+            # Monster projectile: hits whichever player it reaches first, not
+            # only the one it was aimed at -- a fireball meant for someone else
+            # still hurts if you walk into it.
             player_radius = 16
-            dx = new_x - @player_x
-            dy = new_y - @player_y
-            if hit_wall || (dx * dx + dy * dy < (player_radius + 6) ** 2)
-              unless hit_wall
+            struck = @players.find do |pl|
+              next false if pl.state.dead
+              dx = new_x - pl.x
+              dy = new_y - pl.y
+              (dx * dx) + (dy * dy) < (player_radius + 6)**2
+            end
+
+            if hit_wall || struck
+              if !hit_wall && struck
                 info = MONSTER_PROJECTILES[proj.type]
                 if info
                   min_d, max_d = info[:damage]
-                  @player.take_damage(@random.rand(min_d..max_d))
+                  struck.state.take_damage(@random.rand(min_d..max_d))
                 end
               end
               # Spawn fireball explosion
@@ -365,7 +366,7 @@ module Doom
         t > 0.0 && t < 1.0 && u >= 0.0 && u <= 1.0
       end
 
-      def hitscan(px, py, cos_a, sin_a, pellets, spread, multiplier)
+      def hitscan(px, py, pz, cos_a, sin_a, pellets, spread, multiplier)
         pellets.times do
           # Add random spread
           if spread > 0
@@ -400,7 +401,7 @@ module Doom
           # Spawn bullet puff at hit location
           puff_x = px + ca * best_dist
           puff_y = py + sa * best_dist
-          puff_z = @player_z
+          puff_z = pz
           @puffs << { x: puff_x, y: puff_y, z: puff_z, tic: @tic }
 
           if best_idx
@@ -487,13 +488,16 @@ module Doom
           apply_damage(idx, damage) if damage > 0
         end
 
-        # Splash damage to player
-        dx = x - @player_x
-        dy = y - @player_y
-        dist = Math.sqrt(dx * dx + dy * dy)
-        if dist < BARREL_SPLASH_RADIUS
-          damage = ((BARREL_SPLASH_DAMAGE * (1.0 - dist / BARREL_SPLASH_RADIUS))).to_i
-          @player.take_damage(damage) if damage > 0
+        # Splash damage reaches every player in radius, including the one who
+        # set it off.
+        @players.each do |pl|
+          next if pl.state.dead
+
+          dist = Math.hypot(x - pl.x, y - pl.y)
+          next unless dist < BARREL_SPLASH_RADIUS
+
+          damage = (BARREL_SPLASH_DAMAGE * (1.0 - (dist / BARREL_SPLASH_RADIUS))).to_i
+          pl.state.take_damage(damage) if damage > 0
         end
       end
 

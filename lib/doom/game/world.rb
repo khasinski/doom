@@ -46,9 +46,7 @@ module Doom
         @monster_ai = MonsterAI.new(map, @combat, nil, sprites, skill_hidden, sound, random: random)
       end
 
-      # Spawn a player at a map start. The first player added becomes the one
-      # the single-player subsystems bind to; multi-player rebinding lands in
-      # the next step.
+      # Spawn a player at a map start.
       def add_player(start_thing, id: @players.size)
         player = Player.new(id: id)
         player.place(start_thing.x, start_thing.y, PlayerState::VIEWHEIGHT, start_thing.angle)
@@ -61,7 +59,7 @@ module Doom
 
         @players << player
         @physics_by_id[player.id] = physics
-        bind_single_player(player) if @players.size == 1
+        @combat.players = @players
         player
       end
 
@@ -114,7 +112,7 @@ module Doom
         end
 
         @combat.update
-        @monster_ai.update(primary.x, primary.y) if primary
+        @monster_ai.update(@players)
 
         @players.each { |p| post_tic_player(p) }
 
@@ -125,9 +123,6 @@ module Doom
 
       private
 
-      # Subsystems still take a single player. Point them at the first one for
-      # now; making them player-aware is the next step and is deliberately kept
-      # out of this change so the move off the window stays reviewable.
       def rebuild_actor_subsystems
         @item_pickup = ItemPickup.new(@map, nil, @skill_hidden)
         @combat = Combat.new(@map, nil, @sprites, @skill_hidden, @sound, random: @random)
@@ -139,13 +134,7 @@ module Doom
           physics.item_pickup = @item_pickup
           physics.combat = @combat
         end
-        bind_single_player(primary) if primary
-      end
-
-      def bind_single_player(player)
-        @item_pickup.player = player.state
-        @combat.player = player.state
-        @monster_ai.player = player.state
+        @combat.players = @players
       end
 
       def primary
@@ -185,7 +174,6 @@ module Doom
         state.start_attack
         return unless state.attacking && !was_attacking
 
-        @combat.update_player_pos(player.x, player.y, player.z)
         @combat.fire(player.x, player.y, player.z,
                      player.cos_angle, player.sin_angle, state.weapon)
         @sound&.weapon_fire(state.weapon)
@@ -285,8 +273,6 @@ module Doom
         health_before = @last_health ||= {}
         before = health_before[player.id] || state.health
 
-        @combat.update_player_pos(player.x, player.y, player.z)
-
         if state.health < before
           state.dead ? @sound&.player_death : @sound&.player_pain
         end
@@ -327,10 +313,10 @@ module Doom
       end
 
       def update_item_pickups
-        return unless primary
+        return if @players.empty?
 
         picked_before = @item_pickup.picked_up.size
-        @item_pickup.update(primary.x, primary.y)
+        @players.each { |p| @item_pickup.update(p) unless p.state.dead }
         return unless @sound && @item_pickup.picked_up.size > picked_before
 
         msg = @item_pickup.pickup_message

@@ -14,8 +14,16 @@ RSpec.describe Doom::Game::MonsterAI do
   after(:all) { @wad&.close }
 
   let(:player) { Doom::Game::PlayerState.new }
-  let(:combat) { Doom::Game::Combat.new(@map, player, @sprites) }
-  subject(:ai) { described_class.new(@map, combat, player, @sprites) }
+  # Subsystems take player entities now. One actor is reused so a monster's
+  # remembered target keeps its identity while the position moves.
+  let(:actor) { Doom::Game::Player.new(state: player) }
+  let(:combat) { Doom::Game::Combat.new(@map, nil, @sprites) }
+  subject(:ai) { described_class.new(@map, combat, nil, @sprites) }
+
+  def at(x, y, z = 41.0)
+    actor.place(x, y, z, 0)
+    actor
+  end
 
   # Helper: find a specific monster type
   def find_monster(ai, type)
@@ -36,10 +44,10 @@ RSpec.describe Doom::Game::MonsterAI do
 
   # Helper: run AI+combat tics like the game loop
   def run_tics(ai, combat, px, py, count)
-    combat.update_player_pos(px, py, 17.0)
+    combat.players = [at(px, py, 17.0)]
     count.times do
       combat.update
-      ai.update(px, py)
+      ai.update([at(px, py)])
     end
   end
 
@@ -69,12 +77,12 @@ RSpec.describe Doom::Game::MonsterAI do
       # Face the monster toward the player position
       thing = @map.things[mon.thing_idx]
       thing.angle = 0  # Face east
-      ai.update(mon.x + 100, mon.y)
+      ai.update([at(mon.x + 100, mon.y)])
       expect(mon.active).to be true
     end
 
     it 'does not activate monsters beyond sight range' do
-      ai.update(-9999, -9999)
+      ai.update([at(-9999, -9999)])
       expect(ai.monsters.any?(&:active)).to be false
     end
 
@@ -86,7 +94,7 @@ RSpec.describe Doom::Game::MonsterAI do
       # Stand behind the monster
       behind_x = mon.x - Math.cos(face_rad) * 200
       behind_y = mon.y - Math.sin(face_rad) * 200
-      ai.update(behind_x, behind_y)
+      ai.update([at(behind_x, behind_y)])
       # Should NOT activate (unless geometry gives LOS another way)
     end
   end
@@ -99,7 +107,7 @@ RSpec.describe Doom::Game::MonsterAI do
       mon.active = true
       mon.last_saw_player = ai.instance_variable_get(:@tic_counter)
 
-      120.times { ai.update(-9999, -9999) }
+      120.times { ai.update([at(-9999, -9999)]) }
       expect(mon.active).to be false
     end
 
@@ -110,7 +118,7 @@ RSpec.describe Doom::Game::MonsterAI do
       mon.reactiontime = 0
       mon.last_saw_player = ai.instance_variable_get(:@tic_counter)
 
-      120.times { ai.update(-9999, -9999) }
+      120.times { ai.update([at(-9999, -9999)]) }
       expect(mon.reactiontime).to eq(described_class::REACTIONTIME)
     end
   end
@@ -130,12 +138,12 @@ RSpec.describe Doom::Game::MonsterAI do
       ready_to_attack(mon)
 
       initial_health = player.health
-      combat.update_player_pos(mon.x + 50, mon.y)
+      combat.players = [at(mon.x + 50, mon.y)]
 
       # Force attack by running until it triggers
       attacked = false
       500.times do
-        ai.update(mon.x + 50, mon.y)
+        ai.update([at(mon.x + 50, mon.y)])
         if mon.attacking && mon.attack_frame_tic <= 1
           attacked = true
           break
@@ -163,11 +171,11 @@ RSpec.describe Doom::Game::MonsterAI do
       imp = find_monster(ai, 3001)
       skip 'No imp' unless imp
       ready_to_attack(imp)
-      combat.update_player_pos(imp.x + 150, imp.y)
+      combat.players = [at(imp.x + 150, imp.y)]
 
       # Trigger attack
       500.times do
-        ai.update(imp.x + 150, imp.y)
+        ai.update([at(imp.x + 150, imp.y)])
         break if imp.attacking
       end
       skip 'Imp never attacked (probabilistic)' unless imp.attacking
@@ -207,10 +215,10 @@ RSpec.describe Doom::Game::MonsterAI do
 
       target_x = imp.x + 200
       target_y = imp.y
-      combat.update_player_pos(target_x, target_y)
+      combat.players = [at(target_x, target_y)]
 
       # Force spawn a projectile directly
-      combat.spawn_monster_projectile(imp.x, imp.y, 41.0, 3001, 1.0)
+      combat.spawn_monster_projectile(imp.x, imp.y, 41.0, 3001, 1.0, combat.players.first)
       expect(combat.projectiles.size).to eq(1)
 
       # Run combat updates - projectile should survive
@@ -231,8 +239,8 @@ RSpec.describe Doom::Game::MonsterAI do
       floor = sector ? sector.floor_height : 0
       spawn_z = floor + 32
       px = imp.x + 50
-      combat.update_player_pos(px, imp.y, spawn_z.to_f)
-      combat.spawn_monster_projectile(imp.x, imp.y, spawn_z.to_f, 3001, 1.0)
+      combat.players = [at(px, imp.y, spawn_z.to_f)]
+      combat.spawn_monster_projectile(imp.x, imp.y, spawn_z.to_f, 3001, 1.0, combat.players.first)
 
       initial_health = player.health
       20.times { combat.update }
@@ -245,8 +253,8 @@ RSpec.describe Doom::Game::MonsterAI do
       skip 'No imp' unless imp
 
       # Simulate imp on high platform (z=128) shooting at player on floor (z=17)
-      combat.update_player_pos(imp.x + 200, imp.y)
-      combat.spawn_monster_projectile(imp.x, imp.y, 128.0, 3001, 1.0)
+      combat.players = [at(imp.x + 200, imp.y)]
+      combat.spawn_monster_projectile(imp.x, imp.y, 128.0, 3001, 1.0, combat.players.first)
 
       proj = combat.projectiles.last
       expect(proj).not_to be_nil
@@ -265,8 +273,8 @@ RSpec.describe Doom::Game::MonsterAI do
       skip 'No imp' unless imp
 
       # Spawn fireball very high, aiming straight down
-      combat.update_player_pos(imp.x + 50, imp.y)
-      combat.spawn_monster_projectile(imp.x, imp.y, 500.0, 3001, 1.0)
+      combat.players = [at(imp.x + 50, imp.y)]
+      combat.spawn_monster_projectile(imp.x, imp.y, 500.0, 3001, 1.0, combat.players.first)
 
       100.times { combat.update }
       # Should have hit floor and exploded
@@ -279,8 +287,8 @@ RSpec.describe Doom::Game::MonsterAI do
 
       # Spawn fireball aimed at player 50 units away (guaranteed hit)
       px = imp.x + 50
-      combat.update_player_pos(px, imp.y)
-      combat.spawn_monster_projectile(imp.x, imp.y, 41.0, 3001, 1.0)
+      combat.players = [at(px, imp.y)]
+      combat.spawn_monster_projectile(imp.x, imp.y, 41.0, 3001, 1.0, combat.players.first)
 
       20.times { combat.update }
 
@@ -298,7 +306,7 @@ RSpec.describe Doom::Game::MonsterAI do
       mon.attack_frame_tic = 0
 
       initial_x, initial_y = mon.x, mon.y
-      10.times { ai.update(mon.x + 200, mon.y) }
+      10.times { ai.update([at(mon.x + 200, mon.y)]) }
 
       expect(mon.x).to eq(initial_x)
       expect(mon.y).to eq(initial_y)
@@ -313,7 +321,7 @@ RSpec.describe Doom::Game::MonsterAI do
       mon.last_saw_player = 99999
 
       # Run through the full attack animation (2 frames * 8 tics = 16)
-      20.times { ai.update(mon.x + 200, mon.y) }
+      20.times { ai.update([at(mon.x + 200, mon.y)]) }
       expect(mon.attacking).to be false
     end
   end
@@ -328,7 +336,7 @@ RSpec.describe Doom::Game::MonsterAI do
       # Player is 100 units away (< KEEP_DISTANCE)
       target_x = mon.x + 100
       initial_x = mon.x
-      50.times { ai.update(target_x, mon.y) }
+      50.times { ai.update([at(target_x, mon.y)]) }
 
       # Should not have advanced much
       advance = (mon.x - initial_x).abs
@@ -343,7 +351,7 @@ RSpec.describe Doom::Game::MonsterAI do
 
       initial_x = demon.x
       target_x = demon.x + 100
-      50.times { ai.update(target_x, demon.y) }
+      50.times { ai.update([at(target_x, demon.y)]) }
 
       # Demon (melee) should keep advancing
       advance = (demon.x - initial_x).abs
@@ -359,9 +367,9 @@ RSpec.describe Doom::Game::MonsterAI do
       ready_to_attack(mon)
 
       initial_health = player.health
-      combat.update_player_pos(mon.x + 50, mon.y)
+      combat.players = [at(mon.x + 50, mon.y)]
       100.times do
-        ai.update(mon.x + 50, mon.y)
+        ai.update([at(mon.x + 50, mon.y)])
         combat.update
       end
 
@@ -377,7 +385,7 @@ RSpec.describe Doom::Game::MonsterAI do
       combat.instance_variable_get(:@pain_until)[mon.thing_idx] = 99999
 
       initial_x = mon.x
-      5.times { ai.update(mon.x + 200, mon.y) }
+      5.times { ai.update([at(mon.x + 200, mon.y)]) }
       expect(mon.x).to eq(initial_x)
     end
   end
