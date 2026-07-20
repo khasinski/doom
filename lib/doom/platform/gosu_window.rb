@@ -214,6 +214,10 @@ module Doom
           trigger_level_exit(@world.exit_triggered)
         end
 
+        # Other players are drawn as sprites; the local one never is.
+        @renderer.players = @world.players
+        @renderer.view_player = @player
+
         # Pass combat state to renderer for death frame rendering
         @renderer.combat = @combat
         @renderer.monster_ai = @monster_ai

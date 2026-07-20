@@ -197,15 +197,17 @@ module Doom
         sprite = load_sprite_frame(prefix, frame, 0)
         return sprite if sprite
 
-        # Calculate rotation frame (1-8)
-        # DOOM: rot = (R_PointToAngle(thing) - thing->angle + ANG45/2*9) >> 29
-        # Rotation 1=front (viewer faces monster's front), 5=back
-        angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0) + Math::PI
-        angle_diff = angle_diff % (2 * Math::PI)
-        angle_diff += 2 * Math::PI if angle_diff < 0
-        rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1
+        load_sprite_frame(prefix, frame, rotation_for(viewer_angle, thing_angle)) || @cache[thing_type]
+      end
 
-        load_sprite_frame(prefix, frame, rotation) || @cache[thing_type]
+      # Which of the 8 rotation frames faces the viewer.
+      # DOOM: rot = (R_PointToAngle(thing) - thing->angle + ANG45/2*9) >> 29
+      # Rotation 1 = front (viewer faces the thing's front), 5 = back.
+      def rotation_for(viewer_angle, thing_angle)
+        angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0) + Math::PI
+        angle_diff %= (2 * Math::PI)
+        angle_diff += 2 * Math::PI if angle_diff < 0
+        (((angle_diff + (Math::PI / 8)) / (Math::PI / 4)).to_i % 8) + 1
       end
 
       # Get a specific frame (for death animations, etc.)
@@ -213,22 +215,22 @@ module Doom
         prefix = THING_SPRITES[thing_type]
         return nil unless prefix
 
-        # Death frames typically use rotation 0 (same from all angles)
-        sprite = load_sprite_frame(prefix, frame_letter, 0)
-        return sprite if sprite
-
-        # Try with calculated rotation (same formula as get_rotated)
-        angle_diff = viewer_angle - (thing_angle * Math::PI / 180.0) + Math::PI
-        angle_diff = angle_diff % (2 * Math::PI)
-        angle_diff += 2 * Math::PI if angle_diff < 0
-        rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1
-
-        load_sprite_frame(prefix, frame_letter, rotation)
+        get_frame_rotated(prefix, frame_letter, viewer_angle, thing_angle)
       end
 
       # Get a frame by explicit prefix (for barrel explosions where prefix differs from thing type)
       def get_frame_by_prefix(prefix, frame_letter)
         load_sprite_frame(prefix, frame_letter, 0)
+      end
+
+      # Get a frame by explicit prefix, honouring rotations. Players are drawn
+      # through this: PLAY has no thing type of its own, and its walk and
+      # attack frames are rotated while its death frames are not.
+      def get_frame_rotated(prefix, frame_letter, viewer_angle, thing_angle)
+        sprite = load_sprite_frame(prefix, frame_letter, 0)
+        return sprite if sprite
+
+        load_sprite_frame(prefix, frame_letter, rotation_for(viewer_angle, thing_angle))
       end
 
       private

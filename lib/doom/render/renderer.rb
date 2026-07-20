@@ -69,6 +69,8 @@ module Doom
         @hidden_things = nil
         @combat = nil
         @monster_ai = nil
+        @players = []       # Every player in the world, for drawing the others
+        @view_player = nil  # The one we are looking through, never drawn
         @leveltime = 0
         @skip_background_fill = false
 
@@ -119,6 +121,7 @@ module Doom
       attr_reader :player_x, :player_y, :player_z, :player_angle, :sin_angle, :cos_angle, :framebuffer
       attr_reader :wad, :textures, :colormap, :flats, :sprites
       attr_writer :hidden_things, :combat, :monster_ai, :leveltime
+      attr_accessor :players, :view_player
       attr_accessor :skip_background_fill
 
       # Diagnostic: returns info about all sprites and why they are/aren't visible
@@ -1504,6 +1507,8 @@ module Doom
           visible_sprites << VisibleSprite.new(thing, sprite, view_x, view_y, dist, screen_x)
         end
 
+        collect_player_sprites(visible_sprites)
+
         # Sort by distance (back to front for proper overdraw)
         visible_sprites.sort_by! { |s| -s.dist }
 
@@ -1528,6 +1533,60 @@ module Doom
       # Chocolate Doom R_DrawMasked: interleave sprites with masked drawsegs
       def draw_masked
         render_sprites
+      end
+
+      # Other players, drawn with the PLAY sprites. They join the same
+      # distance-sorted list as map things rather than being drawn afterwards,
+      # so they occlude and are occluded correctly.
+      PLAYER_SPRITE_PREFIX = 'PLAY'
+      PLAYER_WALK_FRAMES = %w[A B C D].freeze
+      PLAYER_DEATH_FRAMES = %w[H I J K L M N].freeze
+      PLAYER_DEATH_FRAME_TICS = 6
+      PLAYER_ATTACK_FRAME = 'E'
+      PLAYER_MOVING_SPEED = 1.0  # units/sec below which a player reads as still
+
+      def collect_player_sprites(visible_sprites)
+        return if @players.nil? || @players.empty?
+
+        @players.each do |player|
+          # Never draw the player whose eyes we are looking through.
+          next if player.equal?(@view_player)
+
+          view_x, view_y = transform_point(player.x, player.y)
+          next if view_y <= 0
+
+          angle_to_player = Math.atan2(player.y - @player_y, player.x - @player_x)
+          sprite = player_sprite(player, angle_to_player)
+          next unless sprite
+
+          screen_x = HALF_WIDTH + (view_x * @projection / view_y)
+          sprite_half_width = (sprite.width * @projection / view_y / 2).to_i
+          next if screen_x + sprite_half_width < 0
+          next if screen_x - sprite_half_width >= SCREEN_WIDTH
+
+          # z is the player's eye height; the sprite is anchored at the feet.
+          feet_z = player.z - Game::PlayerState::VIEWHEIGHT
+          stub = ProjectileStub.new(player.x, player.y, 0, 0, 0, feet_z)
+          visible_sprites << VisibleSprite.new(stub, sprite, view_x, view_y, view_y, screen_x)
+        end
+      end
+
+      def player_sprite(player, angle_to_player)
+        state = player.state
+        facing = player.angle * 180.0 / Math::PI
+
+        if state.dead
+          idx = (state.death_tic / PLAYER_DEATH_FRAME_TICS).clamp(0, PLAYER_DEATH_FRAMES.size - 1)
+          frame = PLAYER_DEATH_FRAMES[idx]
+        elsif state.attacking
+          frame = PLAYER_ATTACK_FRAME
+        elsif Math.hypot(player.momx, player.momy) > PLAYER_MOVING_SPEED
+          frame = PLAYER_WALK_FRAMES[@leveltime / 4 % PLAYER_WALK_FRAMES.size]
+        else
+          frame = PLAYER_WALK_FRAMES.first
+        end
+
+        @sprites.get_frame_rotated(PLAYER_SPRITE_PREFIX, frame, angle_to_player, facing)
       end
 
       # Draw sprite, rendering masked drawsegs behind it first (R_DrawSprite)
