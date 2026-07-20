@@ -17,6 +17,11 @@ module Doom
       DEFAULT_PORT = 5029
       REDUNDANCY = 8  # Commands per packet; loss is covered by resending
 
+      # How long a stall must last before it is worth telling the player about.
+      # Well under a second so a real problem shows up promptly, but far longer
+      # than the sub-tic waits that healthy play produces constantly.
+      STALL_WARNING_SECONDS = 0.35
+
       attr_reader :transport, :lockstep, :monitor, :local_id, :player_ids
       attr_reader :seed, :map_name, :mode, :skill, :num_players
 
@@ -105,6 +110,17 @@ module Doom
 
         ran = @lockstep.run_ready(world, limit: limit)
         report_hash(world) if ran.positive?
+
+        # Track how long we have been unable to advance. Every healthy peer is
+        # "waiting" almost all the time: once the ready tics have run, the next
+        # one by definition lacks a command, or it would have run too. Only the
+        # duration distinguishes normal play from a peer in trouble.
+        if @lockstep.ready?
+          @stalled_since = nil
+        else
+          @stalled_since ||= @clock.call
+        end
+
         ran
       end
 
@@ -114,6 +130,13 @@ module Doom
 
       def stalled?
         @started && !@lockstep.ready?
+      end
+
+      # Seconds spent unable to advance, 0 when running normally.
+      def stalled_seconds
+        return 0.0 unless @stalled_since
+
+        @clock.call - @stalled_since
       end
 
       def desyncs

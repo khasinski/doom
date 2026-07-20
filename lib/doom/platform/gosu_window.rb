@@ -498,8 +498,13 @@ module Doom
           lines << (@session.host? ? 'WAITING FOR PLAYERS' : 'CONNECTING...')
         end
 
+        # Only once the wait stops being momentary. Between tics every peer is
+        # briefly waiting for the next command, so reporting that directly puts
+        # the warning on screen permanently during perfectly healthy play.
         waiting = @session.waiting_on
-        lines << "WAITING FOR PLAYER #{waiting.join(', ')}" if waiting.any?
+        if waiting.any? && @session.stalled_seconds > Net::Session::STALL_WARNING_SECONDS
+          lines << "WAITING FOR PLAYER #{waiting.join(', ')}"
+        end
 
         desync = @session.desyncs.first
         lines << "DESYNC AT TIC #{desync.tic} (#{Array(desync.sections).join(', ')})" if desync

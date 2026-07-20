@@ -164,6 +164,55 @@ RSpec.describe Doom::Net::Session do
     it 'reports nobody to wait for before it stalls' do
       expect(host.waiting_on).to eq([])
     end
+
+    describe 'stall duration' do
+      # waiting_on is true almost all the time during healthy play: once the
+      # ready tics have run, the next one lacks a command by definition. Only
+      # the duration separates normal play from a peer in trouble, and without
+      # it the on-screen warning is permanent.
+      it 'stays below the warning threshold for the momentary waits of normal play' do
+        world = world_for(host)
+        host.submit(cmd(0, 0))
+        host.run(world)
+
+        # This is the healthy steady state: nothing left to run this instant.
+        # It must not read as a problem.
+        expect(host.stalled_seconds)
+          .to be < described_class::STALL_WARNING_SECONDS
+      end
+
+      it 'starts counting only once nothing can advance' do
+        world = world_for(host)
+        20.times { |i| host.submit(cmd(0, i)) }
+        host.run(world)  # runs the primed tics, then hits the gap
+
+        expect(host).to be_stalled
+        expect(host.stalled_seconds).to be >= 0.0
+
+        sleep 0.05
+        expect(host.stalled_seconds).to be > 0.02
+      end
+
+      it 'resets once the missing commands arrive' do
+        world = world_for(host)
+        20.times { |i| host.submit(cmd(0, i)) }
+        host.run(world)
+        sleep 0.05
+        expect(host.stalled_seconds).to be > 0.0
+
+        # Let the client catch up and deliver, then run again.
+        deadline = Time.now + 5
+        until host.stalled_seconds.zero? || Time.now > deadline
+          20.times { |i| client.submit(cmd(1, i)) }
+          client.transmit
+          host.poll
+          host.run(world)
+          sleep 0.005
+        end
+
+        expect(host.stalled_seconds).to eq(0.0)
+      end
+    end
   end
 
   describe 'leaving' do
