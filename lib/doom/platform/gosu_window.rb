@@ -117,6 +117,7 @@ module Doom
         @skill = Game::Menu::SKILL_MEDIUM
         @session = session
         @local_player_id = session&.local_id || 0
+        menu.netgame = true if menu && session
 
         bind_world(world)
         @pending_turn = 0.0  # Mouse turn accumulated between tics
@@ -624,7 +625,8 @@ module Doom
 
             case result
             when :start_game
-              apply_difficulty(@menu.selected_skill)
+              # Restarting the level is local, so it would desync a netgame.
+              apply_difficulty(@menu.selected_skill) unless @session
             when :resume
               @mouse_captured = true
               SDLKeyboardGrab.grab!
@@ -702,6 +704,11 @@ module Doom
       end
 
       def handle_option_toggle(option, value)
+        # Belt and braces: the menu already hides these in a netgame, but a
+        # cheat applied on one machine only is a real desync, so refuse it
+        # here as well rather than trusting the menu to have filtered.
+        return if @session && Game::Menu::NETGAME_UNSAFE_OPTIONS.include?(option)
+
         case option
         when :god_mode
           @player_state.god_mode = value

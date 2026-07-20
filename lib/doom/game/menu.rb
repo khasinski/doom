@@ -23,6 +23,14 @@ module Doom
       # Main menu items
       MAIN_ITEMS = %i[new_game options quit].freeze
 
+      # Menu entries that change the simulation on this machine alone. In a
+      # netgame every peer must run the same world from the same commands, so
+      # a local cheat or a local new game is a genuine desync, not a nuisance.
+      # They are hidden rather than ignored: an option that silently does
+      # nothing is worse than one that is not offered.
+      NETGAME_UNSAFE_OPTIONS = %i[god_mode infinite_ammo all_weapons].freeze
+      NETGAME_UNSAFE_MAIN = %i[new_game].freeze
+
       # Options menu items
       OPTIONS_ITEMS = %i[god_mode infinite_ammo all_weapons uncapped_fps fullscreen rubykaigi_mode].freeze
       OPTIONS_LABELS = {
@@ -51,6 +59,7 @@ module Doom
       SKILL_SPACING = 16
 
       attr_reader :state, :selected_skill, :options, :font
+      attr_accessor :netgame
 
       def initialize(wad, hud_graphics, font = nil)
         @wad = wad
@@ -62,6 +71,7 @@ module Doom
         @skull_tic = 0
         @selected_skill = SKILL_MEDIUM  # Default difficulty
         @game_started = false
+        @netgame = false
 
         # Options toggles
         @options = {
@@ -106,6 +116,14 @@ module Doom
       end
 
       # Returns :start_game, :resume, :quit, or option action symbols
+      def main_items
+        @netgame ? MAIN_ITEMS - NETGAME_UNSAFE_MAIN : MAIN_ITEMS
+      end
+
+      def options_items
+        @netgame ? OPTIONS_ITEMS - NETGAME_UNSAFE_OPTIONS : OPTIONS_ITEMS
+      end
+
       def handle_key(key)
         case @state
         when STATE_TITLE
@@ -222,11 +240,11 @@ module Doom
       def handle_main_key(key)
         case key
         when :up
-          @cursor = (@cursor - 1) % MAIN_ITEMS.size
+          @cursor = (@cursor - 1) % main_items.size
         when :down
-          @cursor = (@cursor + 1) % MAIN_ITEMS.size
+          @cursor = (@cursor + 1) % main_items.size
         when :enter
-          case MAIN_ITEMS[@cursor]
+          case main_items[@cursor]
           when :new_game
             @state = STATE_SKILL
             @cursor = SKILL_MEDIUM  # Default to "Hurt me plenty"
@@ -271,7 +289,7 @@ module Doom
         @font&.draw_centered(framebuffer, "OPTIONS", 20)
 
         # Draw each option with ON/OFF status
-        OPTIONS_ITEMS.each_with_index do |item, i|
+        options_items.each_with_index do |item, i|
           y = OPTIONS_Y + i * OPTIONS_SPACING
           label = OPTIONS_LABELS[item]
           value = @options[item] ? "ON" : "OFF"
@@ -291,11 +309,11 @@ module Doom
       def handle_options_key(key)
         case key
         when :up
-          @cursor = (@cursor - 1) % OPTIONS_ITEMS.size
+          @cursor = (@cursor - 1) % options_items.size
         when :down
-          @cursor = (@cursor + 1) % OPTIONS_ITEMS.size
+          @cursor = (@cursor + 1) % options_items.size
         when :enter
-          item = OPTIONS_ITEMS[@cursor]
+          item = options_items[@cursor]
           @options[item] = !@options[item]
           return { action: :toggle_option, option: item, value: @options[item] }
         when :escape
