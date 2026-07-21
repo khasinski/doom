@@ -35,7 +35,7 @@ module Doom
           players: crc(pack_players(world.players)),
           monsters: crc(pack_monsters(world.monster_ai)),
           combat: crc(pack_combat(world.combat)),
-          sectors: crc(world.map.sectors.map(&:light_level).pack('q<*')),
+          sectors: crc(pack_sectors(world)),
         }
       end
 
@@ -65,10 +65,16 @@ module Doom
       def pack_monsters(monster_ai)
         return '' unless monster_ai
 
+        things = monster_ai.instance_variable_get(:@map).things
         monster_ai.monsters.flat_map do |m|
+          thing = things[m.thing_idx]
           [
             m.thing_idx, m.movedir, m.movecount, (m.active ? 1 : 0),
             (m.attacking ? 1 : 0), m.target&.id || -1,
+            # The map thing's integer position, which hitscan traces against,
+            # lags mon.x/mon.y and is distinct sim state -- a desync in it makes
+            # bullets miss where a monster appears to be.
+            thing.x, thing.y,
           ].pack('q<*') + [m.x, m.y].pack('E*')
         end.join
       end
@@ -83,6 +89,24 @@ module Doom
         ]
         parts << combat.projectiles.flat_map { |pr| [pr.x, pr.y, pr.z, pr.dx, pr.dy] }.pack('E*')
         parts.join
+      end
+
+      # Sector heights as well as lights. Doors and lifts move floor and
+      # ceiling heights, and until now the fingerprint watched only the light
+      # level -- so a door desyncing between peers went unnoticed. Active door
+      # and lift animations are folded in too, so a divergence is caught while
+      # the sector is still moving rather than only once it settles.
+      def pack_sectors(world)
+        sectors = world.map.sectors
+        heights = sectors.flat_map { |s| [s.light_level, s.floor_height, s.ceiling_height] }
+
+        actions = world.sector_actions
+        doors = actions.instance_variable_get(:@active_doors) || {}
+        lifts = actions.instance_variable_get(:@active_lifts) || {}
+        moving = doors.sort_by { |idx, _| idx }.flat_map { |idx, d| [idx, d[:state], d[:wait_tics]] } +
+                 lifts.sort_by { |idx, _| idx }.flat_map { |idx, l| [idx, l[:wait_tics]] }
+
+        heights.pack('q<*') + moving.pack('q<*')
       end
     end
   end

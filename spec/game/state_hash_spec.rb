@@ -141,6 +141,37 @@ RSpec.describe Doom::Game::StateHash do
 
       expect(a.state_hash).not_to eq(b.state_hash)
     end
+
+    # These three were blind spots the fingerprint used to ignore. A door
+    # position, a lift, or a monster's map-thing position could diverge between
+    # peers and the desync monitor would never see it. Snapshot fidelity work
+    # surfaced them; these guard against the coverage regressing.
+    it 'notices a sector floor height difference alone' do
+      a = busy_world(1)
+      b = busy_world(1)
+      b.map.sectors.first.floor_height += 1
+
+      expect(a.state_hash).not_to eq(b.state_hash)
+    end
+
+    it 'notices a moving door alone' do
+      a = busy_world(1)
+      b = busy_world(1)
+      b.sector_actions.instance_variable_get(:@active_doors)[999] =
+        { sector: b.map.sectors.first, state: 1, wait_tics: 3 }
+
+      expect(a.state_hash).not_to eq(b.state_hash)
+    end
+
+    it "notices a monster's map-thing position alone" do
+      # The position hitscan traces against, distinct from mon.x/mon.y.
+      a = busy_world(1)
+      b = busy_world(1)
+      idx = b.monster_ai.monsters.first.thing_idx
+      b.map.things[idx].x += 1
+
+      expect(a.state_hash).not_to eq(b.state_hash)
+    end
   end
 
   describe 'sections' do
