@@ -56,6 +56,18 @@ module Doom
         false
       end
 
+      # Send to a bare address, without registering it as a peer. The game
+      # server tracks its clients itself and replies to wherever a packet came
+      # from, so it does not want the peer table.
+      def send_to_addr(host, port, bytes)
+        return false if closed?
+
+        @socket.send(bytes, 0, host, port)
+        true
+      rescue SystemCallError, IOError
+        false
+      end
+
       def broadcast(bytes)
         @peers.each_value { |peer| send_to(peer, bytes) }
       end

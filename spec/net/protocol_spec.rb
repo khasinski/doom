@@ -166,6 +166,61 @@ RSpec.describe Doom::Net::Protocol do
   end
 
   # These bytes arrive from the network. Nothing here may raise.
+  describe 'server packets' do
+    it 'round-trips a welcome' do
+      msg = described_class.decode(described_class.encode_welcome(
+        player_id: 5, num_players: 16, seed: 200, mode: :deathmatch,
+        skill: 3, snapshot_tic: 90_000, map: 'E1M5'
+      ))
+      expect(msg).to include(type: described_class::WELCOME, player_id: 5, num_players: 16,
+                             seed: 200, mode: :deathmatch, skill: 3, snapshot_tic: 90_000, map: 'E1M5')
+    end
+
+    it 'round-trips client input with its tics' do
+      msg = described_class.decode(described_class.encode_input(4, [[70, cmd], [71, cmd(-1.0)]]))
+      expect(msg[:type]).to eq(described_class::INPUT)
+      expect(msg[:player_id]).to eq(4)
+      expect(msg[:cmds].map(&:first)).to eq([70, 71])
+    end
+
+    it 'round-trips a frame with joins, leaves and commands' do
+      frames = [{ tic: 500, joins: [7, 9], leaves: [2], cmds: [[0, cmd], [1, cmd(0.0)]] }]
+      msg = described_class.decode(described_class.encode_frame(frames))
+      f = msg[:frames].first
+
+      expect(f[:tic]).to eq(500)
+      expect(f[:joins]).to eq([7, 9])
+      expect(f[:leaves]).to eq([2])
+      expect(f[:cmds].map(&:first)).to eq([0, 1])
+      expect(f[:cmds][0][1]).to be_fire
+    end
+
+    it 'round-trips a frame with no membership changes' do
+      msg = described_class.decode(described_class.encode_frame([{ tic: 1, joins: [], leaves: [], cmds: [] }]))
+      expect(msg[:frames].first).to include(tic: 1, joins: [], leaves: [], cmds: [])
+    end
+
+    it 'splits a large snapshot into reassemblable chunks' do
+      blob = ('x'..'z').to_a.join * 5000
+      chunks = described_class.snapshot_chunks(42, blob)
+      expect(chunks.size).to be > 1
+
+      decoded = chunks.map { |c| described_class.decode(c) }
+      expect(decoded.map { |d| d[:type] }).to all(eq(described_class::SNAPSHOT))
+      expect(decoded.map { |d| d[:total] }.uniq).to eq([chunks.size])
+      reassembled = (0...chunks.size).map { |i| decoded.find { |d| d[:index] == i }[:chunk] }.join
+      expect(reassembled).to eq(blob.b)
+    end
+
+    it 'makes a single chunk for a small snapshot' do
+      chunks = described_class.snapshot_chunks(1, 'tiny')
+      expect(chunks.size).to eq(1)
+      d = described_class.decode(chunks.first)
+      expect(d[:chunk]).to eq('tiny'.b)
+      expect(d[:total]).to eq(1)
+    end
+  end
+
   describe 'hostile input' do
     it 'drops nil and empty input' do
       expect(described_class.decode(nil)).to be_nil
@@ -221,6 +276,21 @@ RSpec.describe Doom::Net::Protocol do
                                           map: 'E1M1', mode: :coop, skill: 2)
       (0..base.bytesize).each do |n|
         expect { described_class.decode(base[0, n]) }.not_to raise_error
+      end
+    end
+
+    it 'never raises truncating the server packets at any length' do
+      packets = [
+        described_class.encode_welcome(player_id: 1, num_players: 4, seed: 1, mode: :coop,
+                                       skill: 2, snapshot_tic: 10, map: 'E1M1'),
+        described_class.encode_input(1, [[5, cmd], [6, cmd]]),
+        described_class.encode_frame([{ tic: 5, joins: [1], leaves: [2], cmds: [[0, cmd]] }]),
+        described_class.snapshot_chunks(1, 'abc' * 100).first,
+      ]
+      packets.each do |base|
+        (0..base.bytesize).each do |n|
+          expect { described_class.decode(base[0, n]) }.not_to raise_error
+        end
       end
     end
   end

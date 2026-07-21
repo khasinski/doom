@@ -21,8 +21,19 @@ module Doom
       QUIT   = 5  # I am leaving
       PEERS  = 6  # Everyone else's address, so the mesh can form
 
+      # Star-topology server packets (Net::GameServer). Separate from the peer
+      # lockstep ones above: the server is authoritative and never waits, so
+      # its packets carry finalized tics, not proposals.
+      WELCOME  = 7  # server -> joiner: your id and the game, snapshot to follow
+      SNAPSHOT = 8  # server -> joiner: one chunk of the world snapshot
+      INPUT    = 9  # client -> server: my ticcmd for a future tic
+      FRAME    = 10 # server -> clients: the finalized tics everyone must run
+
       MAX_CMDS_PER_PACKET = 32
       MAX_PACKET_SIZE = 512
+      # Payload per snapshot chunk, kept well under a typical path MTU so a
+      # chunk is never itself IP-fragmented.
+      SNAPSHOT_CHUNK_BYTES = 1024
 
       module_function
 
@@ -68,6 +79,50 @@ module Doom
         [VERSION, PEERS, entries.size].pack('CCC') + body
       end
 
+      # server -> joiner. Says who they are and what game this is; the world
+      # itself follows as SNAPSHOT chunks for the same snapshot_tic.
+      def encode_welcome(player_id:, num_players:, seed:, mode:, skill:, snapshot_tic:, map:)
+        [VERSION, WELCOME, player_id, num_players, seed, mode_code(mode), skill].pack('CCCCCCC') +
+          [snapshot_tic].pack('L<') + encode_string(map)
+      end
+
+      def encode_snapshot_chunk(snapshot_tic, index, total, chunk_bytes)
+        [VERSION, SNAPSHOT].pack('CC') + [snapshot_tic, index, total].pack('L<S<S<') + chunk_bytes.b
+      end
+
+      # Split a full snapshot into datagram-sized chunks for one tic.
+      def snapshot_chunks(snapshot_tic, bytes)
+        bytes = bytes.b
+        total = [(bytes.bytesize + SNAPSHOT_CHUNK_BYTES - 1) / SNAPSHOT_CHUNK_BYTES, 1].max
+        (0...total).map do |i|
+          encode_snapshot_chunk(snapshot_tic, i, total, bytes.byteslice(i * SNAPSHOT_CHUNK_BYTES, SNAPSHOT_CHUNK_BYTES) || ''.b)
+        end
+      end
+
+      # client -> server. `pairs` is [[tic, Ticcmd], ...]; recent inputs are
+      # repeated so a lost packet is covered by the next, as with TICCMD.
+      def encode_input(player_id, pairs)
+        pairs = pairs.last(MAX_CMDS_PER_PACKET)
+        body = pairs.map { |tic, cmd| [tic].pack('L<') + cmd.pack }.join
+        [VERSION, INPUT, player_id, pairs.size].pack('CCCC') + body
+      end
+
+      # server -> clients. A batch of finalized tics, oldest first. Each tic
+      # carries the membership changes to apply (joins and leaves are tic
+      # events, because a deathmatch spawn draws the shared RNG and must happen
+      # on the same tic everywhere) and then every player's command.
+      def encode_frame(frames)
+        frames = frames.last(MAX_CMDS_PER_PACKET)
+        body = frames.map do |f|
+          [f[:tic]].pack('L<') +
+            [f[:joins].size].pack('C') + f[:joins].pack('C*') +
+            [f[:leaves].size].pack('C') + f[:leaves].pack('C*') +
+            [f[:cmds].size].pack('C') +
+            f[:cmds].map { |id, cmd| [id].pack('C') + cmd.pack }.join
+        end.join
+        [VERSION, FRAME, frames.size].pack('CCC') + body
+      end
+
       def decode(bytes)
         return nil if bytes.nil? || bytes.bytesize < 2
 
@@ -76,13 +131,86 @@ module Doom
         return nil unless version == VERSION
 
         case type
-        when HELLO  then decode_hello(bytes)
-        when SETUP  then decode_setup(bytes)
-        when TICCMD then decode_ticcmds(bytes)
-        when HASH   then decode_hash(bytes)
-        when QUIT   then decode_quit(bytes)
-        when PEERS  then decode_peers(bytes)
+        when HELLO    then decode_hello(bytes)
+        when SETUP    then decode_setup(bytes)
+        when TICCMD   then decode_ticcmds(bytes)
+        when HASH     then decode_hash(bytes)
+        when QUIT     then decode_quit(bytes)
+        when PEERS    then decode_peers(bytes)
+        when WELCOME  then decode_welcome(bytes)
+        when SNAPSHOT then decode_snapshot_chunk(bytes)
+        when INPUT    then decode_input(bytes)
+        when FRAME    then decode_frame(bytes)
         end
+      end
+
+      def decode_welcome(bytes)
+        return nil if bytes.bytesize < 11
+
+        _, _, player_id, num_players, seed, mode, skill = bytes.unpack('CCCCCCC')
+        snapshot_tic = bytes[7, 4].unpack1('L<')
+        map, = decode_string(bytes, 11)
+        return nil if map.nil? || map.empty?
+
+        { type: WELCOME, player_id: player_id, num_players: num_players, seed: seed,
+          mode: mode_name(mode), skill: skill, snapshot_tic: snapshot_tic, map: map }
+      end
+
+      def decode_snapshot_chunk(bytes)
+        return nil if bytes.bytesize < 10
+
+        snapshot_tic, index, total = bytes[2, 8].unpack('L<S<S<')
+        { type: SNAPSHOT, snapshot_tic: snapshot_tic, index: index, total: total,
+          chunk: bytes.byteslice(10, bytes.bytesize - 10) }
+      end
+
+      def decode_input(bytes)
+        return nil if bytes.bytesize < 4
+
+        _, _, player_id, count = bytes.unpack('CCCC')
+        entry = 4 + Game::Ticcmd::PACKED_SIZE
+        return nil if bytes.bytesize < 4 + (count * entry)
+
+        cmds = Array.new(count) do |i|
+          at = 4 + (i * entry)
+          [bytes[at, 4].unpack1('L<'), Game::Ticcmd.unpack(bytes[at + 4, Game::Ticcmd::PACKED_SIZE])]
+        end
+        { type: INPUT, player_id: player_id, cmds: cmds }
+      end
+
+      def decode_frame(bytes)
+        return nil if bytes.bytesize < 3
+
+        count = bytes.unpack('CCC')[2]
+        offset = 3
+        frames = []
+        entry = 1 + Game::Ticcmd::PACKED_SIZE
+
+        count.times do
+          return nil if bytes.bytesize < offset + 5
+
+          tic = bytes[offset, 4].unpack1('L<')
+          offset += 4
+          njoins = bytes[offset].unpack1('C'); offset += 1
+          return nil if bytes.bytesize < offset + njoins
+          joins = bytes[offset, njoins].unpack('C*'); offset += njoins
+          return nil if bytes.bytesize < offset + 1
+          nleaves = bytes[offset].unpack1('C'); offset += 1
+          return nil if bytes.bytesize < offset + nleaves
+          leaves = bytes[offset, nleaves].unpack('C*'); offset += nleaves
+          return nil if bytes.bytesize < offset + 1
+          ncmds = bytes[offset].unpack1('C'); offset += 1
+          return nil if bytes.bytesize < offset + (ncmds * entry)
+
+          cmds = Array.new(ncmds) do |i|
+            at = offset + (i * entry)
+            [bytes[at].unpack1('C'), Game::Ticcmd.unpack(bytes[at + 1, Game::Ticcmd::PACKED_SIZE])]
+          end
+          offset += ncmds * entry
+          frames << { tic: tic, joins: joins, leaves: leaves, cmds: cmds }
+        end
+
+        { type: FRAME, frames: frames }
       end
 
       def decode_peers(bytes)

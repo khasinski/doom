@@ -84,6 +84,21 @@ module Doom
         @players.find { |p| p.id == id }
       end
 
+      # Remove a player mid-match: someone left, or the server timed them out.
+      # Pure bookkeeping, no RNG, so it stays deterministic across peers as long
+      # as they all remove the same id on the same tic. Monsters targeting the
+      # departed player re-pick next tic via MonsterAI's own dead/absent check.
+      def remove_player(id)
+        player = @players.find { |p| p.id == id }
+        return unless player
+
+        @players.delete(player)
+        @physics_by_id.delete(id)
+        @combat.players = @players
+        @monster_ai.monsters.each { |m| m.target = nil if m.target&.id == id }
+        player
+      end
+
       # Where player `id` enters the map. Deathmatch draws from the map's DM
       # spawns through the shared RNG, so every peer picks the same one.
       def spawn_point_for(id)
