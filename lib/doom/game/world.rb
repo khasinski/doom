@@ -51,7 +51,7 @@ module Doom
         @sector_actions = SectorActions.new(map, sound)
         @sector_effects = SectorEffects.new(map, random: random)
         @item_pickup = ItemPickup.new(map, skill_hidden)
-        @combat = Combat.new(map, nil, sprites, skill_hidden, sound, random: random)
+        @combat = Combat.new(map, sprites, skill_hidden, sound, random: random)
         @monster_ai = MonsterAI.new(map, @combat, sprites, skill_hidden, sound, random: random)
       end
 
@@ -220,7 +220,7 @@ module Doom
 
       def rebuild_actor_subsystems
         @item_pickup = ItemPickup.new(@map, @skill_hidden)
-        @combat = Combat.new(@map, nil, @sprites, @skill_hidden, @sound, random: @random)
+        @combat = Combat.new(@map, @sprites, @skill_hidden, @sound, random: @random)
         @monster_ai = MonsterAI.new(@map, @combat, @sprites, @skill_hidden, @sound, random: @random)
         @monster_ai.damage_multiplier = @damage_multiplier
 

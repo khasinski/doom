@@ -17,7 +17,7 @@ RSpec.describe Doom::Game::MonsterAI do
   # Subsystems take player entities now. One actor is reused so a monster's
   # remembered target keeps its identity while the position moves.
   let(:actor) { Doom::Game::Player.new(state: player) }
-  let(:combat) { Doom::Game::Combat.new(@map, nil, @sprites) }
+  let(:combat) { Doom::Game::Combat.new(@map, @sprites) }
   subject(:ai) { described_class.new(@map, combat, @sprites) }
 
   def at(x, y, z = 41.0)

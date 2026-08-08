@@ -26,7 +26,7 @@ RSpec.describe 'simulation determinism' do
     map = Doom::Map::MapData.load(@wad, 'E1M1')
     rng = Doom::Game::Random.new(seed)
     player = Doom::Game::PlayerState.new
-    combat = Doom::Game::Combat.new(map, nil, @sprites, {}, nil, random: rng)
+    combat = Doom::Game::Combat.new(map, @sprites, {}, nil, random: rng)
     ai = Doom::Game::MonsterAI.new(map, combat, @sprites, {}, nil, random: rng)
     actor = Doom::Game::Player.new(state: player)
     at = ->(x, y, z = 41.0) { actor.place(x, y, z, 0); actor }

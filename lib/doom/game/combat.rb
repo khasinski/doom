@@ -108,7 +108,7 @@ module Doom
       # Shotgun: 7 pellets, each 1*5..3*5 = 5-15
       # Fist/chainsaw: 1*2..3*2 = 2-10
 
-      def initialize(map, _player_state = nil, sprites = nil, hidden_things = {}, sound_engine = nil,
+      def initialize(map, sprites = nil, hidden_things = {}, sound_engine = nil,
                      random: Random.new)
         @map = map
         @random = random

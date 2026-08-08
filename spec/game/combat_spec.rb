@@ -12,8 +12,7 @@ RSpec.describe Doom::Game::Combat do
 
   after(:all) { @wad&.close }
 
-  let(:player) { Doom::Game::PlayerState.new }
-  subject(:combat) { described_class.new(@map, player, @sprites) }
+  subject(:combat) { described_class.new(@map, @sprites) }
 
   describe '#fire hitscan' do
     it 'damages monsters in line of fire' do
@@ -26,7 +25,7 @@ RSpec.describe Doom::Game::Combat do
       # a seeded RNG so the pistol's tiny spread is deterministic and cannot
       # miss the 20-unit-radius target. A seeded local combat also lets us
       # assert the shot actually landed rather than let a miss pass vacuously.
-      c = described_class.new(@map, nil, @sprites, {}, nil, random: Doom::Game::Random.new(1))
+      c = described_class.new(@map, @sprites, {}, nil, random: Doom::Game::Random.new(1))
       c.fire(thing.x - 96.0, thing.y.to_f, 41.0, 1.0, 0.0, Doom::Game::PlayerState::WEAPON_PISTOL)
       hp = c.instance_variable_get(:@monster_hp)
 
@@ -45,7 +44,7 @@ RSpec.describe Doom::Game::Combat do
       floor = sec ? sec.floor_height : 0
 
       hurt = lambda do |mult|
-        c = described_class.new(@map, nil, @sprites, {}, nil, random: Doom::Game::Random.new(7))
+        c = described_class.new(@map, @sprites, {}, nil, random: Doom::Game::Random.new(7))
         victim = Doom::Game::Player.new(id: 0)
         victim.place(start.x.to_f, start.y.to_f, floor + 41.0, 0)
         c.players = [victim]
