@@ -38,10 +38,11 @@ module Doom
         forwardmove != 0.0 || sidemove != 0.0
       end
 
-      # Fixed 8 bytes on the wire: three signed shorts plus a byte of buttons
-      # (padded). Movement is quantised to 1/1000 and the turn to 1/100 of a
-      # degree -- both far finer than any input device resolves, and identical
-      # on every peer, which matters more than the precision itself.
+      # Fixed 7 bytes on the wire ('s>s>s>C', == PACKED_SIZE): three signed
+      # shorts plus a byte of buttons, no padding. Movement is quantised to
+      # 1/1000 and the turn to 1/100 of a degree -- both far finer than any input
+      # device resolves, and identical on every peer, which matters more than the
+      # precision itself.
       def pack
         [
           (forwardmove * 1000).round.clamp(-32_768, 32_767),

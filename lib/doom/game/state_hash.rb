@@ -87,7 +87,13 @@ module Doom
           hp.sort.flatten.pack('q<*'),
           combat.dead_things.keys.sort.pack('q<*'),
         ]
-        parts << combat.projectiles.flat_map { |pr| [pr.x, pr.y, pr.z, pr.dx, pr.dy] }.pack('E*')
+        # z and dz are as much sim state as x/y -- a projectile diverging only in
+        # height still diverges. spawn_tic pins its identity, and the damage
+        # multiplier it carries changes the damage it will deal on impact.
+        parts << combat.projectiles.flat_map do |pr|
+          [pr.x, pr.y, pr.z, pr.dx, pr.dy, pr.dz || 0.0, pr.damage_multiplier || 1.0]
+        end.pack('E*')
+        parts << combat.projectiles.map(&:spawn_tic).pack('q<*')
         parts.join
       end
 
@@ -103,10 +109,16 @@ module Doom
         actions = world.sector_actions
         doors = actions.instance_variable_get(:@active_doors) || {}
         lifts = actions.instance_variable_get(:@active_lifts) || {}
+        sorted_lifts = lifts.sort_by { |idx, _| idx }
         moving = doors.sort_by { |idx, _| idx }.flat_map { |idx, d| [idx, d[:state], d[:wait_tics]] } +
-                 lifts.sort_by { |idx, _| idx }.flat_map { |idx, l| [idx, l[:wait_tics]] }
+                 sorted_lifts.flat_map { |idx, l| [idx, l[:wait_tics]] }
+        # A lift's :state is a symbol (going down / waiting / coming up), not an
+        # integer like a door's, so it is folded in as bytes rather than packed
+        # with the integer run -- otherwise a lift changing phase between peers
+        # would go unnoticed the way a moving door once did.
+        lift_states = sorted_lifts.map { |_, l| l[:state].to_s }.join("\0")
 
-        heights.pack('q<*') + moving.pack('q<*')
+        heights.pack('q<*') + moving.pack('q<*') + lift_states
       end
     end
   end

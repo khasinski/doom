@@ -31,15 +31,31 @@ def take_flag(name)
   ARGV.delete_at(idx)
 end
 
+# Parse a flag that must be a positive integer; fall back to `default` (with a
+# warning) if it is missing or malformed, so `--port foo` or `--frags -5` can't
+# silently mis-configure the session.
+def positive_int_flag(name, default)
+  raw = take_flag(name)
+  return default if raw.nil?
+
+  n = Integer(raw, exception: false)
+  return n if n&.positive?
+
+  warn "#{name}: expected a positive integer, got #{raw.inspect}; using #{default}"
+  default
+end
+
 net_host = ARGV.delete('--host')
 net_connect = take_flag('--connect')
-net_port = (take_flag('--port') || 5029).to_i
-net_players = (take_flag('--players') || 2).to_i
+net_port = positive_int_flag('--port', 5029)
+net_players = positive_int_flag('--players', 2)
 net_mode = ARGV.delete('--deathmatch') ? :deathmatch : :coop
 # Frag limit: 0 or absent means play on forever. Every peer has to pass the
 # same value -- it is not part of the handshake, only what the match reports.
-net_frags = take_flag('--frags').to_i
-net_frags = nil unless net_frags.positive?
+# --frags is optional; absent or malformed means no limit (nil).
+raw_frags = take_flag('--frags')
+net_frags = raw_frags && Integer(raw_frags, exception: false)
+net_frags = nil unless net_frags&.positive?
 
 # Parse arguments before loading heavy dependencies
 wad_path = ARGV.find { |a| !a.start_with?('-') }

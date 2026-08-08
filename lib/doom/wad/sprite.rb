@@ -3,7 +3,7 @@
 module Doom
   module Wad
     class Sprite
-      attr_reader :name, :width, :height, :left_offset, :top_offset
+      attr_reader :name, :width, :height, :left_offset, :top_offset, :columns
 
       def initialize(name, width, height, left_offset, top_offset, columns)
         @name = name
@@ -292,7 +292,7 @@ module Doom
 
       def mirror_sprite(sprite)
         # Flip columns horizontally, adjust left_offset
-        mirrored_columns = sprite.instance_variable_get(:@columns).reverse
+        mirrored_columns = sprite.columns.reverse
         mirrored_left = sprite.width - sprite.left_offset
         Sprite.new(
           "#{sprite.name}_M",

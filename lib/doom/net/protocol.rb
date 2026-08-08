@@ -2,7 +2,9 @@
 
 module Doom
   module Net
-    # Wire format for lockstep play.
+    # Wire format for both multiplayer stacks: the peer-to-peer lockstep mesh
+    # (HELLO/SETUP/TICCMD/HASH/QUIT/PEERS) and the authoritative star server
+    # (WELCOME/SNAPSHOT/INPUT/FRAME).
     #
     # Kept separate from the socket so it can be tested without one, and so
     # nothing that parses bytes off the network has any business touching a
@@ -30,15 +32,16 @@ module Doom
       FRAME    = 10 # server -> clients: the finalized tics everyone must run
 
       MAX_CMDS_PER_PACKET = 32
-      MAX_PACKET_SIZE = 512
       # Payload per snapshot chunk, kept well under a typical path MTU so a
       # chunk is never itself IP-fragmented.
       SNAPSHOT_CHUNK_BYTES = 1024
 
       module_function
 
-      def encode_hello(name = '')
-        [VERSION, HELLO].pack('CC') + encode_string(name)
+      # HELLO carries nothing but "let me in": the server (or host) assigns the
+      # id and tells the joiner everything else.
+      def encode_hello
+        [VERSION, HELLO].pack('CC')
       end
 
       def encode_setup(player_id:, num_players:, seed:, map:, mode:, skill:)
@@ -80,9 +83,10 @@ module Doom
       end
 
       # server -> joiner. Says who they are and what game this is; the world
-      # itself follows as SNAPSHOT chunks for the same snapshot_tic.
-      def encode_welcome(player_id:, num_players:, seed:, mode:, skill:, snapshot_tic:, map:)
-        [VERSION, WELCOME, player_id, num_players, seed, mode_code(mode), skill].pack('CCCCCCC') +
+      # itself follows as SNAPSHOT chunks for the same snapshot_tic. No RNG seed
+      # is sent: the snapshot already carries the exact RNG state to resume from.
+      def encode_welcome(player_id:, num_players:, mode:, skill:, snapshot_tic:, map:)
+        [VERSION, WELCOME, player_id, num_players, mode_code(mode), skill].pack('CCCCCC') +
           [snapshot_tic].pack('L<') + encode_string(map)
       end
 
@@ -145,14 +149,14 @@ module Doom
       end
 
       def decode_welcome(bytes)
-        return nil if bytes.bytesize < 11
+        return nil if bytes.bytesize < 10
 
-        _, _, player_id, num_players, seed, mode, skill = bytes.unpack('CCCCCCC')
-        snapshot_tic = bytes[7, 4].unpack1('L<')
-        map, = decode_string(bytes, 11)
+        _, _, player_id, num_players, mode, skill = bytes.unpack('CCCCCC')
+        snapshot_tic = bytes[6, 4].unpack1('L<')
+        map, = decode_string(bytes, 10)
         return nil if map.nil? || map.empty?
 
-        { type: WELCOME, player_id: player_id, num_players: num_players, seed: seed,
+        { type: WELCOME, player_id: player_id, num_players: num_players,
           mode: mode_name(mode), skill: skill, snapshot_tic: snapshot_tic, map: map }
       end
 
@@ -235,8 +239,8 @@ module Doom
         { type: PEERS, peers: entries }
       end
 
-      def decode_hello(bytes)
-        { type: HELLO, name: decode_string(bytes, 2).first.to_s }
+      def decode_hello(_bytes)
+        { type: HELLO }
       end
 
       def decode_setup(bytes)

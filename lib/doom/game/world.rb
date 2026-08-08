@@ -50,7 +50,7 @@ module Doom
 
         @sector_actions = SectorActions.new(map, sound)
         @sector_effects = SectorEffects.new(map, random: random)
-        @item_pickup = ItemPickup.new(map, nil, skill_hidden)
+        @item_pickup = ItemPickup.new(map, skill_hidden)
         @combat = Combat.new(map, nil, sprites, skill_hidden, sound, random: random)
         @monster_ai = MonsterAI.new(map, @combat, nil, sprites, skill_hidden, sound, random: random)
       end
@@ -212,10 +212,14 @@ module Doom
         @leveltime
       end
 
+      def hidden_things
+        @skill_hidden.merge(@item_pickup.picked_up)
+      end
+
       private
 
       def rebuild_actor_subsystems
-        @item_pickup = ItemPickup.new(@map, nil, @skill_hidden)
+        @item_pickup = ItemPickup.new(@map, @skill_hidden)
         @combat = Combat.new(@map, nil, @sprites, @skill_hidden, @sound, random: @random)
         @monster_ai = MonsterAI.new(@map, @combat, nil, @sprites, @skill_hidden, @sound, random: @random)
         @monster_ai.damage_multiplier = @damage_multiplier
@@ -236,8 +240,12 @@ module Doom
         state = player.state
         physics = physics_for(player)
 
-        # View bob feeds eye height, which feeds firing height and monster aim,
-        # so it is simulation rather than decoration and runs on the tic clock.
+        # viewheight (step-up/down recovery) feeds eye height, which feeds firing
+        # height and monster aim, so it is simulation rather than decoration and
+        # runs on the tic clock. View bob would feed eye height too, but its
+        # momentum is never supplied in production (nothing calls
+        # set_movement_momentum), so view_bob_offset stays 0 here -- update_bob
+        # and update_view_bob only drive on-screen weapon/camera bounce.
         state.update_bob(TIC_SECONDS)
         state.update_view_bob(TIC_SECONDS)
         state.update_viewheight
@@ -415,10 +423,6 @@ module Doom
         msg&.include?('!') ? @sound.weapon_pickup : @sound.item_pickup
       end
 
-      def hidden_things
-        @skill_hidden.merge(@item_pickup.picked_up)
-      end
-      public :hidden_things
     end
   end
 end

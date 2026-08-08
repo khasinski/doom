@@ -2,8 +2,11 @@
 
 module Doom
   module Game
-    # Hitscan weapon firing and monster state tracking.
-    # Matches Chocolate Doom's P_LineAttack / P_AimLineAttack from p_map.c.
+    # Combat resolution for every weapon and every damageable thing: hitscan
+    # (pistol/shotgun/chaingun), melee (fist/chainsaw), rockets and their splash,
+    # monster fireballs, barrel chain reactions, player-vs-player damage and frag
+    # scoring. Hitscan/aim matches Chocolate Doom's P_LineAttack / P_AimLineAttack
+    # (p_map.c); splash matches P_RadiusAttack (p_inter.c).
     class Combat
       # Monster starting HP (from mobjinfo[] in info.c)
       MONSTER_HP = {
@@ -32,11 +35,9 @@ module Doom
         2035 => 10,  # Barrel
       }.freeze
 
-      # Barrel (explosive, not a monster but damageable)
+      # Barrel (explosive, not a monster but damageable). Its HP comes from
+      # MONSTER_HP[BARREL_TYPE]; its explosion reuses the shared SPLASH_* values.
       BARREL_TYPE = 2035
-      BARREL_HP = 20
-      BARREL_SPLASH_RADIUS = 128.0
-      BARREL_SPLASH_DAMAGE = 128
 
       # Normal death frame sequences per sprite prefix (rotation 0 only)
       # Identified by sprite heights: frames go from standing height to flat on ground
@@ -74,11 +75,12 @@ module Doom
       SPLASH_RADIUS = 128.0     # Splash damage radius
       SPLASH_DAMAGE = 128       # Max splash damage at center
 
-      # Monster projectile definitions
+      # Monster projectile definitions. :radius is the projectile's own collision
+      # radius, added to the player radius when testing a hit.
       MONSTER_PROJECTILES = {
-        imp:    { sprite: 'BAL1', speed: 10.0, damage: [3, 24], radius: 6, splash: false },
-        baron:  { sprite: 'BAL7', speed: 15.0, damage: [8, 64], radius: 6, splash: false },
-        caco:   { sprite: 'BAL2', speed: 10.0, damage: [5, 40], radius: 6, splash: false },
+        imp:    { sprite: 'BAL1', speed: 10.0, damage: [3, 24], radius: 6 },
+        baron:  { sprite: 'BAL7', speed: 15.0, damage: [8, 64], radius: 6 },
+        caco:   { sprite: 'BAL2', speed: 10.0, damage: [5, 40], radius: 6 },
       }.freeze
 
       # Map monster type to projectile type
@@ -95,8 +97,11 @@ module Doom
 
       # `owner` is the Player who fired, so a kill can be credited. Monster
       # projectiles leave it nil: DOOM gives no frag for a death by monster.
+      # `damage_multiplier` scales the damage a monster fireball deals on impact,
+      # so a skill's damage factor reaches the fireball it spawned. Player
+      # projectiles (rockets) carry 1.0.
       Projectile = Struct.new(:x, :y, :z, :dx, :dy, :dz, :type, :spawn_tic, :sprite_prefix,
-                              :target, :owner)
+                              :target, :owner, :damage_multiplier)
 
       # Weapon damage: DOOM does (P_Random()%3 + 1) * multiplier
       # Pistol/chaingun: 1*5..3*5 = 5-15 per bullet
@@ -123,12 +128,6 @@ module Doom
       # Every player the world knows about. Projectile collision, splash damage
       # and monster aim all consider all of them, not one bound player.
       attr_accessor :players
-
-      # Whether players can hurt each other. The World turns this on for
-      # deathmatch only: co-op in DOOM has no friendly fire, and single player
-      # has nobody else to hit, so with it off every targeting path below stays
-      # exactly the one it was before deathmatch existed -- same hits, same RNG
-      # draws, same order.
 
       # Spawn a monster projectile (fireball, etc.)
       # Matches Chocolate Doom's P_SpawnMissile: calculates momz for vertical aim
@@ -158,7 +157,7 @@ module Doom
 
         @projectiles << Projectile.new(
           monster_x + ndx * 2, monster_y + ndy * 2, monster_z,
-          ndx, ndy, ndz, proj_type, @tic, info[:sprite], :player, nil
+          ndx, ndy, ndz, proj_type, @tic, info[:sprite], :player, nil, damage_multiplier
         )
       end
 
@@ -233,7 +232,7 @@ module Doom
         @projectiles << Projectile.new(
           px + cos_a * 20, py + sin_a * 20, pz,
           cos_a * ROCKET_SPEED, sin_a * ROCKET_SPEED, 0.0,
-          :rocket, @tic, 'MISL', :monsters, shooter
+          :rocket, @tic, 'MISL', :monsters, shooter, 1.0
         )
       end
 
@@ -316,29 +315,29 @@ module Doom
             end
 
             if hit_wall || hit_monster || hit_player
-              explode(new_x, new_y, hit_monster, proj.owner) if proj.type == :rocket
-              hit_monster ? apply_damage(hit_monster, (@random.rand(8) + 1) * 5) : nil unless proj.type == :rocket
+              # Only rockets target :monsters, so the detonation is always a
+              # rocket explosion (direct hit plus splash).
+              explode(new_x, new_y, hit_monster, proj.owner)
               hit = true
             end
           elsif proj.target == :player
             # Monster projectile: hits whichever player it reaches first, not
             # only the one it was aimed at -- a fireball meant for someone else
             # still hurts if you walk into it.
-            player_radius = 16
+            info = MONSTER_PROJECTILES[proj.type]
+            hit_radius = PLAYER_RADIUS + (info ? info[:radius] : 6)
             struck = @players.find do |pl|
               next false if pl.state.dead
               dx = new_x - pl.x
               dy = new_y - pl.y
-              (dx * dx) + (dy * dy) < (player_radius + 6)**2
+              (dx * dx) + (dy * dy) < hit_radius**2
             end
 
             if hit_wall || struck
-              if !hit_wall && struck
-                info = MONSTER_PROJECTILES[proj.type]
-                if info
-                  min_d, max_d = info[:damage]
-                  damage_player(struck, @random.rand(min_d..max_d), nil)
-                end
+              if !hit_wall && struck && info
+                min_d, max_d = info[:damage]
+                damage = (@random.rand(min_d..max_d) * (proj.damage_multiplier || 1.0)).to_i
+                damage_player(struck, damage, nil)
               end
               # Spawn fireball explosion
               @explosions << { x: new_x, y: new_y, z: proj.z, tic: @tic, sprite: proj.sprite_prefix }
@@ -364,26 +363,30 @@ module Doom
           apply_damage(direct_hit_idx, damage)
         end
 
-        # Splash damage to all monsters in radius
-        @map.things.each_with_index do |thing, idx|
-          next unless MONSTER_HP[thing.type]
-          next if @dead_things[idx]
-          next if idx == direct_hit_idx  # Already took direct hit
-
-          dx = x - thing.x
-          dy = y - thing.y
-          dist = Math.sqrt(dx * dx + dy * dy)
-          next if dist >= SPLASH_RADIUS
-
-          # Damage falls off linearly with distance
-          damage = ((SPLASH_DAMAGE * (1.0 - dist / SPLASH_RADIUS))).to_i
-          apply_damage(idx, damage) if damage > 0
-        end
-
+        splash_monsters(x, y, SPLASH_RADIUS, SPLASH_DAMAGE, direct_hit_idx)
         splash_players(x, y, SPLASH_RADIUS, SPLASH_DAMAGE, owner)
 
         # Spawn explosion visual
         @explosions << { x: x, y: y, tic: @tic, sprite: 'MISL' }
+      end
+
+      # Splash damage to every monster (and barrel, for chain reactions) in
+      # radius, falling off linearly, skipping any dead thing and the excluded
+      # index (a rocket's direct-hit target or the barrel that just went off).
+      def splash_monsters(x, y, radius, max_damage, exclude_idx)
+        @map.things.each_with_index do |thing, idx|
+          next unless MONSTER_HP[thing.type]
+          next if @dead_things[idx]
+          next if idx == exclude_idx
+
+          dx = x - thing.x
+          dy = y - thing.y
+          dist = Math.sqrt(dx * dx + dy * dy)
+          next if dist >= radius
+
+          damage = (max_damage * (1.0 - (dist / radius))).to_i
+          apply_damage(idx, damage) if damage > 0
+        end
       end
 
       # Splash reaches the shooter too, which is how a rocket suicide happens.
@@ -585,33 +588,11 @@ module Doom
       def barrel_explode(x, y, barrel_idx)
         @explosions << { x: x, y: y, tic: @tic, sprite: 'MISL' }
 
-        # Splash damage to monsters and other barrels (chain reactions!)
-        @map.things.each_with_index do |thing, idx|
-          next unless MONSTER_HP[thing.type]
-          next if @dead_things[idx]
-          next if idx == barrel_idx
-
-          dx = x - thing.x
-          dy = y - thing.y
-          dist = Math.sqrt(dx * dx + dy * dy)
-          next if dist >= BARREL_SPLASH_RADIUS
-
-          damage = ((BARREL_SPLASH_DAMAGE * (1.0 - dist / BARREL_SPLASH_RADIUS))).to_i
-          apply_damage(idx, damage) if damage > 0
-        end
-
-        # Splash damage reaches every player in radius, including the one who
-        # set it off. Nobody is credited: the barrel is not a player, and we do
-        # not track who shot it.
-        @players.each do |pl|
-          next if pl.state.dead
-
-          dist = Math.hypot(x - pl.x, y - pl.y)
-          next unless dist < BARREL_SPLASH_RADIUS
-
-          damage = (BARREL_SPLASH_DAMAGE * (1.0 - (dist / BARREL_SPLASH_RADIUS))).to_i
-          damage_player(pl, damage, nil)
-        end
+        # Splash damage to monsters and other barrels (chain reactions!), then to
+        # every player in radius including the one who set it off. Nobody is
+        # credited: the barrel is not a player, and we do not track who shot it.
+        splash_monsters(x, y, SPLASH_RADIUS, SPLASH_DAMAGE, barrel_idx)
+        splash_players(x, y, SPLASH_RADIUS, SPLASH_DAMAGE, nil)
       end
 
       def trace_wall(px, py, cos_a, sin_a)

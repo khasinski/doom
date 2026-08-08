@@ -22,8 +22,9 @@ module Doom
         @cache[name]
       end
 
-      private
-
+      # Load (and cache) a single named patch/graphic lump. Returns a HudSprite
+      # or nil if the lump is missing or too small. Public so the menu,
+      # intermission and font renderers can pull graphics by name.
       def load_graphic(name)
         return @cache[name] if @cache[name]
 
@@ -37,6 +38,8 @@ module Doom
         @cache[name] = sprite
         sprite
       end
+
+      private
 
       def parse_patch(name, data)
         width = data[0, 2].unpack1('v')

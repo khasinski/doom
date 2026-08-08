@@ -6,8 +6,8 @@ module Doom
   module Game
     # Manages animated sector actions (doors, lifts, etc.)
     class SectorActions
-      # Door states
-      DOOR_CLOSED = 0
+      # Door states (doors start at DOOR_OPENING and are deleted once fully
+      # closed, so there is no resting DOOR_CLOSED state to model).
       DOOR_OPENING = 1
       DOOR_OPEN = 2
       DOOR_CLOSING = 3
@@ -15,7 +15,6 @@ module Doom
       # Door speeds (units per tic, 35 tics/sec)
       DOOR_SPEED = 2
       DOOR_WAIT = 150  # Tics to wait when open (~4 seconds)
-      PLAYER_HEIGHT = 56
 
       # Lift constants
       LIFT_SPEED = 4
@@ -112,11 +111,11 @@ module Doom
 
       # Walk-over trigger types:
       # W1 = once, WR = repeatable
+      # Note: stair builders (specials 7 and 8) are not modeled, so they are
+      # intentionally absent here.
       WALK_TRIGGERS = {
         2  => :door_open_stay,    # W1 Door Open Stay
         5  => :raise_floor,       # W1 Raise Floor to Lowest Ceiling
-        7  => :stairs,            # S1 Build Stairs
-        8  => :stairs,            # W1 Build Stairs
         52 => :exit,              # W1 Exit
         82 => :lower_floor,       # WR Lower Floor to Lowest
         86 => :door_open_stay,    # WR Door Open Stay
@@ -129,7 +128,7 @@ module Doom
       }.freeze
 
       # W1 types that only trigger once
-      W1_TYPES = [2, 5, 7, 8, 52, 124].freeze
+      W1_TYPES = [2, 5, 52, 124].freeze
 
       def check_walk_triggers
         @near_linedefs ||= {}
@@ -183,7 +182,7 @@ module Doom
           when :lift
             activate_lift(ld)
           when :raise_floor
-            raise_floor_to_next(ld)
+            raise_floor_to_lowest_ceiling(ld)
           when :lower_floor
             lower_floor_to_highest(ld)
           when :teleport
@@ -379,6 +378,13 @@ module Doom
               @active_lifts.delete(idx)
               @sound&.platform_stop
             end
+          when :floor_lowering
+            # One-way floor lower (e.g. special 23): lower to target and stay.
+            lift[:sector].floor_height -= LIFT_SPEED
+            if lift[:sector].floor_height <= lift[:target_low]
+              lift[:sector].floor_height = lift[:target_low]
+              @active_lifts.delete(idx)
+            end
           end
         end
       end
@@ -402,14 +408,46 @@ module Doom
         end
       end
 
+      # Specials 5 (W1) and 91 (WR): DOOM's raiseFloor mover raises the floor
+      # to the lowest ceiling among surrounding sectors. Both specials use the
+      # same mover in vanilla, so they are not split here.
+      def raise_floor_to_lowest_ceiling(linedef)
+        tag = linedef.tag
+        return if tag == 0
+
+        @map.sectors.each_with_index do |sector, idx|
+          next unless sector_has_tag?(idx, tag)
+          target = find_lowest_ceiling_around(idx)
+          next if target <= sector.floor_height
+
+          @active_lifts[idx] = {
+            sector: sector,
+            state: :raising,
+            target_low: sector.floor_height,
+            original_height: target,
+            wait_tics: 0,
+          }
+        end
+      end
+
       def lower_floor_to_lowest(linedef)
         tag = linedef.tag
         return if tag == 0
 
         @map.sectors.each_with_index do |sector, idx|
           next unless sector_has_tag?(idx, tag)
+          next if @active_lifts[idx]  # Already moving
           target = find_lowest_floor_around(idx)
-          sector.floor_height = target
+          next if target >= sector.floor_height
+
+          # Animate the lower (matching the raise movers) instead of snapping.
+          @active_lifts[idx] = {
+            sector: sector,
+            state: :floor_lowering,
+            target_low: target,
+            original_height: sector.floor_height,
+            wait_tics: 0,
+          }
         end
       end
 

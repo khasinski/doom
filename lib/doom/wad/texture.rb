@@ -139,7 +139,7 @@ module Doom
         precompute_columns
       end
 
-      def column_pixels(x, _height_needed = nil)
+      def column_pixels(x)
         @column_cache[x & (@width - 1)]
       end
 

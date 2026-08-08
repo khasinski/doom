@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'tmpdir'
+require 'fileutils'
 
 module Doom
   module Wad
@@ -13,6 +14,10 @@ module Doom
         @cache = {}  # name => Gosu::Sample
         @temp_dir = File.join(Dir.tmpdir, "doom_rb_sounds_#{Process.pid}")
         Dir.mkdir(@temp_dir) unless Dir.exist?(@temp_dir)
+
+        # Sounds are decoded into a per-process temp dir; clean it up when the
+        # process exits so repeated runs do not leak WAV files.
+        at_exit { cleanup }
       end
 
       # Get or load a sound effect. Returns a Gosu::Sample or nil.
@@ -42,7 +47,10 @@ module Doom
         write_wav(wav_path, pcm_data, sample_rate) unless File.exist?(wav_path)
 
         @cache[name] = Gosu::Sample.new(wav_path)
-      rescue => e
+      rescue StandardError => e
+        # A bad or unplayable lump should silence that one sound, not crash the
+        # game -- but say so rather than swallowing the error entirely.
+        warn "SoundManager: could not load '#{name}': #{e.class}: #{e.message}"
         @cache[name] = nil
       end
 

@@ -70,6 +70,53 @@ RSpec.describe Doom::Game::MonsterAI do
     end
   end
 
+  describe 'multi-player targeting (select_target)' do
+    def new_player_at(x, y)
+      p = Doom::Game::Player.new(state: Doom::Game::PlayerState.new)
+      p.place(x, y, 41.0, 0)
+      p
+    end
+
+    it 'picks the nearest living player' do
+      mon = ai.monsters.first
+      near = new_player_at(mon.x + 50, mon.y)
+      far  = new_player_at(mon.x + 500, mon.y)
+      # Order shouldn't matter; the far one is listed first.
+      chosen = ai.send(:select_target, mon, [far, near])
+      expect(chosen).to equal(near)
+    end
+
+    it 'stays locked on its target when another player passes closer' do
+      mon = ai.monsters.first
+      locked = new_player_at(mon.x + 200, mon.y)
+      ai.send(:select_target, mon, [locked])
+      expect(mon.target).to equal(locked)
+
+      closer = new_player_at(mon.x + 10, mon.y)
+      chosen = ai.send(:select_target, mon, [locked, closer])
+      expect(chosen).to equal(locked)  # not stolen by the closer player
+    end
+
+    it 're-picks the nearest living player when its current target dies' do
+      mon = ai.monsters.first
+      original = new_player_at(mon.x + 100, mon.y)
+      ai.send(:select_target, mon, [original])
+      expect(mon.target).to equal(original)
+
+      survivor = new_player_at(mon.x + 300, mon.y)
+      original.state.dead = true
+      chosen = ai.send(:select_target, mon, [original, survivor])
+      expect(chosen).to equal(survivor)
+    end
+
+    it 'returns nil when no players are alive' do
+      mon = ai.monsters.first
+      dead = new_player_at(mon.x + 100, mon.y)
+      dead.state.dead = true
+      expect(ai.send(:select_target, mon, [dead])).to be_nil
+    end
+  end
+
   describe 'activation (A_Look)' do
     it 'activates monster with LOS within sight range' do
       mon = find_monster(ai, 3004)

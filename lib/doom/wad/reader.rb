@@ -32,11 +32,6 @@ module Doom
         data
       end
 
-      def read_lump_at(entry)
-        @file.seek(entry.offset)
-        @file.read(entry.size)
-      end
-
       def lumps_between(start_marker, end_marker)
         start_idx = @directory.index { |e| e.name == start_marker }
         end_idx = @directory.index { |e| e.name == end_marker }
@@ -78,7 +73,7 @@ module Doom
         @num_lumps = @directory.size
       end
 
-      # Override read_lump_at to check if entry belongs to a PWAD file
+      # Read a lump by directory entry, checking if it belongs to a PWAD file
       def read_lump_at(entry)
         # Try PWAD files first (they may own this entry)
         (@pwad_files || []).each do |pwad|

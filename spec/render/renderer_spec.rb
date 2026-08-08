@@ -40,9 +40,15 @@ RSpec.describe Doom::Render::Renderer do
   end
 
   describe '#set_player' do
-    it 'sets player position' do
+    it 'sets the camera pose (degrees converted to radians)' do
       @renderer.set_player(100, 200, 41, 90)
-      # No error means success (position is private)
+
+      expect(@renderer.player_x).to eq(100.0)
+      expect(@renderer.player_y).to eq(200.0)
+      expect(@renderer.player_z).to eq(41.0)
+      expect(@renderer.player_angle).to be_within(1e-12).of(Math::PI / 2)
+      expect(@renderer.sin_angle).to be_within(1e-12).of(1.0)
+      expect(@renderer.cos_angle).to be_within(1e-12).of(0.0)
     end
   end
 

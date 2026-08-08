@@ -146,6 +146,92 @@ RSpec.describe Doom::Game::PlayerState do
     end
   end
 
+  describe '#take_damage' do
+    it 'reduces health directly with no armor' do
+      player.armor = 0
+      player.take_damage(30)
+      expect(player.health).to eq(70)
+    end
+
+    it 'absorbs one third of the hit with green armor' do
+      player.armor = 100
+      player.take_damage(30)
+      # 30 / 3 = 10 absorbed, 20 reaches health.
+      expect(player.armor).to eq(90)
+      expect(player.health).to eq(80)
+    end
+
+    it 'never absorbs more armor than it has' do
+      player.armor = 5
+      player.take_damage(60)
+      # 60 / 3 = 20 wanted, only 5 available.
+      expect(player.armor).to eq(0)
+      expect(player.health).to eq(100 - 55)
+    end
+
+    it 'takes no damage in god mode' do
+      player.god_mode = true
+      player.take_damage(50)
+      expect(player.health).to eq(100)
+      expect(player.dead).to be false
+    end
+
+    it 'dies when health drops to zero or below' do
+      player.take_damage(200)
+      expect(player.health).to eq(0)
+      expect(player.dead).to be true
+    end
+
+    it 'ignores further damage once dead' do
+      player.take_damage(200)
+      player.take_damage(50)
+      expect(player.health).to eq(0)
+    end
+
+    it 'clamps the damage flash at 8' do
+      player.take_damage(100)
+      expect(player.damage_count).to eq(8)
+    end
+
+    it 'keeps the damage flash within range for a small hit' do
+      player.take_damage(4)
+      expect(player.damage_count).to be <= 8
+      expect(player.damage_count).to be > 0
+    end
+  end
+
+  describe '#can_attack?' do
+    it 'is always true for the fist' do
+      player.weapon = Doom::Game::PlayerState::WEAPON_FIST
+      player.ammo_bullets = 0
+      expect(player.can_attack?).to be true
+    end
+
+    it 'is always true for the chainsaw' do
+      player.weapon = Doom::Game::PlayerState::WEAPON_CHAINSAW
+      expect(player.can_attack?).to be true
+    end
+
+    it 'is false for an ammo weapon with no ammo' do
+      player.weapon = Doom::Game::PlayerState::WEAPON_PISTOL
+      player.ammo_bullets = 0
+      expect(player.can_attack?).to be false
+    end
+
+    it 'is true for an ammo weapon with ammo' do
+      player.weapon = Doom::Game::PlayerState::WEAPON_PISTOL
+      player.ammo_bullets = 1
+      expect(player.can_attack?).to be true
+    end
+
+    it 'is true with no ammo when infinite ammo is on' do
+      player.weapon = Doom::Game::PlayerState::WEAPON_PISTOL
+      player.ammo_bullets = 0
+      player.infinite_ammo = true
+      expect(player.can_attack?).to be true
+    end
+  end
+
   describe '#health_level' do
     it 'returns 4 for full health' do
       player.health = 100

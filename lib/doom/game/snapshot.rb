@@ -80,8 +80,6 @@ module Doom
           Array.new(u32) { yield }
         end
 
-        def eof? = @pos >= @buf.bytesize
-
         private
 
         def take(n)
@@ -129,6 +127,10 @@ module Doom
                                frag_limit: header[:frag_limit])
         world.instance_variable_set(:@leveltime, header[:leveltime])
         world.instance_variable_set(:@damage_multiplier, header[:damage_multiplier])
+        # World.rebuild_actor_subsystems mirrors the skill's damage factor onto
+        # the monster AI; a fresh world built here for a load skips that path, so
+        # set it explicitly or restored monsters would deal 1.0x damage.
+        world.monster_ai.damage_multiplier = header[:damage_multiplier]
         world.random.index = header[:random_index]
 
         load_map_state(r, map)
@@ -317,13 +319,15 @@ module Doom
         w.str(p.sprite_prefix.to_s)
         w.u8(PROJ_TARGETS.fetch(p.target, 0))
         w.u8(p.owner&.id || NO_ID)
+        w.f64(p.damage_multiplier || 1.0)
       end
 
       def load_projectile(r)
         Combat::Projectile.new(
           r.f64, r.f64, r.f64, r.f64, r.f64, r.f64,
           r.str.to_sym, r.u32, r.str, PROJ_TARGET_NAMES.fetch(r.u8, :monsters),
-          r.u8 # owner id; re-linked to a Player by relink_projectile_owners
+          r.u8, # owner id; re-linked to a Player by relink_projectile_owners
+          r.f64 # damage_multiplier
         )
       end
 

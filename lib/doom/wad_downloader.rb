@@ -63,41 +63,7 @@ module Doom
       # Create directory if needed
       FileUtils.mkdir_p(File.dirname(destination))
 
-      uri = URI.parse(SHAREWARE_URL)
-      downloaded = 0
-
-      ssl_opts = { use_ssl: uri.scheme == 'https' }
-      # Workaround for SSL certificate issues on some systems
-      begin
-        Net::HTTP.start(uri.host, uri.port, **ssl_opts) { |h| h.head(uri) }
-      rescue OpenSSL::SSL::SSLError
-        puts "SSL certificate verification failed, retrying without verification..."
-        ssl_opts[:verify_mode] = OpenSSL::SSL::VERIFY_NONE
-      end
-
-      Net::HTTP.start(uri.host, uri.port, **ssl_opts) do |http|
-        request = Net::HTTP::Get.new(uri)
-
-        http.request(request) do |response|
-          case response
-          when Net::HTTPRedirection
-            # Follow redirect
-            return download_from_url(response['location'], destination)
-          when Net::HTTPSuccess
-            total_size = response['content-length']&.to_i || SHAREWARE_SIZE
-
-            File.open(destination, 'wb') do |file|
-              response.read_body do |chunk|
-                file.write(chunk)
-                downloaded += chunk.size
-                print_progress(downloaded, total_size)
-              end
-            end
-          else
-            raise DownloadError, "Download failed: #{response.code} #{response.message}"
-          end
-        end
-      end
+      download_from_url(SHAREWARE_URL, destination)
 
       puts
       puts "Downloaded to: #{destination}"
@@ -111,17 +77,35 @@ module Doom
       end
     end
 
-    def self.download_from_url(url, destination)
-      uri = URI.parse(url)
-      downloaded = 0
+    # Fetch a URL to a destination file, following redirects and streaming a
+    # progress bar. Retries without SSL verification if the certificate cannot
+    # be verified (a workaround for broken system cert stores) -- and because
+    # the check runs here, it applies to redirect targets too, not just the
+    # first URL.
+    def self.download_from_url(url, destination, redirect_limit: 5)
+      raise DownloadError, "Too many redirects" if redirect_limit.negative?
 
-      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
+      uri = URI.parse(url)
+      ssl_opts = { use_ssl: uri.scheme == 'https' }
+
+      if ssl_opts[:use_ssl]
+        begin
+          Net::HTTP.start(uri.host, uri.port, **ssl_opts) { |h| h.head(uri) }
+        rescue OpenSSL::SSL::SSLError
+          puts "SSL certificate verification failed, retrying without verification..."
+          ssl_opts[:verify_mode] = OpenSSL::SSL::VERIFY_NONE
+        end
+      end
+
+      downloaded = 0
+      Net::HTTP.start(uri.host, uri.port, **ssl_opts) do |http|
         request = Net::HTTP::Get.new(uri)
 
         http.request(request) do |response|
           case response
           when Net::HTTPRedirection
-            return download_from_url(response['location'], destination)
+            return download_from_url(response['location'], destination,
+                                     redirect_limit: redirect_limit - 1)
           when Net::HTTPSuccess
             total_size = response['content-length']&.to_i || SHAREWARE_SIZE
 

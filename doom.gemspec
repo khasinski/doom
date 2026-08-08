@@ -22,5 +22,8 @@ Gem::Specification.new do |s|
   s.add_dependency 'gosu', '~> 1.4'
 
   s.add_development_dependency 'rspec', '~> 3.12'
+  # Dev-only: used solely by the debug screenshot capture (F-key), which
+  # requires it lazily. Normal gameplay never loads it, so it stays out of the
+  # runtime dependencies.
   s.add_development_dependency 'chunky_png', '~> 1.4'
 end

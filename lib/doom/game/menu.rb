@@ -1,9 +1,13 @@
 # frozen_string_literal: true
 
+require_relative 'framebuffer_blitter'
+
 module Doom
   module Game
     # DOOM main menu system with title screen, new game, and difficulty selection.
     class Menu
+      include FramebufferBlitter
+
       SKULL_ANIM_TICS = 8  # Skull cursor blink rate
 
       # Difficulty levels matching DOOM's skill levels
@@ -61,8 +65,7 @@ module Doom
       attr_reader :state, :selected_skill, :options, :font
       attr_accessor :netgame
 
-      def initialize(wad, hud_graphics, font = nil)
-        @wad = wad
+      def initialize(_wad, hud_graphics, font = nil)
         @gfx = hud_graphics
         @font = font
         @state = STATE_TITLE
@@ -102,6 +105,8 @@ module Doom
         end
       end
 
+      # NOTE: palette_colors is unused here (callers in gosu_window.rb pass nil).
+      # Kept only to preserve the call signature; drop it once the callers do.
       def render(framebuffer, palette_colors)
         case @state
         when STATE_TITLE
@@ -168,29 +173,26 @@ module Doom
         @m_skill = load_patch('M_SKILL')
         @m_jkill = load_patch('M_JKILL')
         @m_hurt = load_patch('M_HURT')
-        @m_rough = load_patch('M_ROUGH')  # Not used, but loaded
+        @m_rough = load_patch('M_ROUGH')
         @m_ultra = load_patch('M_ULTRA')
         @m_nmare = load_patch('M_NMARE')
-
-        # Episode (shareware only has 1)
-        @m_episod = load_patch('M_EPISOD')
-        @m_epi1 = load_patch('M_EPI1')
 
         # Skull cursor
         @skulls = [load_patch('M_SKULL1'), load_patch('M_SKULL2')]
       end
 
       def load_patch(name)
-        @gfx.send(:load_graphic, name)
+        @gfx.load_graphic(name)
       end
 
       def render_title(framebuffer)
         if @options[:rubykaigi_mode] && @kaigi_title
           # Draw kaigi title (raw palette indices, 320x200, offset 20px down)
+          w = Render::SCREEN_WIDTH
           @kaigi_title.each_with_index do |color, i|
-            x = i % 320
-            y = (i / 320) + 20
-            framebuffer[y * 320 + x] = color if y < 240
+            x = i % w
+            y = (i / w) + 20
+            framebuffer[y * w + x] = color if y < Render::SCREEN_HEIGHT
           end
         elsif @title
           draw_fullscreen(framebuffer, @title)
@@ -324,38 +326,12 @@ module Doom
       end
 
       def draw_fullscreen(framebuffer, sprite)
-        return unless sprite
-        # TITLEPIC is 320x200, our screen is 320x240
-        # Draw it centered vertically (offset by 20 pixels)
-        y_offset = 20
-        sprite.width.times do |x|
-          col = sprite.column_pixels(x)
-          next unless col
-          col.each_with_index do |color, y|
-            next unless color
-            screen_y = y + y_offset
-            next if screen_y < 0 || screen_y >= 240
-            framebuffer[screen_y * 320 + x] = color
-          end
-        end
+        # TITLEPIC is 320x200, our screen is 320x240: center it vertically.
+        blit_sprite(framebuffer, sprite, 0, 20)
       end
 
       def draw_sprite(framebuffer, sprite, x, y)
-        return unless sprite
-        sprite.width.times do |col_x|
-          screen_x = x + col_x
-          next if screen_x < 0 || screen_x >= 320
-
-          col = sprite.column_pixels(col_x)
-          next unless col
-
-          col.each_with_index do |color, col_y|
-            next unless color
-            screen_y = y + col_y
-            next if screen_y < 0 || screen_y >= 240
-            framebuffer[screen_y * 320 + screen_x] = color
-          end
-        end
+        blit_sprite(framebuffer, sprite, x, y)
       end
     end
   end

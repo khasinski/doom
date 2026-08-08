@@ -56,7 +56,7 @@ module Doom
       attr_reader :picked_up, :pickup_message, :pickup_flash, :message_tics
       attr_accessor :ammo_multiplier, :hidden_things
 
-      def initialize(map, _player_state = nil, hidden_things = {})
+      def initialize(map, hidden_things = {})
         @map = map
         @picked_up = {}
         @hidden_things = hidden_things

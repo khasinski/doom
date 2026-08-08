@@ -225,6 +225,40 @@ RSpec.describe Doom::Game::SectorActions do
     end
   end
 
+  describe 'walk-trigger raise floor to lowest ceiling (special 5)' do
+    # Sector 1 (tagged) floor starts at 0; its only neighbour, sector 0, has
+    # ceiling 128, so the raiseFloor mover should target 128.
+    let(:map) { build_map(door_special: 5, door_tag: 1, door_floor: 0, door_ceiling: 128) }
+
+    it 'raises the tagged floor to the lowest surrounding ceiling, animated' do
+      actions.update_player_position(50, 32)  # room side
+      actions.update
+      actions.update_player_position(80, 32)  # door side -- crosses the line
+      actions.update                          # crossing registers the mover
+
+      actions.update                          # one movement tic
+      expect(map.sectors[1].floor_height).to eq(Doom::Game::SectorActions::LIFT_SPEED)
+
+      100.times { actions.update }
+      expect(map.sectors[1].floor_height).to eq(128)
+    end
+  end
+
+  describe 'lower floor to lowest (special 23)' do
+    # Sector 1 (tagged) floor starts at 64; adjacent sector 0 floor is 0.
+    let(:map) { build_map(door_special: 23, door_tag: 1, door_floor: 64, door_ceiling: 128) }
+
+    it 'animates the floor down to the lowest adjacent floor instead of snapping' do
+      actions.use_linedef(map.linedefs[0], 0)
+
+      actions.update
+      expect(map.sectors[1].floor_height).to eq(64 - Doom::Game::SectorActions::LIFT_SPEED)
+
+      100.times { actions.update }
+      expect(map.sectors[1].floor_height).to eq(0)
+    end
+  end
+
   describe '#pop_teleport' do
     it 'returns nil when no teleport is queued' do
       m = build_map

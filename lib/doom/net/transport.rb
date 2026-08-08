@@ -4,7 +4,9 @@ require 'socket'
 
 module Doom
   module Net
-    # Non-blocking UDP for lockstep play.
+    # Non-blocking UDP for both multiplayer stacks: the peer-to-peer lockstep
+    # mesh (send_to/broadcast over the peer table) and the authoritative star
+    # server (send_to_addr, replying straight to whoever a packet came from).
     #
     # UDP rather than TCP because a late ticcmd is worthless: head-of-line
     # blocking would make one lost packet stall everything behind it, which is

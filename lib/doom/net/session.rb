@@ -40,7 +40,7 @@ module Doom
       end
 
       def initialize(role:, port: 0, num_players: 2, map_name: 'E1M1', mode: :coop,
-                     skill: 2, seed: nil, delay: Lockstep::DEFAULT_DELAY,
+                     skill: DEFAULT_SKILL, seed: nil, delay: Lockstep::DEFAULT_DELAY,
                      remote_host: nil, remote_port: nil, clock: -> { Time.now })
         @role = role
         @delay = delay

@@ -30,9 +30,6 @@ module Doom
       MISSILE_RANGE = 768.0
       KEEP_DISTANCE = 196.0  # Ranged monsters prefer to stay this far from player
 
-      # Direction to angle (for sprite facing)
-      DIR_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315].freeze
-
       # Monster attack definitions (from mobjinfo / A_Chase)
       # Cooldown = attack_anim_tics + avg_movecount(7.5) * chase_tics(4)
       # In DOOM, monsters only attempt attacks when movecount reaches 0,
@@ -52,7 +49,8 @@ module Doom
       REACTIONTIME = 8  # Tics before first attack after activation (from mobjinfo)
 
       # Hitscan hit probability by distance (DOOM's P_AimLineAttack has bullet spread)
-      # Close = ~85%, mid = ~60%, far = ~35%
+      # The falloff is HITSCAN_ACCURACY * (1 - dist / (MISSILE_RANGE * 2)):
+      # close (dist 0) = ~85%, mid (dist 384) = ~64%, far (dist 768) = ~42%.
       HITSCAN_ACCURACY = 0.85
 
       # Attack animation frames per sprite prefix (E, F, G typically)
@@ -184,24 +182,24 @@ module Doom
       end
 
       def look(mon, target)
-        player_x = target.x
-        player_y = target.y
-        dx = player_x - mon.x
-        dy = player_y - mon.y
+        target_x = target.x
+        target_y = target.y
+        dx = target_x - mon.x
+        dy = target_y - mon.y
         dist = Math.sqrt(dx * dx + dy * dy)
         return if dist > SIGHT_RANGE
 
         # DOOM A_Look: monster only sees in ~180-degree forward arc
-        # unless player is very close (melee range)
+        # unless the target is very close (melee range)
         if dist > MELEE_RANGE
           thing = @map.things[mon.thing_idx]
           face_angle = thing.angle * Math::PI / 180.0
-          to_player = Math.atan2(dy, dx)
-          angle_diff = ((to_player - face_angle + Math::PI) % (2 * Math::PI) - Math::PI).abs
+          to_target = Math.atan2(dy, dx)
+          angle_diff = ((to_target - face_angle + Math::PI) % (2 * Math::PI) - Math::PI).abs
           return if angle_diff > Math::PI / 2  # 90 degrees each side = 180 arc
         end
 
-        if has_line_of_sight?(mon.x, mon.y, player_x, player_y)
+        if has_line_of_sight?(mon.x, mon.y, target_x, target_y)
           mon.active = true
           mon.chase_timer = CHASE_TICS
           @sound&.monster_see(mon.type)
@@ -209,19 +207,19 @@ module Doom
       end
 
       def chase(mon, target)
-        player_x = target.x
-        player_y = target.y
+        target_x = target.x
+        target_y = target.y
         speed = MONSTER_SPEED[mon.type] || 8
 
         # Tick down attack cooldown
         mon.attack_cooldown -= CHASE_TICS if mon.attack_cooldown > 0
 
-        dx = player_x - mon.x
-        dy = player_y - mon.y
+        dx = target_x - mon.x
+        dy = target_y - mon.y
         dist = Math.sqrt(dx * dx + dy * dy)
 
-        # Track if monster can see the player
-        can_see = dist < SIGHT_RANGE && has_line_of_sight?(mon.x, mon.y, player_x, player_y)
+        # Track if monster can see the target
+        can_see = dist < SIGHT_RANGE && has_line_of_sight?(mon.x, mon.y, target_x, target_y)
         if can_see
           mon.last_saw_player = @tic_counter
         elsif @tic_counter - (mon.last_saw_player || 0) > 105  # ~3 seconds without LOS
@@ -259,16 +257,16 @@ module Doom
         thing.x = mon.x.to_i
         thing.y = mon.y.to_i
 
-        # Face toward the player
-        target_angle = Math.atan2(player_y - mon.y, player_x - mon.x) * 180.0 / Math::PI
-        thing.angle = target_angle.round.to_i
+        # Face toward the target
+        facing_angle = Math.atan2(target_y - mon.y, target_x - mon.x) * 180.0 / Math::PI
+        thing.angle = facing_angle.round.to_i
       end
 
       # Decide whether to start an attack (does NOT apply damage yet)
       # Matches Chocolate Doom's P_CheckMissileRange from p_enemy.c
       def try_attack(mon, target, dist)
-        player_x = target.x
-        player_y = target.y
+        target_x = target.x
+        target_y = target.y
         if mon.reactiontime > 0
           mon.reactiontime -= 1
           return false
@@ -282,7 +280,7 @@ module Doom
           return false if dist > MELEE_RANGE + (Combat::MONSTER_RADIUS[mon.type] || 20)
         when :hitscan, :projectile
           return false if dist > MISSILE_RANGE
-          return false unless has_line_of_sight?(mon.x, mon.y, player_x, player_y)
+          return false unless has_line_of_sight?(mon.x, mon.y, target_x, target_y)
 
           # P_CheckMissileRange: subtract grace distance, cap at 200
           check_dist = dist - 64  # 64 unit grace distance
@@ -302,15 +300,15 @@ module Doom
 
       # Called on the fire frame of the attack animation
       def execute_attack(mon, target)
-        player_x = target.x
-        player_y = target.y
+        target_x = target.x
+        target_y = target.y
         atk = MONSTER_ATTACK[mon.type]
         return unless atk
 
         @sound&.monster_attack(mon.type)
 
-        dx = player_x - mon.x
-        dy = player_y - mon.y
+        dx = target_x - mon.x
+        dy = target_y - mon.y
         dist = Math.sqrt(dx * dx + dy * dy)
 
         # Re-check line of sight at fire time. The player may have moved
@@ -318,7 +316,7 @@ module Doom
         # (which spans several tics between try_attack and the fire frame).
         # Melee always lands on contact; ranged skips silently if LOS broke.
         ranged = atk[:type] == :hitscan || atk[:type] == :projectile
-        return if ranged && !has_line_of_sight?(mon.x, mon.y, player_x, player_y)
+        return if ranged && !has_line_of_sight?(mon.x, mon.y, target_x, target_y)
 
         case atk[:type]
         when :melee
@@ -390,10 +388,10 @@ module Doom
       end
 
       def new_chase_dir(mon, target)
-        player_x = target.x
-        player_y = target.y
-        deltax = player_x - mon.x
-        deltay = player_y - mon.y
+        target_x = target.x
+        target_y = target.y
+        deltax = target_x - mon.x
+        deltay = target_y - mon.y
         old_dir = mon.movedir
 
         # Determine preferred directions

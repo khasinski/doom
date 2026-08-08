@@ -20,7 +20,7 @@ module Doom
     class Lockstep
       DEFAULT_DELAY = 2  # ~57ms at 35Hz
 
-      attr_reader :local_id, :player_ids, :delay, :run_tic, :make_tic
+      attr_reader :local_id, :player_ids, :delay, :next_tic, :sample_tic
 
       def initialize(local_id:, player_ids:, delay: DEFAULT_DELAY)
         raise ArgumentError, 'delay must be >= 1' if delay < 1
@@ -32,8 +32,8 @@ module Doom
         @buffer = {}       # tic => { player_id => Ticcmd }
         @peer_acks = {}    # player_id => lowest tic they still need
         @local_sent = {}   # tic => Ticcmd, kept for retransmission padding
-        @run_tic = 1       # next tic to simulate
-        @make_tic = delay + 1  # tic the next local sample is for
+        @next_tic = 1      # next tic to simulate
+        @sample_tic = delay + 1  # tic the next local sample is for
 
         # Prime the opening tics so play starts immediately instead of waiting
         # a delay's worth of round trips for commands nobody has sent yet.
@@ -45,8 +45,8 @@ module Doom
       # Schedule this frame's input. Returns the tic it was scheduled for, which
       # is what the sender must label the outgoing packet with.
       def submit_local(cmd)
-        tic = @make_tic
-        @make_tic += 1
+        tic = @sample_tic
+        @sample_tic += 1
         store(tic, @local_id, cmd)
         @local_sent[tic] = cmd
         # Prune here too, not only when tics run: a stalled peer keeps sampling
@@ -61,7 +61,7 @@ module Doom
       # deliberately resends recent commands and a late copy must not change a
       # tic that is already decided.
       def receive(tic, player_id, cmd)
-        return false if tic < @run_tic
+        return false if tic < @next_tic
         return false unless @player_ids.include?(player_id)
         return false if @buffer.dig(tic, player_id)
 
@@ -70,13 +70,13 @@ module Doom
       end
 
       def ready?
-        missing_for(@run_tic).empty?
+        missing_for(@next_tic).empty?
       end
 
       # Players holding up the current tic. Worth surfacing: a stall with no
       # explanation looks like a freeze.
       def waiting_on
-        missing_for(@run_tic)
+        missing_for(@next_tic)
       end
 
       def stalled?
@@ -88,8 +88,8 @@ module Doom
       def take_cmds
         return nil unless ready?
 
-        cmds = @buffer.delete(@run_tic)
-        @run_tic += 1
+        cmds = @buffer.delete(@next_tic)
+        @next_tic += 1
         prune
         cmds
       end
@@ -103,11 +103,6 @@ module Doom
           ran += 1
         end
         ran
-      end
-
-      # The last `count` local commands, oldest first, as [tic, cmd] pairs.
-      def recent_local(count)
-        @local_sent.keys.sort.last(count).map { |tic| [tic, @local_sent[tic]] }
       end
 
       # Local commands to put in a packet for a peer that is waiting on `ack`.
@@ -125,7 +120,7 @@ module Doom
 
       # The lowest tic still missing locally: what peers should resend from.
       def ack_tic
-        @run_tic
+        @next_tic
       end
 
       # Where a peer says it has got to. Recorded so we never discard a command
@@ -160,7 +155,7 @@ module Doom
       LOCAL_HISTORY = 2048
 
       def prune
-        @buffer.delete_if { |tic, _| tic < @run_tic }
+        @buffer.delete_if { |tic, _| tic < @next_tic }
 
         # Anything at or above the least-caught-up peer must be kept.
         floor = @peer_acks.values.min

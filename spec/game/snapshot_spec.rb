@@ -190,6 +190,27 @@ RSpec.describe Doom::Game::Snapshot do
     end
   end
 
+  describe 'skill damage factor' do
+    # World.rebuild_actor_subsystems mirrors @damage_multiplier onto the monster
+    # AI, but a world built fresh for a load skips that path. If load restores
+    # only world.damage_multiplier and forgets monster_ai.damage_multiplier, a
+    # snapshot taken on a non-1.0 skill comes back with monsters dealing 1.0x
+    # damage. This guards that the AI's factor survives the round trip.
+    it 'restores the monster AI damage multiplier, not just the world field' do
+      map = fresh_map
+      world = Doom::Game::World.new(map, sprites: @sprites,
+                                         random: Doom::Game::Random.new(4))
+      world.add_player
+      world.damage_multiplier = 2.5
+      world.monster_ai.damage_multiplier = 2.5
+
+      restored = round_trip(world)
+
+      expect(restored.damage_multiplier).to eq(2.5)
+      expect(restored.monster_ai.damage_multiplier).to eq(2.5)
+    end
+  end
+
   describe 'the snapshot bytes' do
     it 'is a self-describing binary blob' do
       bytes = described_class.dump(busy_world)

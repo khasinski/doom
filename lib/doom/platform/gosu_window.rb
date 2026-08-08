@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'gosu'
+require_relative 'window_logic'
 
 module Doom
   module Platform
@@ -77,7 +78,6 @@ module Doom
       # Movement now lives in Game::PlayerPhysics and runs per tic, so the old
       # continuous-time thrust/friction constants moved there with it.
       TURN_SPEED = 3.0       # Degrees per tic
-      TIC_SECONDS = 1.0 / 35.0
 
       # Frame generation is decoupled from presentation. Gosu's main loop is
       # limited by the buffer swap, which blocks on vblank -- so drawing every
@@ -91,8 +91,6 @@ module Doom
       DEFAULT_REFRESH_HZ = 60.0
       PRESENT_INTERVAL_SLACK = 0.85  # Aim slightly early so we don't miss a vblank
       MOUSE_SENSITIVITY = 0.15  # Mouse look sensitivity
-
-      USE_DISTANCE = 64.0  # Max distance to use a linedef
 
       # The simulation now lives in Game::World; this class is input and
       # output only. The world's subsystems are cached in ivars because the
@@ -199,8 +197,6 @@ module Doom
         @monster_ai = world.monster_ai
         @item_pickup = world.item_pickup
         @sector_actions = world.sector_actions
-        @sector_effects = world.sector_effects
-        @skill_hidden = world.skill_hidden
         @damage_multiplier = world.damage_multiplier
         @leveltime = world.leveltime
       end
@@ -280,14 +276,14 @@ module Doom
 
         # Red tint when dead
         if @player_state&.dead
-          apply_death_tint(@renderer.framebuffer)
+          hold_pain_palette
         end
       end
 
       # Per-frame input sampling. Produces nothing but intent: the simulation
-      # itself runs per-tic in run_player_tic. Mouse motion is accumulated here
-      # because frames are more frequent than tics and dropping the surplus
-      # would lose part of every flick.
+      # itself runs per-tic in Game::World (fed the ticcmd from build_ticcmd).
+      # Mouse motion is accumulated here because frames are more frequent than
+      # tics and dropping the surplus would lose part of every flick.
       def handle_input(_delta_time)
         # Handle respawn when dead
         if @player_state&.dead
@@ -337,8 +333,8 @@ module Doom
         Game::Ticcmd.new(forward, side, turn, buttons)
       end
 
-      # Apply one tic of intent to one player. Movement, firing and use all live
-      # here so they advance at a fixed 35 Hz regardless of frame rate.
+      # Weapon selection from the number keys. Read per-frame like the rest of
+      # input; the switch itself only changes which weapon the HUD/firing use.
       def handle_weapon_switch
         if Gosu.button_down?(Gosu::KB_1)
           @player_state.switch_weapon(Game::PlayerState::WEAPON_FIST)
@@ -399,7 +395,8 @@ module Doom
       def needs_redraw?
         return true unless @uncapped_fps
 
-        (Gosu.milliseconds - @last_present_ms) >= (@present_interval_ms * PRESENT_INTERVAL_SLACK)
+        WindowLogic.present_due?(Gosu.milliseconds, @last_present_ms,
+                                @present_interval_ms, PRESENT_INTERVAL_SLACK)
       end
 
       attr_reader :refresh_hz
@@ -432,12 +429,7 @@ module Doom
         if @intermission
           fb = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
           @intermission.render(fb)
-          active_pal = @all_palette_rgba[0]
-          rgba = fb.map { |idx| active_pal[idx] }.join
-          @screen_image = Gosu::Image.from_blob(
-            Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
-          )
-          @screen_image.draw(0, 0, 0, SCALE, SCALE)
+          present(fb)
           return
         end
 
@@ -445,12 +437,7 @@ module Doom
         if @screen_melt && !@screen_melt.done?
           fb = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, 0)
           @screen_melt.update(fb)
-          active_pal = @all_palette_rgba[0]
-          rgba = fb.map { |idx| active_pal[idx] }.join
-          @screen_image = Gosu::Image.from_blob(
-            Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
-          )
-          @screen_image.draw(0, 0, 0, SCALE, SCALE)
+          present(fb)
           @screen_melt = nil if @screen_melt.done?
           return
         end
@@ -471,35 +458,40 @@ module Doom
           # Capture current menu frame for melt transitions
           @last_menu_fb = fb.dup
 
-          active_pal = @all_palette_rgba[0]
-          rgba = fb.map { |idx| active_pal[idx] }.join
-          @screen_image = Gosu::Image.from_blob(
-            Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
-          )
-          @screen_image.draw(0, 0, 0, SCALE, SCALE)
+          present(fb)
         elsif @show_map
           draw_automap
         else
-          # Select palette: red tint when taking damage (palettes 1-8)
-          # Pain palette (1-8 red), pickup palette (9 yellow)
-          pal_idx = if @item_pickup && @item_pickup.pickup_flash > 0
-                      9  # Yellow flash for item pickup
-                    elsif @player_state
-                      @player_state.damage_count.clamp(0, 8)
-                    else
-                      0
-                    end
-          active_pal = @all_palette_rgba[pal_idx]
-          rgba = @renderer.framebuffer.map { |idx| active_pal[idx] }.join
-
-          @screen_image = Gosu::Image.from_blob(
-            Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
-          )
-          @screen_image.draw(0, 0, 0, SCALE, SCALE)
+          present(@renderer.framebuffer, active_palette_index)
 
           draw_debug_overlay if @show_debug
           draw_net_status if @session
           draw_match_status if @world.deathmatch?
+        end
+      end
+
+      # Blit one palette-indexed framebuffer to the window. pal_idx selects one
+      # of the 14 prebuilt RGBA palettes (0 = normal, 1-8 = pain red, 9 = pickup
+      # yellow). All four draw paths funnel through here so the blob->image->draw
+      # sequence lives in exactly one place.
+      def present(framebuffer, pal_idx = 0)
+        active_pal = @all_palette_rgba[pal_idx]
+        rgba = framebuffer.map { |idx| active_pal[idx] }.join
+        @screen_image = Gosu::Image.from_blob(
+          Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
+        )
+        @screen_image.draw(0, 0, 0, SCALE, SCALE)
+      end
+
+      # Palette for the live game view: red pain flash while taking damage
+      # (1-8), yellow flash on item pickup (9), otherwise the normal palette.
+      def active_palette_index
+        if @item_pickup && @item_pickup.pickup_flash > 0
+          9
+        elsif @player_state
+          @player_state.damage_count.clamp(0, 8)
+        else
+          0
         end
       end
 
@@ -521,22 +513,14 @@ module Doom
       # and a desync means everything on screen is already wrong -- both are
       # worth interrupting the player for.
       def draw_net_status
-        lines = []
-
-        unless @session.started?
-          lines << (@session.host? ? 'WAITING FOR PLAYERS' : 'CONNECTING...')
-        end
-
-        # Only once the wait stops being momentary. Between tics every peer is
-        # briefly waiting for the next command, so reporting that directly puts
-        # the warning on screen permanently during perfectly healthy play.
-        waiting = @session.waiting_on
-        if waiting.any? && @session.stalled_seconds > Net::Session::STALL_WARNING_SECONDS
-          lines << "WAITING FOR PLAYER #{waiting.join(', ')}"
-        end
-
-        desync = @session.desyncs.first
-        lines << "DESYNC AT TIC #{desync.tic} (#{Array(desync.sections).join(', ')})" if desync
+        lines = WindowLogic.net_status_lines(
+          started: @session.started?,
+          host: @session.host?,
+          waiting: @session.waiting_on,
+          stalled_seconds: @session.stalled_seconds,
+          stall_threshold: Net::Session::STALL_WARNING_SECONDS,
+          desync: @session.desyncs.first
+        )
 
         return if lines.empty?
 
@@ -671,22 +655,18 @@ module Doom
           @show_debug = !@show_debug
         when Gosu::KB_B
           @renderer.skip_background_fill = !@renderer.skip_background_fill
-          puts "Background fill: #{@renderer.skip_background_fill ? 'OFF' : 'ON'}"
         when Gosu::KB_Y
           if defined?(RubyVM::YJIT)
             setup_yjit_toggle
             if RubyVM::YJIT.enabled?
               RubyVM::YJIT.disable
-              puts "YJIT disabled!"
             else
               RubyVM::YJIT.enable
-              puts "YJIT enabled!"
             end
           end
         when Gosu::KB_C
           if @monster_ai
             @monster_ai.aggression = !@monster_ai.aggression
-            puts "Monster aggression: #{@monster_ai.aggression ? 'ON' : 'OFF'}"
           end
         when Gosu::KB_M
           @show_map = !@show_map
@@ -695,10 +675,10 @@ module Doom
         end
       end
 
-      # Sector damage types from DOOM (p_spec.c)
-      # Type 5: 10 damage, Type 7: 5 damage, Type 4/16: 20 damage
-      def apply_death_tint(framebuffer)
-        # Death keeps damage_count at max so the pain palette stays red
+      # Death keeps damage_count pinned at max so the draw loop selects the red
+      # pain palette every frame while dead. The tint itself is applied by
+      # palette selection in #draw, not here.
+      def hold_pain_palette
         @player_state.damage_count = 8 if @player_state&.dead
       end
 
@@ -783,22 +763,8 @@ module Doom
         @show_debug = true
       end
 
-      # DOOM thing flags: bit 0 = skill 1-2, bit 1 = skill 3, bit 2 = skill 4-5
       def compute_skill_hidden(skill)
-        flag_bit = case skill
-                   when Game::Menu::SKILL_BABY, Game::Menu::SKILL_EASY then 0x0001
-                   when Game::Menu::SKILL_MEDIUM then 0x0002
-                   when Game::Menu::SKILL_HARD, Game::Menu::SKILL_NIGHTMARE then 0x0004
-                   else 0x0007
-                   end
-        hidden = {}
-        @map.things.each_with_index do |thing, idx|
-          # Multiplayer-only things (bit 4) are hidden in single player
-          if (thing.flags & 0x0010) != 0 || (thing.flags & flag_bit) == 0
-            hidden[idx] = true
-          end
-        end
-        hidden
+        WindowLogic.skill_hidden(skill, @map.things)
       end
 
       def trigger_level_exit(exit_type)
@@ -971,8 +937,6 @@ module Doom
           nearby sprites (#{nearby.size}):
           #{sprite_lines.join("\n")}
         INFO
-
-        puts "Snapshot saved: #{prefix}.png + .txt"
       end
 
       # --- Automap ---
@@ -1102,10 +1066,6 @@ module Doom
       end
 
       # --- End Automap ---
-
-      def needs_cursor?
-        !@mouse_captured
-      end
     end
   end
 end

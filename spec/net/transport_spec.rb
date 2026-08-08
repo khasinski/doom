@@ -80,7 +80,7 @@ RSpec.describe Doom::Net::Transport do
 
     it 'reports the sender so a peer can be learned from its first packet' do
       peer = a.add_peer('127.0.0.1', b.local_port)
-      a.send_to(peer, Doom::Net::Protocol.encode_hello('chris'))
+      a.send_to(peer, Doom::Net::Protocol.encode_hello)
 
       _, host, port = poll_until(b).first
       expect(b.peer_for(host, port)).to be_nil

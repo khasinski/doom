@@ -118,7 +118,7 @@ module Doom
         @y_slope_floor = Array.new(HALF_HEIGHT + 1, 0.0)
       end
 
-      attr_reader :player_x, :player_y, :player_z, :player_angle, :sin_angle, :cos_angle, :framebuffer
+      attr_reader :player_x, :player_y, :player_z, :player_angle, :sin_angle, :cos_angle
       attr_reader :wad, :textures, :colormap, :flats, :sprites
       attr_writer :hidden_things, :combat, :monster_ai, :leveltime
       attr_accessor :players, :view_player
@@ -230,21 +230,6 @@ module Doom
         @player_y = y.to_f
         @player_z = z.to_f
         @player_angle = angle * Math::PI / 180.0
-        @sin_angle = Math.sin(@player_angle)
-        @cos_angle = Math.cos(@player_angle)
-      end
-
-      def move_to(x, y)
-        @player_x = x.to_f
-        @player_y = y.to_f
-      end
-
-      def set_z(z)
-        @player_z = z.to_f
-      end
-
-      def turn(degrees)
-        @player_angle += degrees * Math::PI / 180.0
         @sin_angle = Math.sin(@player_angle)
         @cos_angle = Math.cos(@player_angle)
       end
@@ -1272,109 +1257,6 @@ module Doom
 
           color = column[tex_y]
           framebuffer[y * SCREEN_WIDTH + x] = cmap[color] if color
-          y += 1
-        end
-      end
-
-      # Cache which textures have transparent pixels
-      def texture_has_transparency?(texture)
-        @transparency_cache ||= {}
-        name = texture.name
-        return @transparency_cache[name] if @transparency_cache.key?(name)
-        @transparency_cache[name] = texture.width.times.any? do |x|
-          col = texture.column_pixels(x)
-          col&.any?(&:nil?)
-        end
-      end
-
-      # Draw a deferred masked column using per-drawseg clip values saved at BSP time
-      def draw_wall_column_masked_deferred(md)
-        x = md[:x]
-        tex_name = md[:tex]
-        return if tex_name.nil? || tex_name.empty? || tex_name == '-'
-
-        # Use saved clips (from BSP time, before far walls closed them)
-        # AND final sprite clips (to prevent far grates drawing over near walls)
-        # Take the tightest combination of both
-        y1 = [md[:clip_top] + 1, @sprite_ceiling_clip[x] + 1, md[:y1]].max
-        y2 = [md[:clip_bottom] - 1, @sprite_floor_clip[x] - 1, md[:y2]].min
-        return if y1 > y2
-
-        # Depth test: far grate behind a near solid wall
-        return if md[:dist] > @sprite_wall_depth[x]
-
-        texture = @textures[anim_texture(tex_name)]
-        return unless texture
-
-        light = calculate_light(md[:light], md[:dist])
-        cmap = @colormap.maps[light]
-        framebuffer = @framebuffer
-        tex_width = texture.width
-        tex_height = texture.height
-
-        tex_x = md[:tex_col].to_i % tex_width
-        column = texture.column_pixels(tex_x)
-        return unless column
-
-        scale = md[:scale]
-        tex_step = 1.0 / scale
-        unclipped_y1 = HALF_HEIGHT - (md[:world_top] - @player_z) * scale
-        tex_y_at_y1 = md[:tex_y] + (y1 - unclipped_y1) * tex_step
-
-        y1 = 0 if y1 < 0
-        y2 = SCREEN_HEIGHT - 1 if y2 >= SCREEN_HEIGHT
-
-        y = y1
-        while y <= y2
-          screen_offset = y - y1
-          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
-          color = column[tex_y]
-          framebuffer[y * SCREEN_WIDTH + x] = cmap[color] if color
-          y += 1
-        end
-      end
-
-      # Draw a masked (transparent) wall column for middle textures on two-sided linedefs.
-      # Unlike draw_wall_column_ex, skips nil pixels (transparent areas).
-      def draw_wall_column_masked(x, y1, y2, texture_name, dist, light_level, tex_col, tex_y_start, scale, world_top)
-        return if y1 > y2
-        return if texture_name.nil? || texture_name.empty? || texture_name == '-'
-
-        clip_top = @ceiling_clip[x] + 1
-        clip_bottom = @floor_clip[x] - 1
-        y1 = [y1, clip_top].max
-        y2 = [y2, clip_bottom].min
-        return if y1 > y2
-
-        texture = @textures[anim_texture(texture_name)]
-        return unless texture
-
-        light = calculate_light(light_level, dist)
-        cmap = @colormap.maps[light]
-        framebuffer = @framebuffer
-        tex_width = texture.width
-        tex_height = texture.height
-
-        tex_x = tex_col.to_i % tex_width
-        column = texture.column_pixels(tex_x)
-        return unless column
-
-        tex_step = 1.0 / scale
-        unclipped_y1 = HALF_HEIGHT - (world_top - @player_z) * scale
-        tex_y_at_y1 = tex_y_start + (y1 - unclipped_y1) * tex_step
-
-        y1 = 0 if y1 < 0
-        y2 = SCREEN_HEIGHT - 1 if y2 >= SCREEN_HEIGHT
-
-        y = y1
-        while y <= y2
-          screen_offset = y - y1
-          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
-          color = column[tex_y]
-          # Skip transparent pixels (nil in patch data)
-          if color
-            framebuffer[y * SCREEN_WIDTH + x] = cmap[color]
-          end
           y += 1
         end
       end

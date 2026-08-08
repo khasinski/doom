@@ -13,6 +13,33 @@ RSpec.describe Doom::Game::SectorEffects do
 
   subject(:effects) { described_class.new(@map) }
 
+  # A self-contained two-sector map: a flickering sector (special 1) next to a
+  # darker neighbour, so find_min_light has a real lower bound to flicker to.
+  # Built fresh per run so determinism comparisons don't fight over shared
+  # sector state loaded from the WAD.
+  def flicker_map(special: 1)
+    bright = Doom::Map::Sector.new(0, 128, 'F', 'C', 255, special, 0)
+    dark   = Doom::Map::Sector.new(0, 128, 'F', 'C', 100, 0, 0)
+    sidedefs = [
+      Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 0),  # front -> bright
+      Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 1),  # back  -> dark
+    ]
+    linedefs = [Doom::Map::Linedef.new(0, 1, 0x0004, 0, 0, 0, 1)]  # TWOSIDED
+    map = Object.new
+    map.define_singleton_method(:sectors) { [bright, dark] }
+    map.define_singleton_method(:sidedefs) { sidedefs }
+    map.define_singleton_method(:linedefs) { linedefs }
+    map
+  end
+
+  # Run the flicker for `tics` and return the bright sector's light each tic.
+  def light_sequence(seed, tics: 200)
+    map = flicker_map
+    fx = described_class.new(map, random: Doom::Game::Random.new(seed))
+    sector = map.sectors.first
+    Array.new(tics) { fx.update; sector.light_level }
+  end
+
   describe '#initialize' do
     it 'finds light effects in E1M1' do
       effect_list = effects.instance_variable_get(:@effects)
@@ -26,18 +53,13 @@ RSpec.describe Doom::Game::SectorEffects do
   end
 
   describe '#update' do
-    it 'changes sector light levels' do
-      # Find a sector with light effects
-      sectors_with_effects = @map.sectors.select { |s| [1, 2, 3, 8, 12, 13, 17].include?(s.special) }
-      skip 'No light effect sectors' if sectors_with_effects.empty?
-
-      sector = sectors_with_effects.first
-
-      # Run many updates - light should change at some point
-      100.times { effects.update }
-
-      # Verify it doesn't crash and produces valid values
-      expect(sector.light_level).to be_a(Integer).or be_a(Float)
+    it 'actually varies a flickering sector light over time' do
+      levels = light_sequence(1)
+      # A flickering sector must swing between its bright and dark levels,
+      # not sit at a single value across the whole run.
+      expect(levels.min).not_to eq(levels.max)
+      expect(levels).to include(255)  # reaches its bright (max) level
+      expect(levels.min).to be < 255  # and drops below it
     end
 
     it 'scrolls wall textures' do
@@ -48,6 +70,18 @@ RSpec.describe Doom::Game::SectorEffects do
       initial_offset = side.x_offset
       effects.update
       expect(side.x_offset).to eq(initial_offset + 1)
+    end
+  end
+
+  # Lockstep multiplayer needs flicker to be reproducible: peers running the
+  # same seed must observe identical light levels every tic.
+  describe 'deterministic RNG' do
+    it 'produces identical light sequences for the same seed' do
+      expect(light_sequence(7)).to eq(light_sequence(7))
+    end
+
+    it 'produces different light sequences for different seeds' do
+      expect(light_sequence(7)).not_to eq(light_sequence(99))
     end
   end
 end

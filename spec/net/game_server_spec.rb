@@ -3,6 +3,11 @@
 require_relative '../spec_helper'
 
 RSpec.describe Doom::Net::GameServer do
+  # How far ahead a client labels its input. The server does not care what this
+  # value is (it just files input under whatever future tic arrives), so it
+  # lives here in the fake client rather than in the server.
+  INPUT_LEAD = 2
+
   before(:all) do
     skip_without_wad
     @wad = Doom::Wad::Reader.new(wad_path)
@@ -158,7 +163,6 @@ RSpec.describe Doom::Net::GameServer do
   describe 'the deadline, without a socket' do
     it 'runs a tic per elapsed tic interval and no more' do
       server = new_server
-      server.instance_variable_get(:@world) # touch
       tick_clock(described_class::TIC_SECONDS * 3)
       expect(server.advance).to eq(3)
       expect(server.tic).to eq(3)
@@ -189,7 +193,7 @@ RSpec.describe Doom::Net::GameServer do
 
       # Let the join complete, then play a while with scripted input.
       script = lambda do |f, i|
-        [[server.tic + described_class::INPUT_LEAD + 1,
+        [[server.tic + INPUT_LEAD + 1,
           Doom::Game::Ticcmd.new(1.0, 0.0, (i % 5) - 2.0, 0)]]
       end
       run(server, [follower], tics: 60, input: script)
@@ -217,7 +221,7 @@ RSpec.describe Doom::Net::GameServer do
 
       script = lambda do |f, i|
         move = f.player_id.even? ? 1.0 : -1.0
-        [[server.tic + described_class::INPUT_LEAD + 1,
+        [[server.tic + INPUT_LEAD + 1,
           Doom::Game::Ticcmd.new(move, 0.0, (i % 7) - 3.0, (i % 6).zero? ? Doom::Game::Ticcmd::BTN_FIRE : 0)]]
       end
       run(server, followers, tics: 80, input: script)
@@ -299,6 +303,54 @@ RSpec.describe Doom::Net::GameServer do
       expect(server.player_count).to eq(before - 1)
       expect(server.world.players.map(&:id)).to include(b.player_id)
       expect(b.world.state_hash).to eq(server.world.state_hash)
+    end
+  end
+
+  describe 'a full roster' do
+    it 'refuses a join once max_players is reached' do
+      server = new_server(max_players: 2)
+      a = new_follower(server)
+      b = new_follower(server)
+      [a, b].each(&:hello)
+      run(server, [a, b], tics: 10)
+
+      expect(server.player_count).to eq(2)
+
+      late = new_follower(server)
+      late.hello
+      run(server, [late], tics: 10)
+
+      # The server never welcomed the extra client, so it has no id, and the
+      # roster is unchanged.
+      expect(late.player_id).to be_nil
+      expect(server.player_count).to eq(2)
+    end
+  end
+
+  describe 'input spoofing' do
+    it 'ignores commands carrying an id the client was not assigned' do
+      server = new_server
+      f = new_follower(server)
+      f.hello
+      run(server, [f], tics: 10)
+
+      future = server.tic + 5
+      spoof_id = f.player_id + 1
+      real = Doom::Game::Ticcmd.new(1.0, 0, 0, 0)
+      spoof = Doom::Game::Ticcmd.new(-1.0, 0, 0, 0)
+
+      # A legitimate command for the client's own id, and a spoofed one claiming
+      # to be another player, in separate packets from the same address.
+      f.transport.send_to_addr('127.0.0.1', server.transport.local_port,
+                               Doom::Net::Protocol.encode_input(f.player_id, [[future, real]]))
+      f.transport.send_to_addr('127.0.0.1', server.transport.local_port,
+                               Doom::Net::Protocol.encode_input(spoof_id, [[future, spoof]]))
+      sleep 0.002
+      server.poll
+
+      inputs = server.instance_variable_get(:@inputs)
+      expect(inputs[future]).to have_key(f.player_id)   # the honest one landed
+      expect(inputs[future]).not_to have_key(spoof_id)  # the spoof was dropped
     end
   end
 end

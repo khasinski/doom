@@ -21,7 +21,7 @@ RSpec.describe Doom::Net::Lockstep do
 
     it 'starts ready, so play begins without waiting for a round trip' do
       expect(step).to be_ready
-      expect(step.run_tic).to eq(1)
+      expect(step.next_tic).to eq(1)
     end
 
     it 'primes exactly the delay worth of tics' do
@@ -69,7 +69,7 @@ RSpec.describe Doom::Net::Lockstep do
 
       expect(step).to be_stalled
       expect(step.take_cmds).to be_nil
-      expect(step.run_tic).to eq(3)  # did not advance
+      expect(step.next_tic).to eq(3)  # did not advance
     end
 
     it 'resumes exactly where it stalled once the command arrives' do
@@ -84,7 +84,7 @@ RSpec.describe Doom::Net::Lockstep do
       expect(step.take_cmds).not_to be_nil
       expect(step.take_cmds).not_to be_nil
       expect(step.take_cmds).not_to be_nil
-      expect(step.run_tic).to eq(6)
+      expect(step.next_tic).to eq(6)
     end
   end
 
@@ -119,14 +119,6 @@ RSpec.describe Doom::Net::Lockstep do
       step.receive(4, 1, cmd)
 
       expect(3.times.map { step.take_cmds }.compact.size).to eq(3)
-    end
-
-    it 'offers recent local commands for the transport to resend' do
-      4.times { step.submit_local(cmd) }
-      recent = step.recent_local(3)
-
-      expect(recent.map(&:first)).to eq([4, 5, 6])
-      expect(recent.last.last).to be_a(Doom::Game::Ticcmd)
     end
 
     describe '#local_since' do
@@ -170,7 +162,7 @@ RSpec.describe Doom::Net::Lockstep do
       step.receive(3, 1, cmd)
       step.take_cmds
 
-      expect(step.recent_local(5).map(&:first)).to include(3)
+      expect(step.local_since(3, 5).map(&:first)).to include(3)
     end
   end
 
@@ -205,9 +197,9 @@ RSpec.describe Doom::Net::Lockstep do
         while a.take_cmds; end
       end
 
-      before = b.run_tic
+      before = b.next_tic
       300.times { play_round(a, b) }
-      [before, b.run_tic]
+      [before, b.next_tic]
     end
 
     it 'recovers from a short absence' do
@@ -224,7 +216,7 @@ RSpec.describe Doom::Net::Lockstep do
 
     it 'catches the absent peer all the way up' do
       pause_and_resume(200)
-      expect(b.run_tic).to eq(a.run_tic)
+      expect(b.next_tic).to eq(a.next_tic)
     end
 
     it 'keeps the commands an unacknowledged peer still needs' do

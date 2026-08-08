@@ -27,7 +27,6 @@ module Doom
       TIC_SECONDS = 1.0 / TICRATE
       FRAME_REDUNDANCY = 6   # Recent frames repeated per packet against loss
       CLIENT_TIMEOUT = 5.0   # Drop a client silent this long
-      INPUT_LEAD = 2         # Client input targets this many tics ahead
 
       Client = Struct.new(:player_id, :host, :port, :last_seen, :joined) do
         def key = "#{host}:#{port}"
@@ -100,7 +99,7 @@ module Doom
         @pending_joins.clear
         @pending_leaves.clear
 
-        apply_joins(joins, this_tic)
+        apply_joins(joins)
         apply_leaves(leaves)
 
         cmds = finalize_cmds(this_tic)
@@ -123,7 +122,7 @@ module Doom
         end
       end
 
-      def apply_joins(ids, tic)
+      def apply_joins(ids)
         ids.each do |id|
           @world.add_player(id: id)
           client = @by_id[id]
@@ -174,10 +173,15 @@ module Doom
         return unless client
 
         client.last_seen = @clock.call
+        # A client may only speak for the id it was assigned. The check does not
+        # vary per command, so reject the whole packet up front rather than
+        # re-testing it inside the loop.
+        return unless msg[:player_id] == client.player_id
+
         msg[:cmds].each do |tic, cmd|
           next if tic <= @tic # already simulated; too late to matter
 
-          @inputs[tic][msg[:player_id]] = cmd if msg[:player_id] == client.player_id
+          @inputs[tic][client.player_id] = cmd
         end
       end
 
@@ -213,8 +217,8 @@ module Doom
 
       def send_welcome(client)
         @transport.send_to_addr(client.host, client.port, Protocol.encode_welcome(
-          player_id: client.player_id, num_players: @max_players,
-          seed: @world.random.index, mode: @world.mode, skill: 2,
+          player_id: client.player_id, num_players: @world.players.size,
+          mode: @world.mode, skill: Session::DEFAULT_SKILL,
           snapshot_tic: @tic, map: @world.map.name
         ))
       end

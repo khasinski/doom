@@ -86,5 +86,43 @@ RSpec.describe Doom::Game::ItemPickup do
       pickup.update(at(thing.x.to_f, thing.y.to_f))
       expect(player.armor).to eq(150) # unchanged
     end
+
+    # Blue (mega) armor upgrades even over full green armor, unlike green, which
+    # only replaces a weaker set. Driven through the pickup branch directly so it
+    # does not depend on a blue armor being placed in E1M1.
+    it 'picks up blue armor over existing green armor' do
+      player.armor = 100
+      taken = pickup.send(:give_armor, { armor_type: 2, amount: 200 }, player)
+      expect(taken).to be true
+      expect(player.armor).to eq(200)
+    end
+  end
+
+  describe 'backpack pickup' do
+    it 'doubles max ammo and grants some of each type' do
+      expect(player.max_bullets).to eq(200)
+
+      taken = pickup.send(:give_backpack, player)
+
+      expect(taken).to be true
+      expect(player.max_bullets).to eq(400)
+      expect(player.max_shells).to eq(100)
+      expect(player.max_rockets).to eq(100)
+      expect(player.max_cells).to eq(600)
+      expect(player.ammo_bullets).to eq(60) # 50 at start + 10 from the pack
+      expect(player.ammo_shells).to eq(4)
+    end
+  end
+
+  describe 'key pickup' do
+    it 'grants a key not yet held' do
+      expect(pickup.send(:give_key, :blue_card, player)).to be true
+      expect(player.keys[:blue_card]).to be true
+    end
+
+    it 'is not re-picked when already held' do
+      player.keys[:blue_card] = true
+      expect(pickup.send(:give_key, :blue_card, player)).to be false
+    end
   end
 end

@@ -1,10 +1,14 @@
 # frozen_string_literal: true
 
+require_relative 'framebuffer_blitter'
+
 module Doom
   module Game
     # Intermission screen shown between levels.
     # Displays kill%, item%, secret%, time, and par time.
     class Intermission
+      include FramebufferBlitter
+
       # Episode 1 par times in seconds (from Chocolate Doom)
       PAR_TIMES = {
         'E1M1' => 30, 'E1M2' => 75, 'E1M3' => 120, 'E1M4' => 90,
@@ -24,8 +28,7 @@ module Doom
 
       attr_reader :finished, :next_map
 
-      def initialize(wad, hud_graphics, stats)
-        @wad = wad
+      def initialize(_wad, hud_graphics, stats)
         @gfx = hud_graphics
         @stats = stats  # { map:, kills:, total_kills:, items:, total_items:, secrets:, total_secrets:, time_tics: }
         @finished = false
@@ -164,7 +167,7 @@ module Doom
       end
 
       def load_patch(name)
-        @gfx.send(:load_graphic, name)
+        @gfx.load_graphic(name)
       end
 
       def draw_background(framebuffer)
@@ -174,19 +177,8 @@ module Doom
 
       def draw_fullscreen(framebuffer, sprite)
         return unless sprite
-        y_offset = (240 - sprite.height) / 2
-        y_offset = [y_offset, 0].max
-        sprite.width.times do |x|
-          next if x >= 320
-          col = sprite.column_pixels(x)
-          next unless col
-          col.each_with_index do |color, y|
-            next unless color
-            sy = y + y_offset
-            next if sy < 0 || sy >= 240
-            framebuffer[sy * 320 + x] = color
-          end
-        end
+        y_offset = [(Render::SCREEN_HEIGHT - sprite.height) / 2, 0].max
+        blit_sprite(framebuffer, sprite, 0, y_offset)
       end
 
       def draw_percent(framebuffer, right_x, y, value)
@@ -229,19 +221,7 @@ module Doom
       end
 
       def draw_sprite(framebuffer, sprite, x, y)
-        return unless sprite
-        sprite.width.times do |col_x|
-          sx = x + col_x
-          next if sx < 0 || sx >= 320
-          col = sprite.column_pixels(col_x)
-          next unless col
-          col.each_with_index do |color, col_y|
-            next unless color
-            sy = y + col_y
-            next if sy < 0 || sy >= 240
-            framebuffer[sy * 320 + sx] = color
-          end
-        end
+        blit_sprite(framebuffer, sprite, x, y)
       end
     end
   end

@@ -8,14 +8,9 @@ RSpec.describe Doom::Net::Protocol do
   end
 
   describe 'hello' do
-    it 'round-trips' do
-      msg = described_class.decode(described_class.encode_hello('chris'))
-      expect(msg[:type]).to eq(described_class::HELLO)
-      expect(msg[:name]).to eq('chris')
-    end
-
-    it 'handles an empty name' do
-      expect(described_class.decode(described_class.encode_hello)[:name]).to eq('')
+    it 'round-trips as a bare join request' do
+      msg = described_class.decode(described_class.encode_hello)
+      expect(msg).to eq(type: described_class::HELLO)
     end
   end
 
@@ -87,7 +82,6 @@ RSpec.describe Doom::Net::Protocol do
       pairs = Array.new(500) { |i| [i, cmd] }
       packet = described_class.encode_ticcmds(0, pairs)
 
-      expect(packet.bytesize).to be <= described_class::MAX_PACKET_SIZE
       expect(described_class.decode(packet)[:cmds].size).to eq(described_class::MAX_CMDS_PER_PACKET)
     end
 
@@ -169,11 +163,11 @@ RSpec.describe Doom::Net::Protocol do
   describe 'server packets' do
     it 'round-trips a welcome' do
       msg = described_class.decode(described_class.encode_welcome(
-        player_id: 5, num_players: 16, seed: 200, mode: :deathmatch,
+        player_id: 5, num_players: 16, mode: :deathmatch,
         skill: 3, snapshot_tic: 90_000, map: 'E1M5'
       ))
       expect(msg).to include(type: described_class::WELCOME, player_id: 5, num_players: 16,
-                             seed: 200, mode: :deathmatch, skill: 3, snapshot_tic: 90_000, map: 'E1M5')
+                             mode: :deathmatch, skill: 3, snapshot_tic: 90_000, map: 'E1M5')
     end
 
     it 'round-trips client input with its tics' do
@@ -181,6 +175,18 @@ RSpec.describe Doom::Net::Protocol do
       expect(msg[:type]).to eq(described_class::INPUT)
       expect(msg[:player_id]).to eq(4)
       expect(msg[:cmds].map(&:first)).to eq([70, 71])
+    end
+
+    it 'caps client input so a packet cannot grow without bound' do
+      pairs = Array.new(500) { |i| [i, cmd] }
+      cmds = described_class.decode(described_class.encode_input(0, pairs))[:cmds]
+      expect(cmds.size).to eq(described_class::MAX_CMDS_PER_PACKET)
+    end
+
+    it 'keeps the most recent client input when capping' do
+      pairs = Array.new(100) { |i| [i, cmd] }
+      cmds = described_class.decode(described_class.encode_input(0, pairs))[:cmds]
+      expect(cmds.last.first).to eq(99)
     end
 
     it 'round-trips a frame with joins, leaves and commands' do
@@ -281,7 +287,7 @@ RSpec.describe Doom::Net::Protocol do
 
     it 'never raises truncating the server packets at any length' do
       packets = [
-        described_class.encode_welcome(player_id: 1, num_players: 4, seed: 1, mode: :coop,
+        described_class.encode_welcome(player_id: 1, num_players: 4, mode: :coop,
                                        skill: 2, snapshot_tic: 10, map: 'E1M1'),
         described_class.encode_input(1, [[5, cmd], [6, cmd]]),
         described_class.encode_frame([{ tic: 5, joins: [1], leaves: [2], cmds: [[0, cmd]] }]),

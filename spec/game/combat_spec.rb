@@ -22,22 +22,44 @@ RSpec.describe Doom::Game::Combat do
       skip 'No zombieman in map' unless zombie
       thing, idx = zombie
 
-      # Position player facing the zombie
-      dx = thing.x - 100
-      dy = thing.y
-      cos_a = 1.0; sin_a = 0.0
+      # Stand 96 units due -x of the zombie, aimed straight along +x at it, with
+      # a seeded RNG so the pistol's tiny spread is deterministic and cannot
+      # miss the 20-unit-radius target. A seeded local combat also lets us
+      # assert the shot actually landed rather than let a miss pass vacuously.
+      c = described_class.new(@map, nil, @sprites, {}, nil, random: Doom::Game::Random.new(1))
+      c.fire(thing.x - 96.0, thing.y.to_f, 41.0, 1.0, 0.0, Doom::Game::PlayerState::WEAPON_PISTOL)
+      hp = c.instance_variable_get(:@monster_hp)
 
-      # Point directly at zombie with hitscan
-      dx = thing.x - (thing.x - 100)
-      angle = Math.atan2(thing.y - thing.y, thing.x - (thing.x - 100))
+      expect(hp[idx]).not_to be_nil       # the shot connected
+      expect(hp[idx]).to be < 20          # ...and reduced its HP from 20
+    end
+  end
 
-      combat.fire(thing.x - 100, thing.y.to_f, 41.0, 1.0, 0.0, Doom::Game::PlayerState::WEAPON_PISTOL)
-      hp = combat.instance_variable_get(:@monster_hp)
+  describe 'monster fireball damage' do
+    # A skill's damage factor must reach the fireball a monster spawns. With a
+    # shared seed both fireballs draw the same base roll, so the only difference
+    # in damage is the multiplier applied on impact.
+    it 'scales with the damage multiplier' do
+      start = @map.player_start
+      sec = @map.sector_at(start.x, start.y)
+      floor = sec ? sec.floor_height : 0
 
-      # Monster should have taken damage (HP reduced from 20)
-      if hp[idx]
-        expect(hp[idx]).to be < 20
+      hurt = lambda do |mult|
+        c = described_class.new(@map, nil, @sprites, {}, nil, random: Doom::Game::Random.new(7))
+        victim = Doom::Game::Player.new(id: 0)
+        victim.place(start.x.to_f, start.y.to_f, floor + 41.0, 0)
+        c.players = [victim]
+        # Imp fireball spawned 40 units away, aimed at the victim.
+        c.spawn_monster_projectile(start.x - 40.0, start.y.to_f, floor + 32, 3001, mult, victim)
+        20.times { c.update; break if victim.state.health < 100 }
+        100 - victim.state.health
       end
+
+      low = hurt.call(1.0)
+      high = hurt.call(3.0)
+
+      expect(low).to be > 0
+      expect(high).to be > low
     end
   end
 

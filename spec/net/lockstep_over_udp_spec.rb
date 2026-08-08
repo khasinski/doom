@@ -113,7 +113,7 @@ RSpec.describe 'lockstep over UDP' do
     until peers.all? { |p| p.world.leveltime >= target }
       raise "stalled at #{peers.map { |p| p.world.leveltime }.inspect}" if Time.now > deadline
 
-      peers.each { |p| p.submit(scripted_cmd(p.id, i)) if p.lockstep.make_tic <= target }
+      peers.each { |p| p.submit(scripted_cmd(p.id, i)) if p.lockstep.sample_tic <= target }
       peers.each(&:transmit)  # always, even once sampling is done
       peers.each(&:receive)
       peers.each(&:run)

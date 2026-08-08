@@ -7,12 +7,8 @@ module Doom
       # Weapon is rendered above the status bar
       WEAPON_AREA_HEIGHT = SCREEN_HEIGHT - StatusBar::STATUS_BAR_HEIGHT
 
-      # Chocolate Doom R_DrawPSprite weapon positioning:
-      # centery = viewheight/2 (view area excluding status bar)
-      # texturemid = centery - (WEAPONTOP - spritetopoffset)
-      # dc_yl = centery - texturemid (first visible row)
+      # Chocolate Doom R_DrawPSprite weapon top: dc_yl = WEAPONTOP - spritetopoffset
       WEAPONTOP = 32
-      VIEW_CENTERY = (SCREEN_HEIGHT - StatusBar::STATUS_BAR_HEIGHT) / 2  # 104
 
       attr_reader :gfx
 

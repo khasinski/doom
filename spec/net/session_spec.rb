@@ -139,7 +139,7 @@ RSpec.describe Doom::Net::Session do
         raise "stalled at #{worlds.map(&:leveltime).inspect}" if Time.now > deadline
 
         sessions.each_with_index do |s, idx|
-          s.submit(cmd(s.local_id, i)) if s.lockstep.make_tic <= 150
+          s.submit(cmd(s.local_id, i)) if s.lockstep.sample_tic <= 150
           s.transmit
           s.poll
           s.run(worlds[idx], limit: 20)

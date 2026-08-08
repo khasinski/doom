@@ -172,6 +172,54 @@ RSpec.describe Doom::Game::StateHash do
 
       expect(a.state_hash).not_to eq(b.state_hash)
     end
+
+    it 'notices a projectile difference alone' do
+      # dz and spawn_tic used to be dropped from the projectile fingerprint, so
+      # two peers could disagree on a rocket's height or age unnoticed.
+      base = lambda do
+        Doom::Game::Combat::Projectile.new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
+                                           :rocket, 7, 'MISL', :monsters, nil, 1.0)
+      end
+
+      a = busy_world(1); a.combat.projectiles << base.call
+      b = busy_world(1); pb = base.call; pb.dz = 60.0; b.combat.projectiles << pb
+      expect(a.state_hash).not_to eq(b.state_hash)
+
+      c = busy_world(1); c.combat.projectiles << base.call
+      d = busy_world(1); pd = base.call; pd.spawn_tic = 999; d.combat.projectiles << pd
+      expect(c.state_hash).not_to eq(d.state_hash)
+    end
+
+    it 'notices a monster_hp difference alone' do
+      a = busy_world(1)
+      b = busy_world(1)
+      idx = b.monster_ai.monsters.first.thing_idx
+      b.combat.instance_variable_get(:@monster_hp)[idx] = 5
+
+      expect(a.state_hash).not_to eq(b.state_hash)
+    end
+
+    it 'notices a dead_things difference alone' do
+      a = busy_world(1)
+      b = busy_world(1)
+      idx = b.monster_ai.monsters.first.thing_idx
+      b.combat.dead_things[idx] = { tic: 1, prefix: 'POSS' }
+
+      expect(a.state_hash).not_to eq(b.state_hash)
+    end
+
+    it 'notices a moving lift alone' do
+      # A lift differing only in phase (not wait_tics) used to be invisible to
+      # the fingerprint, the way a moving door once was.
+      a = busy_world(1)
+      b = busy_world(1)
+      a.sector_actions.instance_variable_get(:@active_lifts)[999] =
+        { sector: a.map.sectors.first, state: :lowering, wait_tics: 3 }
+      b.sector_actions.instance_variable_get(:@active_lifts)[999] =
+        { sector: b.map.sectors.first, state: :raising, wait_tics: 3 }
+
+      expect(a.state_hash).not_to eq(b.state_hash)
+    end
   end
 
   describe 'sections' do
