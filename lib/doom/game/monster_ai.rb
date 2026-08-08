@@ -84,10 +84,10 @@ module Doom
 
       MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
                                 :active, :chase_timer, :type, :attack_cooldown,
-                                :reactiontime, :last_saw_player,
+                                :reactiontime, :last_saw_target,
                                 :attacking, :attack_frame_tic, :fired, :target)
 
-      def initialize(map, combat, _player_state = nil, sprites_mgr = nil, hidden_things = {}, sound_engine = nil,
+      def initialize(map, combat, sprites_mgr = nil, hidden_things = {}, sound_engine = nil,
                      random: Random.new)
         @map = map
         @combat = combat
@@ -221,8 +221,8 @@ module Doom
         # Track if monster can see the target
         can_see = dist < SIGHT_RANGE && has_line_of_sight?(mon.x, mon.y, target_x, target_y)
         if can_see
-          mon.last_saw_player = @tic_counter
-        elsif @tic_counter - (mon.last_saw_player || 0) > 105  # ~3 seconds without LOS
+          mon.last_saw_target = @tic_counter
+        elsif @tic_counter - (mon.last_saw_target || 0) > 105  # ~3 seconds without LOS
           # Monster gives up and goes idle (like DOOM's A_Chase returning to spawnstate)
           mon.active = false
           mon.reactiontime = REACTIONTIME

@@ -343,7 +343,7 @@ module Doom
       # --- monsters -----------------------------------------------------------
 
       MONSTER_INT_FIELDS = %i[thing_idx movedir movecount chase_timer type
-                              attack_cooldown reactiontime last_saw_player attack_frame_tic].freeze
+                              attack_cooldown reactiontime last_saw_target attack_frame_tic].freeze
       MONSTER_BOOL_FIELDS = %i[active attacking fired].freeze
 
       def dump_monsters(w, ai)
@@ -471,15 +471,23 @@ module Doom
         w.list(actions.instance_variable_get(:@crossed_linedefs).keys) { |idx| w.u32(idx) }
         w.list(actions.instance_variable_get(:@secrets_found).keys) { |idx| w.u32(idx) }
 
-        # Which side of each nearby line the player was last on. Walk triggers
+        # Which side of each nearby line each player was last on. Walk triggers
         # fire on a side change, so without this a restored world detects a
         # crossing that never happened (or misses one), which silently
         # activates a different set of lines and diverges tics later. This was
         # the field that broke the round-trip test.
-        # A nil side means "not yet seen", which is the same as the key being
-        # absent, so those entries are dropped rather than encoded.
-        near = (actions.instance_variable_get(:@near_linedefs) || {}).reject { |_, side| side.nil? }
-        w.list(near.to_a) { |idx, side| w.u32(idx); w.i64(side) }
+        #
+        # It is nested per player id: every player crosses walk lines on their
+        # own, so each keeps its own side memory. Players are written in id
+        # order and lines in index order so the bytes are reproducible across
+        # peers. A nil side means "not yet seen", which is the same as the key
+        # being absent, so those entries are dropped rather than encoded.
+        near = actions.instance_variable_get(:@near_linedefs) || {}
+        w.list(near.sort_by { |pid, _| pid }) do |pid, sides|
+          w.u8(pid)
+          live = (sides || {}).reject { |_, side| side.nil? }.sort_by { |idx, _| idx }
+          w.list(live) { |(idx, side)| w.u32(idx); w.i64(side) }
+        end
 
         w.bool(!actions.exit_triggered.nil?)
         w.str(actions.exit_triggered.to_s)
@@ -516,7 +524,12 @@ module Doom
         actions.instance_variable_set(:@secrets_found, secrets)
 
         near = {}
-        r.list { idx = r.u32; near[idx] = r.i64 }
+        r.list do
+          pid = r.u8
+          sides = {}
+          r.list { idx = r.u32; sides[idx] = r.i64 }
+          near[pid] = sides
+        end
         actions.instance_variable_set(:@near_linedefs, near)
 
         has_exit = r.bool

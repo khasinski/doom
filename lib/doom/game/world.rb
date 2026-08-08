@@ -52,7 +52,7 @@ module Doom
         @sector_effects = SectorEffects.new(map, random: random)
         @item_pickup = ItemPickup.new(map, skill_hidden)
         @combat = Combat.new(map, nil, sprites, skill_hidden, sound, random: random)
-        @monster_ai = MonsterAI.new(map, @combat, nil, sprites, skill_hidden, sound, random: random)
+        @monster_ai = MonsterAI.new(map, @combat, sprites, skill_hidden, sound, random: random)
       end
 
       def deathmatch?
@@ -221,7 +221,7 @@ module Doom
       def rebuild_actor_subsystems
         @item_pickup = ItemPickup.new(@map, @skill_hidden)
         @combat = Combat.new(@map, nil, @sprites, @skill_hidden, @sound, random: @random)
-        @monster_ai = MonsterAI.new(@map, @combat, nil, @sprites, @skill_hidden, @sound, random: @random)
+        @monster_ai = MonsterAI.new(@map, @combat, @sprites, @skill_hidden, @sound, random: @random)
         @monster_ai.damage_multiplier = @damage_multiplier
 
         @players.each do |p|
@@ -320,7 +320,7 @@ module Doom
           best_dist = dist
         end
 
-        @sector_actions.use_linedef(best_linedef, best_idx) if best_linedef
+        @sector_actions.use_linedef(best_linedef, best_idx, player.state.keys) if best_linedef
       end
 
       def point_to_line_distance(px, py, x1, y1, x2, y2)
@@ -397,18 +397,22 @@ module Doom
       end
 
       def update_sector_actions
-        @sector_actions.update_player_position(primary.x, primary.y) if primary
+        # Feed every player's position, in a fixed id order, so walk triggers
+        # fire for each player and the tic stays reproducible across peers.
+        ordered = @players.sort_by(&:id)
+        @sector_actions.update_players(ordered.map { |p| [p.id, p.x, p.y] })
         @sector_actions.update
 
-        return unless (dest = @sector_actions.pop_teleport)
+        # Each player teleports to its own destination, in id order.
+        @sector_actions.pop_teleports.sort_by { |id, _| id }.each do |id, dest|
+          p = player(id)
+          next unless p
 
-        p = primary
-        return unless p
-
-        physics = physics_for(p)
-        p.place(dest[:x], dest[:y], p.z, dest[:angle])
-        physics.reset
-        physics.settle(p, dest[:x], dest[:y])
+          physics = physics_for(p)
+          p.place(dest[:x], dest[:y], p.z, dest[:angle])
+          physics.reset
+          physics.settle(p, dest[:x], dest[:y])
+        end
       end
 
       def update_item_pickups

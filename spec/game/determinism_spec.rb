@@ -27,7 +27,7 @@ RSpec.describe 'simulation determinism' do
     rng = Doom::Game::Random.new(seed)
     player = Doom::Game::PlayerState.new
     combat = Doom::Game::Combat.new(map, nil, @sprites, {}, nil, random: rng)
-    ai = Doom::Game::MonsterAI.new(map, combat, nil, @sprites, {}, nil, random: rng)
+    ai = Doom::Game::MonsterAI.new(map, combat, @sprites, {}, nil, random: rng)
     actor = Doom::Game::Player.new(state: player)
     at = ->(x, y, z = 41.0) { actor.place(x, y, z, 0); actor }
     effects = Doom::Game::SectorEffects.new(map, random: rng)
@@ -45,7 +45,7 @@ RSpec.describe 'simulation determinism' do
       mon.reactiontime = 0
       mon.movecount = 0
       mon.chase_timer = 0
-      mon.last_saw_player = 99_999
+      mon.last_saw_target = 99_999
     end
 
     tics.times do |t|

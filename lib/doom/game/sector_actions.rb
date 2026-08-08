@@ -22,10 +22,14 @@ module Doom
 
       attr_reader :exit_triggered, :secrets_found
 
-      def pop_teleport
-        dest = @teleport_dest
-        @teleport_dest = nil
-        dest
+      # Pending teleports, drained by the world once per tic: a map of
+      # player_id => destination. Each player teleports to its own destination,
+      # so a single shared slot (which only ever moved player 0) is not enough
+      # in a multiplayer world.
+      def pop_teleports
+        dests = @teleport_dests
+        @teleport_dests = {}
+        dests
       end
 
       def initialize(map, sound_engine = nil)
@@ -35,14 +39,32 @@ module Doom
         @active_lifts = {}   # sector_index => lift_state
         @player_x = 0
         @player_y = 0
+        @player_positions = []  # [[player_id, x, y], ...] in id order
         @exit_triggered = nil
         @secrets_found = {}  # sector_index => true
         @crossed_linedefs = {}
+        @near_linedefs = {}  # player_id => { linedef_idx => side }
+        @teleport_dests = {} # player_id => { x:, y:, angle: }
       end
 
+      # Single-player convenience used by the unit specs and by the world's
+      # use-line ray cast: treat the given point as player 0's position.
       def update_player_position(x, y)
         @player_x = x
         @player_y = y
+        @player_positions = [[0, x, y]]
+      end
+
+      # Feed every player's position (ordered by id) so walk triggers fire for
+      # each player independently and reproducibly. The primary (first) position
+      # also drives the single-player-only checks (secrets, door reopen).
+      def update_players(positions)
+        @player_positions = positions
+        first = positions.first
+        return unless first
+
+        @player_x = first[1]
+        @player_y = first[2]
       end
 
       def update
@@ -52,8 +74,10 @@ module Doom
         check_secrets
       end
 
-      # Try to use a linedef (called when player presses use key)
-      def use_linedef(linedef, linedef_idx)
+      # Try to use a linedef (called when player presses use key). `keys` is the
+      # acting player's key ring (a hash like {blue_card: true}); locked doors
+      # consult it and refuse to open without the matching card.
+      def use_linedef(linedef, linedef_idx, keys = {})
         return false if linedef.special == 0
 
         case linedef.special
@@ -61,19 +85,19 @@ module Doom
         when 1    # DR Door Open Wait Close
           activate_door(linedef)
         when 26   # DR Blue Door
-          activate_door(linedef, key: :blue_card)
+          activate_door(linedef, key: :blue_card, keys: keys)
         when 27   # DR Yellow Door
-          activate_door(linedef, key: :yellow_card)
+          activate_door(linedef, key: :yellow_card, keys: keys)
         when 28   # DR Red Door
-          activate_door(linedef, key: :red_card)
+          activate_door(linedef, key: :red_card, keys: keys)
         when 31   # D1 Door Open Stay
           activate_door(linedef, stay_open: true)
         when 32   # D1 Blue Door Open Stay
-          activate_door(linedef, key: :blue_card, stay_open: true)
+          activate_door(linedef, key: :blue_card, stay_open: true, keys: keys)
         when 33   # D1 Red Door Open Stay
-          activate_door(linedef, key: :red_card, stay_open: true)
+          activate_door(linedef, key: :red_card, stay_open: true, keys: keys)
         when 34   # D1 Yellow Door Open Stay
-          activate_door(linedef, key: :yellow_card, stay_open: true)
+          activate_door(linedef, key: :yellow_card, stay_open: true, keys: keys)
         when 103  # S1 Door Open Wait Close (tagged)
           activate_tagged_door(linedef)
 
@@ -130,15 +154,27 @@ module Doom
       # W1 types that only trigger once
       W1_TYPES = [2, 5, 52, 124].freeze
 
+      # Walk triggers fire per player: every player must be able to cross a line
+      # and set it off. Players are processed in a fixed id order so the tic is
+      # reproducible, and each player's side memory is tracked separately (a
+      # shared record would let one player's crossing state clobber another's).
       def check_walk_triggers
         @near_linedefs ||= {}
 
+        @player_positions.each do |(pid, px, py)|
+          sides = (@near_linedefs[pid] ||= {})
+          check_walk_triggers_for(pid, px, py, sides)
+        end
+      end
+
+      def check_walk_triggers_for(pid, px, py, sides)
         @map.linedefs.each_with_index do |ld, idx|
           next if ld.special == 0
           action = WALK_TRIGGERS[ld.special]
           next unless action
 
-          # W1 types only trigger once
+          # W1 types only trigger once (level-global: once any player crosses,
+          # it is spent), so the crossed record stays shared across players.
           if W1_TYPES.include?(ld.special)
             next if @crossed_linedefs[idx]
           end
@@ -148,53 +184,58 @@ module Doom
 
           # Determine which side of the linedef the player is on
           # DOOM's P_CrossSpecialLine fires when the player transitions sides
-          side = line_side(@player_x, @player_y, v1.x, v1.y, v2.x, v2.y)
-          dist = point_line_dist(@player_x, @player_y, v1.x, v1.y, v2.x, v2.y)
+          side = line_side(px, py, v1.x, v1.y, v2.x, v2.y)
+          dist = point_line_dist(px, py, v1.x, v1.y, v2.x, v2.y)
 
           near = dist < 32  # Detection range
-          prev_side = @near_linedefs[idx]
+          prev_side = sides[idx]
 
           if near && prev_side && prev_side != side
             # Player crossed the line - trigger!
-            @near_linedefs[idx] = side
+            sides[idx] = side
           elsif near && prev_side.nil?
             # First time near - record side but don't trigger yet
-            @near_linedefs[idx] = side
+            sides[idx] = side
             next
           elsif !near
-            @near_linedefs[idx] = nil
+            sides[idx] = nil
             next
           else
             next  # Same side, no crossing
           end
 
           @crossed_linedefs[idx] = true
-
-          case action
-          when :exit
-            @exit_triggered = :normal
-          when :secret_exit
-            @exit_triggered = :secret
-          when :door_open_stay
-            activate_tagged_door(ld, stay_open: true)
-          when :door
-            activate_tagged_door(ld)
-          when :lift
-            activate_lift(ld)
-          when :raise_floor
-            raise_floor_to_lowest_ceiling(ld)
-          when :lower_floor
-            lower_floor_to_highest(ld)
-          when :teleport
-            teleport_player(ld)
-          end
+          fire_walk_action(action, ld, pid)
         end
       end
 
-      # Returns which side of a line a point is on (:front or :back)
+      def fire_walk_action(action, ld, pid)
+        case action
+        when :exit
+          @exit_triggered = :normal
+        when :secret_exit
+          @exit_triggered = :secret
+        when :door_open_stay
+          activate_tagged_door(ld, stay_open: true)
+        when :door
+          activate_tagged_door(ld)
+        when :lift
+          activate_lift(ld)
+        when :raise_floor
+          raise_floor_to_lowest_ceiling(ld)
+        when :lower_floor
+          lower_floor_to_highest(ld)
+        when :teleport
+          teleport_player(ld, pid)
+        end
+      end
+
+      # Returns which side of a line a point is on, as an integer (1 = front,
+      # 0 = back). An integer rather than a symbol so the value serializes
+      # cleanly into the snapshot's per-player side memory.
       def line_side(px, py, x1, y1, x2, y2)
         cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
-        cross >= 0 ? :front : :back
+        cross >= 0 ? 1 : 0
       end
 
       def point_line_dist(px, py, x1, y1, x2, y2)
@@ -207,7 +248,15 @@ module Doom
         Math.sqrt((px - cx) ** 2 + (py - cy) ** 2)
       end
 
-      def activate_door(linedef, stay_open: false, key: nil)
+      def activate_door(linedef, stay_open: false, key: nil, keys: {})
+        # Locked doors refuse to open without the matching key. Refusal changes
+        # no state (deterministic), and plays the "no way" grunt if a sound
+        # engine is attached.
+        if key && !keys[key]
+          @sound&.noway
+          return
+        end
+
         # Find the sector on the back side of the linedef
         return unless linedef.two_sided?
 
@@ -462,7 +511,7 @@ module Doom
         end
       end
 
-      def teleport_player(linedef)
+      def teleport_player(linedef, player_id)
         tag = linedef.tag
         return if tag == 0
 
@@ -474,7 +523,7 @@ module Doom
           sector_idx = @map.sectors.index(sector)
           next unless sector_has_tag?(sector_idx, tag)
 
-          @teleport_dest = { x: thing.x, y: thing.y, angle: thing.angle }
+          @teleport_dests[player_id] = { x: thing.x, y: thing.y, angle: thing.angle }
           return
         end
       end

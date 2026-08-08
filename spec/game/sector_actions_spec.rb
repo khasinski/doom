@@ -117,6 +117,55 @@ RSpec.describe Doom::Game::SectorActions do
     end
   end
 
+  describe 'locked door (DR Blue Door, special 26)' do
+    let(:map) { build_map(door_special: 26) }
+    let(:linedef) { map.linedefs[0] }
+    let(:door_sector) { map.sectors[1] }
+
+    it 'stays shut when the player lacks the blue key' do
+      actions.use_linedef(linedef, 0, blue_card: false)
+      6.times { actions.update }
+      expect(door_sector.ceiling_height).to eq(0)
+      expect(actions.instance_variable_get(:@active_doors)).to be_empty
+    end
+
+    it 'opens when the player holds the blue key' do
+      actions.use_linedef(linedef, 0, blue_card: true)
+      6.times { actions.update }
+      expect(door_sector.ceiling_height).to be > 0
+    end
+
+    it 'is not fooled by holding a different colour key' do
+      actions.use_linedef(linedef, 0, red_card: true, yellow_card: true)
+      6.times { actions.update }
+      expect(door_sector.ceiling_height).to eq(0)
+    end
+
+    it 'refuses with no key ring at all (default empty)' do
+      actions.use_linedef(linedef, 0)
+      6.times { actions.update }
+      expect(door_sector.ceiling_height).to eq(0)
+    end
+  end
+
+  describe 'locked stay-open door (D1 Red Door, special 33)' do
+    let(:map) { build_map(door_special: 33) }
+    let(:linedef) { map.linedefs[0] }
+    let(:door_sector) { map.sectors[1] }
+
+    it 'stays shut without the red key' do
+      actions.use_linedef(linedef, 0, red_card: false)
+      6.times { actions.update }
+      expect(door_sector.ceiling_height).to eq(0)
+    end
+
+    it 'opens with the red key' do
+      actions.use_linedef(linedef, 0, red_card: true)
+      6.times { actions.update }
+      expect(door_sector.ceiling_height).to be > 0
+    end
+  end
+
   describe 'tagged door (S1, special 103)' do
     let(:map) { build_map(door_special: 103, door_tag: 5) }
 
@@ -259,27 +308,64 @@ RSpec.describe Doom::Game::SectorActions do
     end
   end
 
-  describe '#pop_teleport' do
-    it 'returns nil when no teleport is queued' do
-      m = build_map
-      a = described_class.new(m)
-      expect(a.pop_teleport).to be_nil
+  describe 'per-player walk triggers' do
+    # A WR teleport line (special 97) tagged 9, with a destination thing in the
+    # tagged sector. Every player that crosses the line must teleport, each to
+    # their own destination -- not just player 0.
+    def teleporter_map
+      teleport_thing = Doom::Map::Thing.new(96, 32, 90, 14, 0)
+      m = build_map(door_special: 97, door_tag: 9, things: [teleport_thing])
+      m.sectors[1].tag = 9
+      m
     end
 
-    it 'returns the destination once and clears it' do
+    it 'teleports every player that crosses in the same tic' do
+      a = described_class.new(teleporter_map)
+      a.update_players([[0, 50, 32], [1, 55, 20]])  # both on the room side
+      a.update
+      a.update_players([[0, 80, 32], [1, 85, 20]])  # both cross to the door side
+      a.update
+
+      expect(a.pop_teleports).to eq(
+        0 => { x: 96, y: 32, angle: 90 },
+        1 => { x: 96, y: 32, angle: 90 }
+      )
+    end
+
+    it 'tracks each player crossing separately so one never consumes another' do
+      a = described_class.new(teleporter_map)
+      a.update_players([[0, 50, 32], [1, 50, 20]])
+      a.update
+      a.update_players([[0, 80, 32], [1, 50, 20]])  # only player 0 crosses
+      a.update
+      expect(a.pop_teleports).to eq(0 => { x: 96, y: 32, angle: 90 })
+
+      a.update_players([[0, 80, 32], [1, 80, 20]])  # now player 1 crosses
+      a.update
+      expect(a.pop_teleports).to eq(1 => { x: 96, y: 32, angle: 90 })
+    end
+  end
+
+  describe '#pop_teleports' do
+    it 'returns an empty map when no teleport is queued' do
+      m = build_map
+      a = described_class.new(m)
+      expect(a.pop_teleports).to eq({})
+    end
+
+    it 'returns each player destination once and clears it' do
       teleport_thing = Doom::Map::Thing.new(96, 32, 90, 14, 0)
       m = build_map(door_special: 97, door_tag: 9, things: [teleport_thing])
       m.sectors[1].tag = 9
 
       a = described_class.new(m)
-      a.update_player_position(50, 32)
+      a.update_player_position(50, 32)  # player 0, room side
       a.update
-      a.update_player_position(80, 32)
+      a.update_player_position(80, 32)  # player 0 crosses into door side
       a.update
 
-      dest = a.pop_teleport
-      expect(dest).to eq(x: 96, y: 32, angle: 90)
-      expect(a.pop_teleport).to be_nil
+      expect(a.pop_teleports).to eq(0 => { x: 96, y: 32, angle: 90 })
+      expect(a.pop_teleports).to eq({})
     end
   end
 end

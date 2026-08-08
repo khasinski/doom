@@ -18,7 +18,7 @@ RSpec.describe Doom::Game::MonsterAI do
   # remembered target keeps its identity while the position moves.
   let(:actor) { Doom::Game::Player.new(state: player) }
   let(:combat) { Doom::Game::Combat.new(@map, nil, @sprites) }
-  subject(:ai) { described_class.new(@map, combat, nil, @sprites) }
+  subject(:ai) { described_class.new(@map, combat, @sprites) }
 
   def at(x, y, z = 41.0)
     actor.place(x, y, z, 0)
@@ -37,7 +37,7 @@ RSpec.describe Doom::Game::MonsterAI do
     mon.attack_cooldown = 0
     mon.reactiontime = 0
     mon.chase_timer = 0
-    mon.last_saw_player = 99999
+    mon.last_saw_target = 99999
     mon.attacking = false
     mon.attack_frame_tic = 0
   end
@@ -152,7 +152,7 @@ RSpec.describe Doom::Game::MonsterAI do
       skip 'No zombieman' unless mon
       # Manually activate
       mon.active = true
-      mon.last_saw_player = ai.instance_variable_get(:@tic_counter)
+      mon.last_saw_target = ai.instance_variable_get(:@tic_counter)
 
       120.times { ai.update([at(-9999, -9999)]) }
       expect(mon.active).to be false
@@ -163,7 +163,7 @@ RSpec.describe Doom::Game::MonsterAI do
       skip 'No zombieman' unless mon
       mon.active = true
       mon.reactiontime = 0
-      mon.last_saw_player = ai.instance_variable_get(:@tic_counter)
+      mon.last_saw_target = ai.instance_variable_get(:@tic_counter)
 
       120.times { ai.update([at(-9999, -9999)]) }
       expect(mon.reactiontime).to eq(described_class::REACTIONTIME)
@@ -365,7 +365,7 @@ RSpec.describe Doom::Game::MonsterAI do
       mon.active = true
       mon.attacking = true
       mon.attack_frame_tic = 0
-      mon.last_saw_player = 99999
+      mon.last_saw_target = 99999
 
       # Run through the full attack animation (2 frames * 8 tics = 16)
       20.times { ai.update([at(mon.x + 200, mon.y)]) }
@@ -378,7 +378,7 @@ RSpec.describe Doom::Game::MonsterAI do
       mon = find_monster(ai, 3004)
       skip 'No zombieman' unless mon
       mon.active = true
-      mon.last_saw_player = 99999
+      mon.last_saw_target = 99999
 
       # Player is 100 units away (< KEEP_DISTANCE)
       target_x = mon.x + 100
@@ -394,7 +394,7 @@ RSpec.describe Doom::Game::MonsterAI do
       demon = find_monster(ai, 3002)
       skip 'No demon' unless demon
       demon.active = true
-      demon.last_saw_player = 99999
+      demon.last_saw_target = 99999
 
       initial_x = demon.x
       target_x = demon.x + 100
