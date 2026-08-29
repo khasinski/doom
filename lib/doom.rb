@@ -48,6 +48,8 @@ module Doom
 
   class << self
     def run(wad_path, map_name: 'E1M1', rubykaigi: false, net: nil, frag_limit: nil)
+      return run_server(wad_path, map_name, net, frag_limit) if net && net[:role] == :serve
+
       session = build_session(net, map_name)
       if session
         # The host decides the map, seed and mode; a client is told them. Wait
@@ -157,6 +159,55 @@ module Doom
     end
 
     private
+
+    # Headless authoritative server. Loads only what the simulation needs (no
+    # renderer, HUD or window), then runs the tic loop forever, letting clients
+    # join, play and leave. The one place the engine runs without a display.
+    def run_server(wad_path, map_name, net, frag_limit)
+      wad = Wad::Reader.new(wad_path)
+      wad = merge_pwad_if_needed(wad) { |name| map_name = name }
+      sprites = Wad::SpriteManager.new(wad)
+      map = Map::MapData.load(wad, map_name)
+
+      world = Game::World.new(map, sprites: sprites, mode: net[:mode],
+                                   random: Game::Random.new, frag_limit: frag_limit)
+      transport = Net::Transport.new(port: net[:port])
+      server = Net::GameServer.new(world: world, transport: transport, max_players: net[:players])
+
+      puts "Serving #{net[:mode]} on #{map_name}, port #{transport.local_port}."
+      puts 'Players join with:  doom --join <this-host>:%d' % transport.local_port
+      puts 'Ctrl-C to stop.'
+
+      last_report = Time.now
+      loop do
+        server.poll
+        server.advance(limit: 8)
+        server.reap
+        now = Time.now
+        if now - last_report >= 2.0
+          puts "  tic #{server.tic}, #{server.player_count} players"
+          last_report = now
+        end
+        sleep 0.002
+      end
+    ensure
+      transport&.close
+    end
+
+    # Shared PWAD handling: if `wad` is a PWAD, merge it onto a base IWAD and
+    # yield the auto-detected map name. Returns the wad to use.
+    def merge_pwad_if_needed(wad)
+      return wad unless wad.pwad?
+
+      iwad_path = find_iwad
+      raise Error, 'PWAD requires a base IWAD (doom1.wad) in the current directory or ~/.doom/' unless iwad_path
+
+      base = Wad::Reader.new(iwad_path)
+      base.merge_pwad(wad)
+      pwad_map = base.directory.find { |e| e.name =~ /^(E\dM\d|MAP\d\d)$/ }
+      yield pwad_map.name if pwad_map && block_given?
+      base
+    end
 
     def build_session(net, map_name)
       return nil unless net

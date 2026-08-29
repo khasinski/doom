@@ -47,6 +47,8 @@ end
 
 net_host = ARGV.delete('--host')
 net_connect = take_flag('--connect')
+net_serve = ARGV.delete('--serve')
+net_join = take_flag('--join')
 net_port = positive_int_flag('--port', 5029)
 net_players = positive_int_flag('--players', 2)
 net_mode = ARGV.delete('--deathmatch') ? :deathmatch : :coop
@@ -79,11 +81,16 @@ if wants_help
   puts "                 Subflags: --json --frames=N --warmup=N --map=E1M1 --wad=PATH"
   puts "  --vsync        Present every frame instead of uncapping generation"
   puts
-  puts "Multiplayer (lockstep peer-to-peer, as in the original):"
+  puts "Multiplayer, authoritative server (for many players over the internet):"
+  puts "  --serve                Run a headless server others join (no window)"
+  puts "  --join HOST[:PORT]     Join a server"
+  puts
+  puts "Multiplayer, lockstep peer-to-peer (as in the original, for a small LAN):"
   puts "  --host                 Host a game and wait for others to join"
   puts "  --connect HOST[:PORT]  Join a hosted game"
-  puts "  --port N               Port to host on or connect to (default 5029)"
-  puts "  --players N            Players to wait for when hosting (default 2)"
+  puts
+  puts "  --port N               Port to serve/host on or join/connect to (default 5029)"
+  puts "  --players N            Players to seat when serving or hosting (default 2)"
   puts "  --deathmatch           Deathmatch instead of co-op"
   puts "  --frags N              Frags to win a deathmatch (default: no limit)"
   puts
@@ -117,7 +124,15 @@ require_relative '../lib/doom'
 begin
   # Find or download WAD
   wad_path = Doom::WadDownloader.ensure_wad_available(wad_path)
-  net = if net_host
+  net = if net_serve
+          # Authoritative server for a big session: no window, just the tic
+          # loop and the clients that join it.
+          { role: :serve, port: net_port, players: net_players, mode: net_mode }
+        elsif net_join
+          host, _, port = net_join.rpartition(':')
+          host = net_join if host.empty?
+          { role: :join, host: host, port: port.empty? ? net_port : port.to_i }
+        elsif net_host
           { role: :host, port: net_port, players: net_players, mode: net_mode }
         elsif net_connect
           host, _, port = net_connect.rpartition(':')
