@@ -28,7 +28,9 @@ module Doom
       FRAME_REDUNDANCY = 6   # Recent frames repeated per packet against loss
       CLIENT_TIMEOUT = 5.0   # Drop a client silent this long
 
-      Client = Struct.new(:player_id, :host, :port, :last_seen, :joined) do
+      # A connected client's bookkeeping (named Member so it is not confused
+      # with Net::Client, the actual client program in the same module).
+      Member = Struct.new(:player_id, :host, :port, :last_seen, :joined) do
         def key = "#{host}:#{port}"
       end
 
@@ -152,9 +154,11 @@ module Doom
       def on_hello(host, port)
         existing = @clients["#{host}:#{port}"]
         if existing
-          # A repeated hello: their welcome was probably lost. Re-send it once
-          # they are actually in the world.
-          send_welcome(existing) if existing.joined
+          # A repeated hello is a resync request: the welcome was lost, or the
+          # client fell too far behind the frame stream to recover. Answer with
+          # a fresh snapshot at the current tic, not just the welcome, so it can
+          # restart from live state.
+          send_snapshot_to(existing) if existing.joined
           return
         end
         return if @world.players.size + @pending_joins.size >= @max_players
@@ -162,7 +166,7 @@ module Doom
         id = next_free_id
         return unless id
 
-        client = Client.new(id, host, port, @clock.call, false)
+        client = Member.new(id, host, port, @clock.call, false)
         @clients[client.key] = client
         @by_id[id] = client
         @pending_joins << id
@@ -201,26 +205,24 @@ module Doom
       # Hand each new joiner a snapshot of the world at the tic they joined,
       # split into datagram-sized chunks. They restore it and follow the frame
       # stream from the next tic.
-      def send_welcomes(join_ids, tic)
-        return if join_ids.empty?
-
-        bytes = Game::Snapshot.dump(@world)
-        chunks = Protocol.snapshot_chunks(tic, bytes)
+      def send_welcomes(join_ids, _tic)
         join_ids.each do |id|
           client = @by_id[id]
-          next unless client
-
-          send_welcome(client)
-          chunks.each { |c| @transport.send_to_addr(client.host, client.port, c) }
+          send_snapshot_to(client) if client
         end
       end
 
-      def send_welcome(client)
+      # WELCOME plus the world snapshot at the current tic, chunked. One dump
+      # per recipient is fine -- joins and resyncs are rare next to the tic loop.
+      def send_snapshot_to(client)
         @transport.send_to_addr(client.host, client.port, Protocol.encode_welcome(
           player_id: client.player_id, num_players: @world.players.size,
           mode: @world.mode, skill: Session::DEFAULT_SKILL,
           snapshot_tic: @tic, map: @world.map.name
         ))
+        Protocol.snapshot_chunks(@tic, Game::Snapshot.dump(@world)).each do |chunk|
+          @transport.send_to_addr(client.host, client.port, chunk)
+        end
       end
     end
   end

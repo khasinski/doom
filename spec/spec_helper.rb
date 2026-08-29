@@ -31,6 +31,7 @@ require_relative '../lib/doom/net/desync_monitor'
 require_relative '../lib/doom/net/lockstep'
 require_relative '../lib/doom/net/session'
 require_relative '../lib/doom/net/game_server'
+require_relative '../lib/doom/net/client'
 
 module Doom
   class Error < StandardError; end
