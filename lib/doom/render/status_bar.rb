@@ -34,6 +34,7 @@ module Doom
       SMALL_NUM_WIDTH = 4     # Width of small digit
 
       attr_reader :gfx
+      attr_writer :player  # Re-pointed on world rebind (map change, netgame resync)
 
       def initialize(hud_graphics, player_state)
         @gfx = hud_graphics

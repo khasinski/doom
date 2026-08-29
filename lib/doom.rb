@@ -49,6 +49,7 @@ module Doom
   class << self
     def run(wad_path, map_name: 'E1M1', rubykaigi: false, net: nil, frag_limit: nil)
       return run_server(wad_path, map_name, net, frag_limit) if net && net[:role] == :serve
+      return run_client(wad_path, map_name, net) if net && net[:role] == :join
 
       session = build_session(net, map_name)
       if session
@@ -192,6 +193,54 @@ module Doom
       end
     ensure
       transport&.close
+    end
+
+    # Join an authoritative server. The world comes from the server as a
+    # snapshot, so we block on the join (there is nothing to render yet), then
+    # open a window that follows the server's frame stream instead of
+    # simulating locally.
+    def run_client(wad_path, map_name, net)
+      wad = merge_pwad_if_needed(Wad::Reader.new(wad_path)) { |name| map_name = name }
+      palette = Wad::Palette.load(wad)
+      colormap = Wad::Colormap.load(wad)
+      flats = Wad::Flat.load_all(wad)
+      textures = Wad::TextureManager.new(wad)
+      sprites = Wad::SpriteManager.new(wad)
+      hud_graphics = Wad::HudGraphics.new(wad)
+      animations = Game::Animations.new(textures.texture_names, flats.map(&:name))
+      sound_engine = Game::SoundEngine.new(Wad::SoundManager.new(wad))
+
+      puts "Connecting to #{net[:host]}:#{net[:port]}..."
+      client = Net::Client.new(host: net[:host], port: net[:port], sprites: sprites,
+                               sound: sound_engine,
+                               load_map: ->(name) { Map::MapData.load(wad, name) })
+      wait_for_client(client)
+      puts "  Joined as player #{client.local_id}."
+
+      world = client.world
+      renderer = Render::Renderer.new(wad, world.map, textures, palette, colormap,
+                                      flats, sprites, animations)
+      player_state = world.player(client.local_id).state
+      status_bar = Render::StatusBar.new(hud_graphics, player_state)
+      weapon_renderer = Render::WeaponRenderer.new(hud_graphics, player_state)
+      menu = Game::Menu.new(wad, hud_graphics, Render::Font.new(wad, hud_graphics))
+      menu.instance_variable_set(:@state, Game::Menu::STATE_NONE)
+
+      window = Platform::GosuWindow.new(renderer, palette, world, status_bar, weapon_renderer,
+                                        animations, menu, sound_engine, client: client)
+      window.show
+    ensure
+      client&.quit
+    end
+
+    def wait_for_client(client, timeout: 30)
+      deadline = Time.now + timeout
+      until client.playing?
+        raise Error, 'timed out joining the server' if Time.now > deadline
+
+        client.poll
+        sleep 0.01
+      end
     end
 
     # Shared PWAD handling: if `wad` is a PWAD, merge it onto a base IWAD and

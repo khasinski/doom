@@ -97,7 +97,7 @@ module Doom
       # automap, debug overlay and HUD read them constantly -- bind_world keeps
       # those caches honest whenever the world is rebuilt.
       def initialize(renderer, palette, world, status_bar = nil, weapon_renderer = nil,
-                     animations = nil, menu = nil, sound_engine = nil, session: nil)
+                     animations = nil, menu = nil, sound_engine = nil, session: nil, client: nil)
         fullscreen = ARGV.include?('--fullscreen') || ARGV.include?('-f')
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
@@ -114,8 +114,10 @@ module Doom
         @sound = sound_engine
         @skill = Game::Menu::SKILL_MEDIUM
         @session = session
-        @local_player_id = session&.local_id || 0
-        menu.netgame = true if menu && session
+        @client = client   # authoritative-server client, if we joined one
+        @local_player_id = session&.local_id || client&.local_id || 0
+        @last_tic_at = Time.now  # for interpolating between server frames
+        menu.netgame = true if menu && (session || client)
 
         bind_world(world)
         @pending_turn = 0.0  # Mouse turn accumulated between tics
@@ -170,6 +172,29 @@ module Doom
       # every player's command for them has arrived. A stall is normal -- it
       # means someone else's packet is late -- so we keep drawing and say who
       # we are waiting for rather than freezing silently.
+      # Authoritative-server client: no local simulation at all. Poll the
+      # server's frame stream (Net::Client applies it), send this frame's input
+      # tagged a few tics ahead so it lands before that tic is finalized, and
+      # follow the world the client holds -- which it rebuilds from a fresh
+      # snapshot on a resync, so re-point at it when the object changes.
+      CLIENT_INPUT_LEAD = 3
+
+      def advance_server_client
+        @client.poll
+        bind_world(@client.world) unless @world.equal?(@client.world)
+
+        @client.send_input([[@client.synced_tic + CLIENT_INPUT_LEAD, build_ticcmd]])
+
+        if @client.synced_tic != @leveltime
+          @leveltime = @client.synced_tic
+          @last_tic_at = Time.now
+          @item_pickup.update_flash
+        end
+        # Fraction into the current tic, so rendering stays smooth above the
+        # server's 35 Hz frame rate.
+        @tic_accumulator = [(Time.now - @last_tic_at) * 35.0, 1.0].min
+      end
+
       def advance_networked
         @session.poll
 
@@ -192,6 +217,11 @@ module Doom
         @random = world.random
         @player = world.player(@local_player_id) || world.add_player(id: @local_player_id)
         @player_state = @player.state
+        # The HUD holds the player state directly; re-point it, or a map change
+        # or a netgame resync (which builds a fresh world) leaves it on a stale
+        # player showing frozen health and ammo.
+        @status_bar.player = @player_state if @status_bar
+        @weapon_renderer.player = @player_state if @weapon_renderer
         @physics = world.physics_for(@player)
         @combat = world.combat
         @monster_ai = world.monster_ai
@@ -221,6 +251,8 @@ module Doom
           if @session
             @tic_accumulator += delta_time * 35.0
             advance_networked
+          elsif @client
+            advance_server_client
           end
           return
         end
@@ -237,7 +269,13 @@ module Doom
         # decides what happens now lives in Game::World; this loop only decides
         # how many tics are owed and hands over the input for each.
         @tic_accumulator += delta_time * 35.0
-        @session ? advance_networked : advance_local
+        if @session
+          advance_networked
+        elsif @client
+          advance_server_client
+        else
+          advance_local
+        end
 
         @animations&.update(@leveltime)
         @status_bar&.update
@@ -285,9 +323,11 @@ module Doom
       # Mouse motion is accumulated here because frames are more frequent than
       # tics and dropping the surplus would lose part of every flick.
       def handle_input(_delta_time)
-        # Handle respawn when dead
+        # Handle respawn when dead. Local play only: respawn rebuilds the level,
+        # which in a networked game would desync us from everyone else, so there
+        # it is the server's job (not yet wired -- dead players stay down).
         if @player_state&.dead
-          if @player_state.death_tic > 35  # 1 second delay before respawn allowed
+          if !@session && !@client && @player_state.death_tic > 35
             if Gosu.button_down?(Gosu::KB_SPACE) || Gosu.button_down?(Gosu::KB_X) ||
                Gosu.button_down?(Gosu::MS_LEFT) || Gosu.button_down?(Gosu::KB_LEFT_SHIFT)
               respawn_player

@@ -11,6 +11,7 @@ module Doom
       WEAPONTOP = 32
 
       attr_reader :gfx
+      attr_writer :player  # Re-pointed on world rebind (map change, netgame resync)
 
       def initialize(hud_graphics, player_state)
         @gfx = hud_graphics
