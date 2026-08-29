@@ -664,8 +664,9 @@ module Doom
 
             case result
             when :start_game
-              # Restarting the level is local, so it would desync a netgame.
-              apply_difficulty(@menu.selected_skill) unless @session
+              # Restarting the level is local, so it would desync a netgame --
+              # for a lockstep peer or an authoritative-server client alike.
+              apply_difficulty(@menu.selected_skill) unless @session || @client
             when :resume
               @mouse_captured = true
               SDLKeyboardGrab.grab!
@@ -749,7 +750,7 @@ module Doom
         # Belt and braces: the menu already hides these in a netgame, but a
         # cheat applied on one machine only is a real desync, so refuse it
         # here as well rather than trusting the menu to have filtered.
-        return if @session && Game::Menu::NETGAME_UNSAFE_OPTIONS.include?(option)
+        return if (@session || @client) && Game::Menu::NETGAME_UNSAFE_OPTIONS.include?(option)
 
         case option
         when :god_mode
