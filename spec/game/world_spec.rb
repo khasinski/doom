@@ -74,6 +74,32 @@ RSpec.describe Doom::Game::World do
       expect(Math.hypot(p.x - start[0], p.y - start[1])).to be > 10
     end
 
+    # A refactor once stopped feeding the player's momentum into the state, so
+    # the view and weapon bob silently froze -- the world moved but the camera
+    # and gun never bounced. Guard both against that.
+    describe 'view and weapon bob' do
+      it 'bounces the camera (eye height) while moving' do
+        w = new_world
+        p = w.player(0)
+        heights = Array.new(30) { w.run_tic(0 => forward); p.z.round(3) }
+
+        expect(p.state.view_bob_offset).not_to eq(0.0)
+        expect(heights.uniq.size).to be > 5   # z actually oscillates, not static
+      end
+
+      it 'bobs the weapon while moving and settles it when stopped' do
+        w = new_world
+        p = w.player(0)
+        20.times { w.run_tic(0 => forward) }
+        expect(p.state.is_moving).to be(true)
+        expect(p.state.weapon_bob_y.abs).to be > 0.1
+
+        40.times { w.run_tic(0 => Doom::Game::Ticcmd.none) }
+        expect(p.state.is_moving).to be(false)
+        expect(p.state.weapon_bob_y.abs).to be < 0.1  # decays to rest
+      end
+    end
+
     it 'leaves the player still with no command at all' do
       w = new_world
       p = w.player(0)

@@ -240,17 +240,22 @@ module Doom
         state = player.state
         physics = physics_for(player)
 
-        # viewheight (step-up/down recovery) feeds eye height, which feeds firing
-        # height and monster aim, so it is simulation rather than decoration and
-        # runs on the tic clock. View bob would feed eye height too, but its
-        # momentum is never supplied in production (nothing calls
-        # set_movement_momentum), so view_bob_offset stays 0 here -- update_bob
-        # and update_view_bob only drive on-screen weapon/camera bounce.
+        # Move first, so the bob reflects this tic's momentum. run_tic updates
+        # the player's velocity (thrust and friction); feed it to the state so
+        # the weapon and view bob come alive -- both read the state's momentum
+        # and is_moving, which the World-extraction refactor stopped supplying,
+        # freezing the bob. is_moving tracks input (as in DOOM), not coasting.
+        physics.run_tic(player, cmd)
+        state.set_movement_momentum(player.momx, player.momy)
+        state.is_moving = cmd.moving?
+
+        # View bob feeds eye height, which feeds firing height and monster aim,
+        # so it is simulation and runs on the tic clock; update_viewheight is the
+        # step-up/down recovery. step_physics then settles vertical position and
+        # writes player.z from the eye height, bob included.
         state.update_bob(TIC_SECONDS)
         state.update_view_bob(TIC_SECONDS)
         state.update_viewheight
-
-        physics.run_tic(player, cmd)
         step_physics(player, physics)
         state.update_attack
 
