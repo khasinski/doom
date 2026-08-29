@@ -380,7 +380,6 @@ module Doom
         if state.health < before
           state.dead ? @sound&.player_death : @sound&.player_pain
         end
-        health_before[player.id] = state.health
 
         state.update_damage_count
         state.death_tic += 1 if state.dead
@@ -388,6 +387,11 @@ module Doom
         if !state.dead && (@leveltime % SECTOR_DAMAGE_INTERVAL).zero?
           apply_sector_damage(player)
         end
+
+        # Record the health baseline last, after sector damage, so this tic's
+        # nukage/lava hit -- which apply_sector_damage already sounded -- is not
+        # re-detected as a fresh drop next tic and sounded a second time.
+        health_before[player.id] = state.health
       end
 
       def apply_sector_damage(player)

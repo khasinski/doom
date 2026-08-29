@@ -128,6 +128,54 @@ RSpec.describe Doom::Game::World do
       expect([p.prev_x, p.prev_y]).not_to eq([p.x, p.y])
       expect(p.view_pose(1.0)[0, 2]).to eq([p.x, p.y])
     end
+
+    describe 'sector damage sound' do
+      # A world wired to a sound spy, with the player parked on a damaging
+      # (nukage/lava) sector so run_tic drives the hurt-floor path.
+      def world_on_damaging_floor
+        map = Doom::Map::MapData.load(@wad, 'E1M1')
+        sound = spy('sound')
+        world = described_class.new(map, sprites: @sprites, sound: sound,
+                                    random: Doom::Game::Random.new(0))
+        world.add_player(map.player_start)
+        player = world.player(0)
+
+        sector_idx = map.sectors.index { |s| described_class::SECTOR_DAMAGE.key?(s.special) }
+        skip 'E1M1 has no damaging sector' unless sector_idx
+
+        point = point_in_sector(map, sector_idx)
+        skip 'could not locate a point inside the damaging sector' unless point
+
+        player.place(point[0], point[1], Doom::Game::PlayerState::VIEWHEIGHT, 0)
+        world.physics_for(player).settle(player, player.x, player.y)
+        [world, player, sound]
+      end
+
+      def point_in_sector(map, sector_idx)
+        xs = map.vertices.map(&:x)
+        ys = map.vertices.map(&:y)
+        (xs.min..xs.max).step(8) do |x|
+          (ys.min..ys.max).step(8) do |y|
+            s = map.sector_at(x, y)
+            return [x, y] if s && map.sectors.index(s) == sector_idx
+          end
+        end
+        nil
+      end
+
+      # Standing in nukage hurts every SECTOR_DAMAGE_INTERVAL tics and, on main's
+      # per-tic loop, played one pain sound per hit. The World refactor recorded
+      # the health baseline before applying sector damage, so the drop was
+      # re-detected the next tic and sounded a second time -- two pains per hit.
+      it 'plays exactly one pain sound per hurt-floor hit' do
+        world, _player, sound = world_on_damaging_floor
+        interval = described_class::SECTOR_DAMAGE_INTERVAL
+
+        (interval * 2 + 4).times { world.run_tic }
+
+        expect(sound).to have_received(:player_pain).exactly(2).times
+      end
+    end
   end
 
   describe 'determinism' do
