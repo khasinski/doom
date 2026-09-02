@@ -38,6 +38,10 @@ require_relative 'doom/wad/sound'
 require_relative 'doom/game/sound_engine'
 require_relative 'doom/render/font'
 require_relative 'doom/render/renderer'
+require_relative 'doom/render/zbuffer_renderer'
+require_relative 'doom/render/world_mesh'
+require_relative 'doom/render/hardware_renderer'
+require_relative 'doom/render/renderer_factory'
 require_relative 'doom/render/screen_melt'
 require_relative 'doom/render/status_bar'
 require_relative 'doom/render/weapon_renderer'
@@ -47,9 +51,9 @@ module Doom
   class Error < StandardError; end
 
   class << self
-    def run(wad_path, map_name: 'E1M1', rubykaigi: false, net: nil, frag_limit: nil)
+    def run(wad_path, map_name: 'E1M1', rubykaigi: false, net: nil, frag_limit: nil, renderer: :classic)
       return run_server(wad_path, map_name, net, frag_limit) if net && net[:role] == :serve
-      return run_client(wad_path, map_name, net) if net && net[:role] == :join
+      return run_client(wad_path, map_name, net, renderer) if net && net[:role] == :join
 
       session = build_session(net, map_name)
       if session
@@ -118,7 +122,8 @@ module Doom
       puts 'Creating renderer...'
       # No initial camera pose needed: the world owns the player, and draw aims
       # the camera at it every frame.
-      renderer = Render::Renderer.new(wad, map, textures, palette, colormap, flats, sprites, animations)
+      renderer = Render::RendererFactory.build(renderer, wad, map, textures, palette, colormap,
+                                               flats, sprites, animations)
 
       puts 'Building world...'
       sound_mgr = Wad::SoundManager.new(wad)
@@ -141,6 +146,7 @@ module Doom
       weapon_renderer = Render::WeaponRenderer.new(hud_graphics, player_state)
       doom_font = Render::Font.new(wad, hud_graphics)
       menu = Game::Menu.new(wad, hud_graphics, doom_font)
+      menu.instance_variable_set(:@state, Game::Menu::STATE_NONE) if ENV['DOOM_DEBUG_POSE']
 
       # RubyKaigi mode: god mode, no aggression, benchmark HUD
       if rubykaigi
@@ -199,7 +205,7 @@ module Doom
     # snapshot, so we block on the join (there is nothing to render yet), then
     # open a window that follows the server's frame stream instead of
     # simulating locally.
-    def run_client(wad_path, map_name, net)
+    def run_client(wad_path, map_name, net, renderer_type)
       wad = merge_pwad_if_needed(Wad::Reader.new(wad_path)) { |name| map_name = name }
       palette = Wad::Palette.load(wad)
       colormap = Wad::Colormap.load(wad)
@@ -218,8 +224,8 @@ module Doom
       puts "  Joined as player #{client.local_id}."
 
       world = client.world
-      renderer = Render::Renderer.new(wad, world.map, textures, palette, colormap,
-                                      flats, sprites, animations)
+      renderer = Render::RendererFactory.build(renderer_type, wad, world.map, textures, palette, colormap,
+                                               flats, sprites, animations)
       player_state = world.player(client.local_id).state
       status_bar = Render::StatusBar.new(hud_graphics, player_state)
       weapon_renderer = Render::WeaponRenderer.new(hud_graphics, player_state)

@@ -150,3 +150,9 @@ GPL-2.0 -- Same license as the original DOOM source code.
 ## Author
 
 Chris Hasinski ([@khasinski](https://github.com/khasinski))
+# Renderer experiment
+
+Run with `--renderer=zbuffer` to enable the experimental per-pixel depth buffer,
+dynamic projectile/explosion lights, and ray-traced hard shadows. Press `R` to
+switch between it and the classic renderer while playing. See
+[`docs/modern-renderer.md`](docs/modern-renderer.md) for scope and limitations.

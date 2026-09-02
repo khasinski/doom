@@ -20,6 +20,10 @@ Gem::Specification.new do |s|
   s.required_ruby_version = '>= 3.1'
 
   s.add_dependency 'gosu', '~> 1.4'
+  # Gosu owns the window/context; these bindings expose that context for the
+  # hardware-accelerated 3D renderer. Fiddle is explicit on Ruby 4+.
+  s.add_dependency 'fiddle'
+  s.add_dependency 'opengl-bindings', '~> 1.6'
 
   s.add_development_dependency 'rspec', '~> 3.12'
   # Dev-only: used solely by the debug screenshot capture (F-key), which

@@ -31,6 +31,8 @@ def take_flag(name)
   ARGV.delete_at(idx)
 end
 
+renderer_name = take_flag('--renderer') || 'classic'
+
 # Parse a flag that must be a positive integer; fall back to `default` (with a
 # warning) if it is missing or malformed, so `--port foo` or `--frags -5` can't
 # silently mis-configure the session.
@@ -80,6 +82,7 @@ if wants_help
   puts "  --bench        Run headless renderer benchmark (auto-downloads Freedoom)"
   puts "                 Subflags: --json --frames=N --warmup=N --map=E1M1 --wad=PATH"
   puts "  --vsync        Present every frame instead of uncapping generation"
+  puts "  --renderer NAME  Renderer: classic, zbuffer, or rasterizer (R switches classic/3D)"
   puts
   puts "Multiplayer, authoritative server (for many players over the internet):"
   puts "  --serve                Run a headless server others join (no window)"
@@ -140,7 +143,8 @@ begin
           { role: :client, host: host, port: port.empty? ? net_port : port.to_i }
         end
 
-  Doom.run(wad_path, rubykaigi: rubykaigi_mode, net: net, frag_limit: net_frags)
+  Doom.run(wad_path, rubykaigi: rubykaigi_mode, net: net, frag_limit: net_frags,
+           renderer: renderer_name)
 rescue Doom::WadDownloader::DownloadError => e
   puts "Error: #{e.message}"
   exit 1

@@ -216,6 +216,7 @@ module Doom
         @map = world.map
         @random = world.random
         @player = world.player(@local_player_id) || world.add_player(id: @local_player_id)
+        apply_debug_pose if ENV['DOOM_DEBUG_POSE'] && !@debug_pose_applied
         @player_state = @player.state
         # The HUD holds the player state directly; re-point it, or a map change
         # or a netgame resync (which builds a fresh world) leaves it on a stale
@@ -229,6 +230,15 @@ module Doom
         @sector_actions = world.sector_actions
         @damage_multiplier = world.damage_multiplier
         @leveltime = world.leveltime
+      end
+
+      def apply_debug_pose
+        x, y, angle = ENV.fetch('DOOM_DEBUG_POSE').split(',').map { |value| Float(value) }
+        sector = @map.sector_at(x, y)
+        @player.place(x, y, (sector&.floor_height || 0) + Game::PlayerState::VIEWHEIGHT, angle)
+        @debug_pose_applied = true
+      rescue ArgumentError
+        warn 'DOOM_DEBUG_POSE must be x,y,angle_degrees'
       end
 
       def update
@@ -483,7 +493,12 @@ module Doom
         end
 
         if @menu&.active?
-          if @menu.needs_background?
+          hardware = @renderer.respond_to?(:hardware?) && @renderer.hardware?
+          if hardware && @menu.needs_background?
+            @renderer.draw_hardware(width, height)
+            draw_hardware_hud(menu: true)
+            return
+          elsif @menu.needs_background?
             # Render game view + HUD as background, then overlay menu on top
             @renderer.render_frame
             @weapon_renderer&.render(@renderer.framebuffer) unless @player_state&.dead
@@ -502,7 +517,12 @@ module Doom
         elsif @show_map
           draw_automap
         else
-          present(@renderer.framebuffer, active_palette_index)
+          if @renderer.respond_to?(:hardware?) && @renderer.hardware?
+            @renderer.draw_hardware(width, height)
+            draw_hardware_hud
+          else
+            present(@renderer.framebuffer, active_palette_index)
+          end
 
           draw_debug_overlay if @show_debug
           draw_net_status if @session
@@ -521,6 +541,24 @@ module Doom
           Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba
         )
         @screen_image.draw(0, 0, 0, SCALE, SCALE)
+      end
+
+      # Hardware world rendering bypasses the indexed framebuffer. Build a
+      # transparent indexed overlay for the existing weapon/status renderers,
+      # preserving the gameplay UI while the world is drawn by OpenGL.
+      def draw_hardware_hud(menu: false)
+        transparent = -1
+        overlay = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, transparent)
+        @weapon_renderer&.render(overlay) unless @player_state&.dead
+        @status_bar&.render(overlay)
+        if @doom_font && @item_pickup&.pickup_message && @item_pickup.message_tics > 0
+          @doom_font.draw_text(overlay, @item_pickup.pickup_message, 2, 2)
+        end
+        @menu.render(overlay, nil) if menu
+        palette = @all_palette_rgba[active_palette_index]
+        rgba = overlay.map { |index| index == transparent ? "\0\0\0\0" : palette[index] }.join
+        image = Gosu::Image.from_blob(Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba)
+        image.draw(0, 0, 10, SCALE, SCALE)
       end
 
       # Palette for the live game view: red pain flash while taking damage
@@ -574,6 +612,7 @@ module Doom
 
       def draw_debug_overlay
         yjit_status = defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled? ? 'ON' : 'OFF'
+        renderer_name = Render::RendererFactory.type_of(@renderer).to_s
         ang = (Math.atan2(@player.sin_angle, @player.cos_angle) * 180.0 / Math::PI).round(1)
 
         # Shown vs generated: only worth spelling out when they differ.
@@ -588,6 +627,7 @@ module Doom
                     "#{@fps_display} FPS  (#{shown})",
                     "YJIT: #{yjit_status}  (Y to toggle)",
                     "Ruby #{RUBY_VERSION}",
+                    "Renderer: #{renderer_name}",
                     "Map: #{@current_map}",
                     "Pos: #{@player.x.round}, #{@player.y.round}",
                     "Ang: #{ang}",
@@ -596,6 +636,7 @@ module Doom
                   [
                     "FPS: #{@fps_display}  (#{shown})",
                     "YJIT: #{yjit_status}",
+                    "Renderer: #{renderer_name}",
                     "Pos: #{@player.x.round}, #{@player.y.round}",
                     "Ang: #{ang}",
                   ]
@@ -694,6 +735,8 @@ module Doom
           end
         when Gosu::KB_Z
           @show_debug = !@show_debug
+        when Gosu::KB_R
+          switch_renderer
         when Gosu::KB_B
           @renderer.skip_background_fill = !@renderer.skip_background_fill
         when Gosu::KB_Y
@@ -714,6 +757,17 @@ module Doom
         when Gosu::KB_F12
           capture_debug_snapshot
         end
+      end
+
+      def switch_renderer
+        current = Render::RendererFactory.type_of(@renderer)
+        target = current == :classic ? :rasterizer : :classic
+        replacement = Render::RendererFactory.build_like(@renderer, target)
+        replacement.apply_view(@renderer.player_x, @renderer.player_y,
+                               @renderer.player_z, @renderer.player_angle)
+        replacement.skip_background_fill = @renderer.skip_background_fill
+        @renderer = replacement
+        puts "Renderer: #{target}"
       end
 
       # Death keeps damage_count pinned at max so the draw loop selects the red
@@ -846,9 +900,9 @@ module Doom
         @map_bounds = nil  # Recompute on next automap draw
 
         # Rebuild all systems for new map
-        @renderer = Render::Renderer.new(
-          wad, map, @renderer.textures, @palette, @renderer.colormap,
-          @renderer.flats.values, @renderer.sprites, @animations
+        @renderer = Render::RendererFactory.build(
+          Render::RendererFactory.type_of(@renderer), wad, map, @renderer.textures,
+          @palette, @renderer.colormap, @renderer.flats.values, @renderer.sprites, @animations
         )
         # A new map means a new world; the RNG carries over so the run stays
         # one continuous deterministic sequence across level changes.
