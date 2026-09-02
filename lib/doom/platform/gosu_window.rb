@@ -158,6 +158,10 @@ module Doom
           @all_palette_rgba << pal.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
         end
         @palette_rgba = @all_palette_rgba[0]
+
+        # Developer/benchmark hook: enter the already-created E1M1 world
+        # without synthesizing OS keyboard input (which macOS blocks).
+        @menu&.dismiss if ENV['DOOM_AUTOSTART']
       end
 
       def advance_local
@@ -691,13 +695,21 @@ module Doom
 
             # Trigger melt when transitioning from title to main menu
             if old_state == Game::Menu::STATE_TITLE && new_state == Game::Menu::STATE_MAIN && @last_menu_fb
-              # Build the new screen (main menu with game background)
-              @renderer.render_frame
-              @weapon_renderer&.render(@renderer.framebuffer) unless @player_state&.dead
-              @status_bar&.render(@renderer.framebuffer)
-              new_fb = @renderer.framebuffer.dup
-              @menu.render(new_fb, nil)
-              @screen_melt = Render::ScreenMelt.new(@last_menu_fb, new_fb)
+              if @renderer.respond_to?(:hardware?) && @renderer.hardware?
+                # The OpenGL scene has no palette-indexed snapshot for
+                # ScreenMelt. Draw it live on the next frame instead of
+                # melting toward HardwareRenderer's intentionally black
+                # compatibility framebuffer.
+                @screen_melt = nil
+              else
+                # Build the new screen (main menu with game background)
+                @renderer.render_frame
+                @weapon_renderer&.render(@renderer.framebuffer) unless @player_state&.dead
+                @status_bar&.render(@renderer.framebuffer)
+                new_fb = @renderer.framebuffer.dup
+                @menu.render(new_fb, nil)
+                @screen_melt = Render::ScreenMelt.new(@last_menu_fb, new_fb)
+              end
             end
 
             # Play confirmation sound on select
@@ -761,7 +773,7 @@ module Doom
 
       def switch_renderer
         current = Render::RendererFactory.type_of(@renderer)
-        target = current == :classic ? :rasterizer : :classic
+        target = Render::RendererFactory.next_type(@renderer)
         replacement = Render::RendererFactory.build_like(@renderer, target)
         replacement.apply_view(@renderer.player_x, @renderer.player_y,
                                @renderer.player_z, @renderer.player_angle)

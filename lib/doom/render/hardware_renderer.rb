@@ -11,7 +11,13 @@ module Doom
 
       ANIMATED_DECORATIONS = %w[TBLU TGRN TRED SMIT COLU CAND CBRA].freeze
       Batch = Struct.new(:material, :light, :surface, :buffer, :vertex_count)
-      VERTEX_STRIDE = 5 * 4
+      VERTEX_STRIDE = 8 * 4
+      MAX_LIGHTS = 8
+      STATIC_LIGHTS = {
+        44 => [0.25, 0.35, 1.0], 45 => [0.25, 1.0, 0.35],
+        46 => [1.0, 0.22, 0.12], 34 => [1.0, 0.65, 0.22],
+        35 => [1.0, 0.65, 0.22], 2028 => [1.0, 0.75, 0.35],
+      }.freeze
 
       attr_reader :mesh
 
@@ -62,6 +68,7 @@ module Doom
           glLoadMatrixf(view_matrix.pack('f16'))
 
           rebuild_gpu_batches if @gpu_batches.nil? || @gpu_batches_dirty
+          setup_lighting
 
           # Invisible back faces must still occlude rooms when the camera is
           # outside the playable map, matching the classic BSP solid-wall clip.
@@ -69,6 +76,7 @@ module Doom
           glEnable(GL_CULL_FACE)
 
           draw_gpu_batches
+          glDisable(GL_LIGHTING)
           glBindTexture(GL_TEXTURE_2D, 0)
           glDisable(GL_TEXTURE_2D)
           glDisable(GL_CULL_FACE)
@@ -134,7 +142,7 @@ module Doom
           floats = triangles.flat_map do |triangle|
             triangle.vertices.each_with_index.flat_map do |(x, y, z), index|
               u, v = triangle.uvs[index]
-              [x, y, z, u / width, v / height]
+              [x, y, z, u / width, v / height, *triangle.normal]
             end
           end
           data = floats.pack('f*')
@@ -143,7 +151,7 @@ module Doom
           buffer = ids.unpack1('L')
           glBindBuffer(GL_ARRAY_BUFFER, buffer)
           glBufferData(GL_ARRAY_BUFFER, data.bytesize, data, GL_STATIC_DRAW)
-          Batch.new(material, light, surface, buffer, floats.size / 5)
+          Batch.new(material, light, surface, buffer, floats.size / 8)
         end
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         @gpu_batches_dirty = false
@@ -159,6 +167,7 @@ module Doom
       def draw_gpu_batches
         glEnableClientState(GL_VERTEX_ARRAY)
         glEnableClientState(GL_TEXTURE_COORD_ARRAY)
+        glEnableClientState(GL_NORMAL_ARRAY)
         @gpu_batches.each do |batch|
           texture_id = texture_for(batch.material)
           glBindTexture(GL_TEXTURE_2D, texture_id || 0)
@@ -168,6 +177,7 @@ module Doom
           glDrawArrays(GL_TRIANGLES, 0, batch.vertex_count)
         end
         glDisableClientState(GL_TEXTURE_COORD_ARRAY)
+        glDisableClientState(GL_NORMAL_ARRAY)
         glDisableClientState(GL_VERTEX_ARRAY)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
       end
@@ -176,6 +186,57 @@ module Doom
         glBindBuffer(GL_ARRAY_BUFFER, batch.buffer)
         glVertexPointer(3, GL_FLOAT, VERTEX_STRIDE, 0)
         glTexCoordPointer(2, GL_FLOAT, VERTEX_STRIDE, 12)
+        glNormalPointer(GL_FLOAT, VERTEX_STRIDE, 20)
+      end
+
+      def setup_lighting
+        glEnable(GL_LIGHTING)
+        glEnable(GL_NORMALIZE)
+        glEnable(GL_COLOR_MATERIAL)
+        glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
+        glLightModelfv(GL_LIGHT_MODEL_AMBIENT, [0.55, 0.55, 0.55, 1.0].pack('f4'))
+
+        lights = active_lights.first(MAX_LIGHTS)
+        MAX_LIGHTS.times do |index|
+          slot = GL_LIGHT0 + index
+          if (light = lights[index])
+            glEnable(slot)
+            glLightfv(slot, GL_POSITION, [light[:x], light[:y], light[:z], 1.0].pack('f4'))
+            glLightfv(slot, GL_DIFFUSE, [*light[:color], 1.0].pack('f4'))
+            glLightf(slot, GL_CONSTANT_ATTENUATION, 0.25)
+            glLightf(slot, GL_LINEAR_ATTENUATION, 0.004)
+            glLightf(slot, GL_QUADRATIC_ATTENUATION, 0.000018)
+          else
+            glDisable(slot)
+          end
+        end
+      end
+
+      def active_lights
+        lights = @map.things.filter_map do |thing|
+          color = STATIC_LIGHTS[thing.type]
+          next unless color
+
+          sector = @map.sector_at(thing.x, thing.y)
+          { x: thing.x.to_f, y: thing.y.to_f,
+            z: (sector&.floor_height || 0) + 40.0, color: color }
+        end
+        if @combat
+          @combat.projectiles.each do |projectile|
+            lights << { x: projectile.x, y: projectile.y, z: projectile.z,
+                        color: [1.0, 0.45, 0.12] }
+          end
+          @combat.explosions.each do |explosion|
+            lights << { x: explosion[:x], y: explosion[:y], z: explosion[:z] || @player_z,
+                        color: [1.0, 0.3, 0.05] }
+          end
+        end
+        if @view_player&.state&.attacking && @view_player.state.attack_frame <= 1
+          lights << { x: @view_player.x + @view_player.cos_angle * 24.0,
+                      y: @view_player.y + @view_player.sin_angle * 24.0,
+                      z: @view_player.z, color: [1.0, 0.72, 0.3] }
+        end
+        lights.sort_by { |light| (light[:x] - @player_x)**2 + (light[:y] - @player_y)**2 }
       end
 
       def draw_occluder_depth_prepass(include_ceilings: false)

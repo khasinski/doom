@@ -3,7 +3,8 @@
 module Doom
   module Render
     module RendererFactory
-      TYPES = %i[classic zbuffer rasterizer].freeze
+      TYPES = %i[classic zbuffer rasterizer raytracing].freeze
+      SWITCH_TYPES = %i[classic rasterizer raytracing].freeze
 
       module_function
 
@@ -12,6 +13,7 @@ module Doom
                 when :classic then Renderer
                 when :zbuffer then ZBufferRenderer
                 when :rasterizer then HardwareRenderer
+                when :raytracing then RayTracingRenderer
                 end
         klass.new(wad, map, textures, palette, colormap, flats, sprites, animations)
       end
@@ -29,10 +31,16 @@ module Doom
       end
 
       def type_of(renderer)
+        return :raytracing if renderer.is_a?(RayTracingRenderer)
         return :rasterizer if renderer.is_a?(HardwareRenderer)
         return :zbuffer if renderer.is_a?(ZBufferRenderer)
 
         :classic
+      end
+
+      def next_type(renderer)
+        current_index = SWITCH_TYPES.index(type_of(renderer)) || 0
+        SWITCH_TYPES[(current_index + 1) % SWITCH_TYPES.size]
       end
     end
   end

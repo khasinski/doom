@@ -11,6 +11,12 @@ RSpec.describe Doom::Render::RendererFactory do
   it 'rejects an unknown renderer' do
     expect { described_class.normalize('gpu') }.to raise_error(ArgumentError, /unknown renderer/)
   end
+
+  it 'cycles through the three interactive renderers' do
+    classic = instance_double(Doom::Render::Renderer)
+    allow(described_class).to receive(:type_of).with(classic).and_return(:classic)
+    expect(described_class.next_type(classic)).to eq(:rasterizer)
+  end
 end
 
 RSpec.describe Doom::Render::ZBufferRenderer do

@@ -82,7 +82,7 @@ if wants_help
   puts "  --bench        Run headless renderer benchmark (auto-downloads Freedoom)"
   puts "                 Subflags: --json --frames=N --warmup=N --map=E1M1 --wad=PATH"
   puts "  --vsync        Present every frame instead of uncapping generation"
-  puts "  --renderer NAME  Renderer: classic, zbuffer, or rasterizer (R switches classic/3D)"
+  puts "  --renderer NAME  Renderer: classic, rasterizer, or raytracing (R cycles them)"
   puts
   puts "Multiplayer, authoritative server (for many players over the internet):"
   puts "  --serve                Run a headless server others join (no window)"

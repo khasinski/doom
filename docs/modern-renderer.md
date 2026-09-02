@@ -12,6 +12,11 @@ restarting the game. The active renderer is printed to the terminal.
 The hardware 3D path is selected with `--renderer=rasterizer`. In this mode
 `R` switches directly between the classic renderer and the GPU rasterizer.
 
+The ray-tracing development path starts with `--renderer=raytracing`. It is an
+isolated renderer entry point derived from the working GPU rasterizer; until
+ray passes are added, its output is intentionally identical. During play, `R`
+cycles through `classic`, `rasterizer`, and `raytracing`.
+
 ## Implemented
 
 - a separate renderer selected through `RendererFactory`;
