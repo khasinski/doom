@@ -159,9 +159,6 @@ module Doom
         end
         @palette_rgba = @all_palette_rgba[0]
 
-        # Developer/benchmark hook: enter the already-created E1M1 world
-        # without synthesizing OS keyboard input (which macOS blocks).
-        @menu&.dismiss if ENV['DOOM_AUTOSTART']
       end
 
       def advance_local
@@ -499,6 +496,7 @@ module Doom
         if @menu&.active?
           hardware = @renderer.respond_to?(:hardware?) && @renderer.hardware?
           if hardware && @menu.needs_background?
+            sync_renderer_visual_options
             @renderer.draw_hardware(width, height)
             draw_hardware_hud(menu: true)
             return
@@ -522,6 +520,7 @@ module Doom
           draw_automap
         else
           if @renderer.respond_to?(:hardware?) && @renderer.hardware?
+            sync_renderer_visual_options
             @renderer.draw_hardware(width, height)
             draw_hardware_hud
           else
@@ -563,6 +562,13 @@ module Doom
         rgba = overlay.map { |index| index == transparent ? "\0\0\0\0" : palette[index] }.join
         image = Gosu::Image.from_blob(Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba)
         image.draw(0, 0, 10, SCALE, SCALE)
+      end
+
+      def sync_renderer_visual_options
+        return unless @menu
+
+        @renderer.fog_enabled = @menu.options[:fog] if @renderer.respond_to?(:fog_enabled=)
+        @renderer.flashlight_enabled = @menu.options[:flashlight] if @renderer.respond_to?(:flashlight_enabled=)
       end
 
       # Palette for the live game view: red pain flash while taking damage

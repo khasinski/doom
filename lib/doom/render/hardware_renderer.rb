@@ -10,7 +10,7 @@ module Doom
       include OpenGL
 
       ANIMATED_DECORATIONS = %w[TBLU TGRN TRED SMIT COLU CAND CBRA].freeze
-      Batch = Struct.new(:material, :light, :surface, :buffer, :vertex_count)
+      Batch = Struct.new(:material, :light, :surface, :masked, :buffer, :vertex_count)
       VERTEX_STRIDE = 8 * 4
       MAX_LIGHTS = 8
       STATIC_LIGHTS = {
@@ -23,7 +23,7 @@ module Doom
 
       def initialize(...)
         super
-        @mesh = WorldMesh.new(@map)
+        @mesh = WorldMesh.new(@map, @textures)
         @geometry_signature = geometry_signature
         @gl_textures = {}
         @texture_dimensions = {}
@@ -39,7 +39,7 @@ module Doom
       def render_frame
         signature = geometry_signature
         if signature != @geometry_signature
-          @mesh = WorldMesh.new(@map)
+          @mesh = WorldMesh.new(@map, @textures)
           @geometry_signature = signature
           @gpu_batches_dirty = true
         end
@@ -134,9 +134,9 @@ module Doom
                     else
                       :floor
                     end
-          [triangle.material, triangle.light, surface]
+          [triangle.material, triangle.light, surface, triangle.masked]
         end
-        @gpu_batches = groups.map do |(material, light, surface), triangles|
+        @gpu_batches = groups.map do |(material, light, surface, masked), triangles|
           texture_for(material)
           width, height = @current_texture_dimensions || [1.0, 1.0]
           floats = triangles.flat_map do |triangle|
@@ -151,7 +151,7 @@ module Doom
           buffer = ids.unpack1('L')
           glBindBuffer(GL_ARRAY_BUFFER, buffer)
           glBufferData(GL_ARRAY_BUFFER, data.bytesize, data, GL_STATIC_DRAW)
-          Batch.new(material, light, surface, buffer, floats.size / 8)
+          Batch.new(material, light, surface, masked, buffer, floats.size / 8)
         end
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         @gpu_batches_dirty = false
@@ -169,6 +169,14 @@ module Doom
         glEnableClientState(GL_TEXTURE_COORD_ARRAY)
         glEnableClientState(GL_NORMAL_ARRAY)
         @gpu_batches.each do |batch|
+          if batch.masked
+            glDisable(GL_CULL_FACE)
+            glEnable(GL_ALPHA_TEST)
+            glAlphaFunc(GL_GREATER, 0.5)
+          else
+            glEnable(GL_CULL_FACE)
+            glDisable(GL_ALPHA_TEST)
+          end
           texture_id = texture_for(batch.material)
           glBindTexture(GL_TEXTURE_2D, texture_id || 0)
           shade = (batch.light.to_f / 255.0).clamp(0.12, 1.0)
@@ -179,6 +187,8 @@ module Doom
         glDisableClientState(GL_TEXTURE_COORD_ARRAY)
         glDisableClientState(GL_NORMAL_ARRAY)
         glDisableClientState(GL_VERTEX_ARRAY)
+        glDisable(GL_ALPHA_TEST)
+        glEnable(GL_CULL_FACE)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
       end
 
@@ -245,10 +255,26 @@ module Doom
         glEnableClientState(GL_VERTEX_ARRAY)
         @gpu_batches.each do |batch|
           next unless batch.surface == :wall || (include_ceilings && batch.surface == :ceiling)
+          next if batch.masked
 
           bind_batch(batch)
           glDrawArrays(GL_TRIANGLES, 0, batch.vertex_count)
         end
+        # Masked middle textures (grates/fences) write depth only for opaque
+        # texels, so sprites remain visible through their holes.
+        glEnable(GL_TEXTURE_2D)
+        glEnable(GL_ALPHA_TEST)
+        glAlphaFunc(GL_GREATER, 0.5)
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY)
+        @gpu_batches.each do |batch|
+          next unless batch.masked && batch.surface == :wall
+
+          glBindTexture(GL_TEXTURE_2D, texture_for(batch.material) || 0)
+          bind_batch(batch)
+          glDrawArrays(GL_TRIANGLES, 0, batch.vertex_count)
+        end
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY)
+        glDisable(GL_ALPHA_TEST)
         glDisableClientState(GL_VERTEX_ARRAY)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
@@ -273,14 +299,6 @@ module Doom
         end
         image.save(ENV.fetch('DOOM_GL_CAPTURE'))
         @frame_captured = true
-      end
-
-      def material_color(name, shade)
-        hash = name.to_s.each_byte.reduce(2_166_136_261) { |value, byte| (value ^ byte) * 16_777_619 }
-        base = [0.45 + (hash & 0xff) / 1024.0,
-                0.38 + ((hash >> 8) & 0xff) / 1280.0,
-                0.30 + ((hash >> 16) & 0xff) / 1536.0]
-        base.map { |channel| (channel * shade).clamp(0.0, 1.0) }
       end
 
       def texture_for(name)
@@ -308,12 +326,14 @@ module Doom
                     Array.new(width * height) do |offset|
                       x = offset % width
                       y = offset / width
-                      source.column_pixels(x)[y] || 0
+                      source.column_pixels(x)[y]
                     end
                   else
                     source.pixels
                   end
-        rgba = indices.map { |index| [*@palette.colors[index], 255].pack('C4') }.join
+        rgba = indices.map do |index|
+          index.nil? ? "\0\0\0\0" : [*@palette.colors[index], 255].pack('C4')
+        end.join
         ids = [0].pack('L')
         glGenTextures(1, ids)
         id = ids.unpack1('L')
@@ -384,6 +404,7 @@ module Doom
           right_edge_x = left_x + right_x * sprite.width
           right_edge_y = left_y + right_y * sprite.width
 
+          before_sprite_draw(thing, sprite, sector)
           glBindTexture(GL_TEXTURE_2D, id)
           glColor3f(1.0, 1.0, 1.0)
           glBegin(GL_QUADS)
@@ -398,6 +419,10 @@ module Doom
         glDisable(GL_BLEND)
         glDisable(GL_TEXTURE_2D)
       end
+
+      # Extension point for renderers that shade billboard fragments. The
+      # ordinary rasterizer intentionally keeps Doom's full-bright sprites.
+      def before_sprite_draw(_thing, _sprite, _sector); end
 
       def sprite_vertex(x, y, z, u, v)
         glTexCoord2f(u, v)

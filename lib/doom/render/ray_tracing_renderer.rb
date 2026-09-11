@@ -35,7 +35,6 @@ module Doom
         uniform sampler2D sky_texture;
         uniform float data_height;
         uniform float bvh_height;
-        uniform int triangle_count;
         uniform int node_count;
         uniform vec3 camera_position;
         uniform vec3 camera_forward;
@@ -45,6 +44,8 @@ module Doom
         uniform int light_count;
         uniform vec4 light_positions[#{MAX_RAY_LIGHTS}];
         uniform vec4 light_colors[#{MAX_RAY_LIGHTS}];
+        uniform int fog_enabled;
+        uniform int flashlight_enabled;
 
         vec4 datum(float index) {
           float x = mod(index, #{DATA_WIDTH}.0);
@@ -93,6 +94,20 @@ module Doom
           return distance > 0.01;
         }
 
+        bool accepts_surface(float base, vec2 barycentric) {
+          float flags = datum(base + 3.0).w;
+          if (flags < 2048.0) return true;
+          vec4 uv0_uv1 = datum(base + 4.0);
+          vec4 uv2_rect = datum(base + 5.0);
+          vec4 rect_size = datum(base + 6.0);
+          float w = 1.0 - barycentric.x - barycentric.y;
+          vec2 uv = uv0_uv1.xy * w + uv0_uv1.zw * barycentric.x +
+                    uv2_rect.xy * barycentric.y;
+          vec2 wrapped = fract(uv / rect_size.zw);
+          vec2 atlas_uv = rect_size.xy + wrapped * uv2_rect.zw;
+          return texture2D(material_atlas, atlas_uv).a > 0.5;
+        }
+
         bool shadowed(vec3 origin, vec3 direction, float maximum) {
           vec3 inverse_direction = 1.0 / direction;
           int node_index = 0;
@@ -113,10 +128,10 @@ module Doom
                 if (offset >= count) break;
                 float distance;
                 vec2 barycentric;
-                if (intersect_triangle(origin, direction,
-                                       float((start + offset) * #{TEXELS_PER_TRIANGLE}),
-                                       distance, barycentric) && distance < maximum)
-                  return true;
+                float triangle_base = float((start + offset) * #{TEXELS_PER_TRIANGLE});
+                if (intersect_triangle(origin, direction, triangle_base,
+                                       distance, barycentric) && distance < maximum &&
+                    accepts_surface(triangle_base, barycentric)) return true;
               }
               node_index = escape;
             } else {
@@ -153,9 +168,10 @@ module Doom
                 int triangle_index = start + offset;
                 float distance;
                 vec2 barycentric;
-                if (intersect_triangle(camera_position, direction,
-                                       float(triangle_index * #{TEXELS_PER_TRIANGLE}),
-                                       distance, barycentric) && distance < nearest) {
+                float triangle_base = float(triangle_index * #{TEXELS_PER_TRIANGLE});
+                if (intersect_triangle(camera_position, direction, triangle_base,
+                                       distance, barycentric) && distance < nearest &&
+                    accepts_surface(triangle_base, barycentric)) {
                   nearest = distance;
                   hit = triangle_index;
                   hit_barycentric = barycentric;
@@ -167,9 +183,13 @@ module Doom
             }
           }
           if (hit < 0) {
-            float longitude = atan(direction.y, direction.x) / 6.2831853 + 0.5;
-            float latitude = clamp(0.5 - direction.z * 0.65, 0.0, 1.0);
-            gl_FragColor = texture2D(sky_texture, vec2(longitude, latitude));
+            // Match HardwareRenderer::draw_sky and Doom's SKY1 density:
+            // repeat the 256px panorama four times around the player and map
+            // 200 sky texels over the full view height.
+            float sky_u = atan(direction.y, direction.x) * 2.0 / 3.14159265;
+            float sky_v = (1.0 - screen_uv.y) * (200.0 / 128.0);
+            vec3 sky = texture2D(sky_texture, vec2(sky_u, sky_v)).rgb;
+            gl_FragColor = vec4(sky * 0.45, 1.0);
             return;
           }
           float base = float(hit * #{TEXELS_PER_TRIANGLE});
@@ -185,8 +205,9 @@ module Doom
           vec3 normal = normalize(normal_light.xyz);
           if (dot(normal, direction) > 0.0) normal = -normal;
           vec3 point = camera_position + direction * nearest;
-          float sector = clamp(normal_light.w / 255.0, 0.10, 1.0);
-          vec3 ambient = albedo * sector * 0.48;
+          float emission = floor(mod(normal_light.w, 2048.0) / 1024.0);
+          float sector = clamp(mod(normal_light.w, 1024.0) / 255.0, 0.10, 1.0);
+          vec3 ambient = albedo * sector * 0.32;
           vec3 direct = vec3(0.0);
           float strongest_score = 0.0;
           float second_score = 0.0;
@@ -235,7 +256,84 @@ module Doom
           if (second_score > 0.003 && shadowed(point + normal * 0.08,
               second_direction, second_distance - 0.1))
             direct -= second_direct * 0.92;
-          gl_FragColor = vec4(ambient + direct, 1.0);
+
+          if (flashlight_enabled != 0) {
+            vec3 camera_to_point = normalize(point - camera_position);
+            float cone = smoothstep(0.80, 0.96, dot(camera_to_point, camera_forward));
+            vec3 point_to_camera = -camera_to_point;
+            float facing = max(dot(normal, point_to_camera), 0.0);
+            float flashlight_attenuation = 1.0 / (1.0 + nearest * 0.0015 +
+                                                  nearest * nearest * 0.000002);
+            float flashlight_strength = cone * facing * flashlight_attenuation;
+            if (flashlight_strength > 0.004) {
+              float flashlight_visible = shadowed(point + normal * 0.08,
+                point_to_camera, nearest - 0.15) ? 0.06 : 1.0;
+              direct += albedo * vec3(1.0, 0.88, 0.68) * flashlight_strength *
+                        flashlight_visible * 2.2;
+            }
+          }
+
+          vec3 shaded = ambient + direct;
+          if (emission > 0.5)
+            shaded += albedo * vec3(0.18, 0.62, 0.12);
+          if (fog_enabled != 0) {
+            float fog = clamp(1.0 - exp(-nearest * 0.00075), 0.0, 0.82);
+            shaded = mix(shaded, vec3(0.035, 0.045, 0.060), fog);
+          }
+          gl_FragColor = vec4(shaded, 1.0);
+        }
+      GLSL
+
+      SPRITE_VERTEX_SHADER = <<~GLSL
+        #version 120
+        varying vec2 sprite_uv;
+        varying vec3 world_position;
+        void main() {
+          sprite_uv = gl_MultiTexCoord0.xy;
+          world_position = gl_Vertex.xyz;
+          gl_Position = ftransform();
+        }
+      GLSL
+
+      SPRITE_FRAGMENT_SHADER = <<~GLSL
+        #version 120
+        varying vec2 sprite_uv;
+        varying vec3 world_position;
+        uniform sampler2D sprite_texture;
+        uniform float sector_light;
+        uniform int light_count;
+        uniform vec4 light_positions[#{MAX_RAY_LIGHTS}];
+        uniform vec4 light_colors[#{MAX_RAY_LIGHTS}];
+        uniform vec3 camera_position;
+        uniform vec3 camera_forward;
+        uniform int fog_enabled;
+        uniform int flashlight_enabled;
+
+        void main() {
+          vec4 texel = texture2D(sprite_texture, sprite_uv);
+          if (texel.a < 0.01) discard;
+          vec3 shaded = texel.rgb * clamp(sector_light, 0.10, 1.0) * 0.32;
+          for (int light_index = 0; light_index < #{MAX_RAY_LIGHTS}; ++light_index) {
+            if (light_index >= light_count) break;
+            float distance_to_light = length(light_positions[light_index].xyz - world_position);
+            float attenuation = 1.0 / (1.0 + distance_to_light * 0.0015 +
+                                       distance_to_light * distance_to_light * 0.000004);
+            shaded += texel.rgb * light_colors[light_index].rgb * attenuation * 0.75;
+          }
+          vec3 camera_to_point = world_position - camera_position;
+          float distance_to_camera = length(camera_to_point);
+          if (flashlight_enabled != 0 && distance_to_camera > 0.001) {
+            float cone = smoothstep(0.80, 0.96,
+              dot(camera_to_point / distance_to_camera, camera_forward));
+            float attenuation = 1.0 / (1.0 + distance_to_camera * 0.0015 +
+                                       distance_to_camera * distance_to_camera * 0.000002);
+            shaded += texel.rgb * vec3(1.0, 0.88, 0.68) * cone * attenuation * 1.5;
+          }
+          if (fog_enabled != 0) {
+            float fog = clamp(1.0 - exp(-distance_to_camera * 0.00075), 0.0, 0.82);
+            shaded = mix(shaded, vec3(0.035, 0.045, 0.060), fog);
+          }
+          gl_FragColor = vec4(shaded, texel.a);
         }
       GLSL
 
@@ -243,10 +341,19 @@ module Doom
         true
       end
 
+      attr_accessor :fog_enabled, :flashlight_enabled
+
+      def initialize(...)
+        super
+        @ray_materials = RayTracing::MaterialState.new(@flats, @animations)
+        @fog_enabled = true
+        @flashlight_enabled = true
+      end
+
       def render_frame
         signature = geometry_signature
         if signature != @geometry_signature
-          @mesh = WorldMesh.new(@map)
+          @mesh = WorldMesh.new(@map, @textures)
           @geometry_signature = signature
           @ray_scene_dirty = true
           @gpu_batches_dirty = true
@@ -257,7 +364,16 @@ module Doom
       def draw_hardware(viewport_width, viewport_height)
         Gosu.gl do
           load_opengl_library
+          current_animation = @ray_materials.animation_signature
+          if @ray_animation_signature != current_animation
+            @ray_animation_signature = current_animation
+            @ray_materials_dirty = true if @ray_data_texture
+          end
           build_ray_scene if @ray_program.nil? || @ray_scene_dirty
+          if @ray_materials_dirty
+            upload_triangle_data
+            @ray_materials_dirty = false
+          end
           ensure_ray_target
           viewport = [0, 0, 0, 0].pack('l4')
           glGetIntegerv(GL_VIEWPORT, viewport)
@@ -280,11 +396,48 @@ module Doom
           draw_occluder_depth_prepass(include_ceilings: true)
           draw_sprites
           capture_frame if ENV['DOOM_GL_CAPTURE'] && !@frame_captured
+          # Gosu draws the weapon, HUD and pause menu immediately after this
+          # block. Do not leak sprite-shader or modulation state into its 2D
+          # pipeline, otherwise menu text inherits scene lighting.
+          glUseProgram(0)
+          glActiveTexture(GL_TEXTURE0)
+          glBindTexture(GL_TEXTURE_2D, 0)
+          glColor4f(1.0, 1.0, 1.0, 1.0)
+          glDisable(GL_LIGHTING)
+          glDisable(GL_ALPHA_TEST)
+          glDisable(GL_BLEND)
+          glDisable(GL_TEXTURE_2D)
           glDisable(GL_DEPTH_TEST)
         end
       end
 
       private
+
+      def draw_sprites
+        @sprite_program ||= create_program(SPRITE_VERTEX_SHADER, SPRITE_FRAGMENT_SHADER)
+        glUseProgram(@sprite_program)
+        uniform1i('sprite_texture', 0, program: @sprite_program)
+        uniform1i('fog_enabled', @fog_enabled ? 1 : 0, program: @sprite_program)
+        uniform1i('flashlight_enabled', @flashlight_enabled ? 1 : 0, program: @sprite_program)
+        uniform3f('camera_position', @player_x, @player_y, @player_z, program: @sprite_program)
+        uniform3f('camera_forward', @cos_angle, @sin_angle, 0.0, program: @sprite_program)
+        lights = ray_lights.first(MAX_RAY_LIGHTS)
+        uniform1i('light_count', lights.size, program: @sprite_program)
+        positions = lights.flat_map { |light| [light[:x].to_f, light[:y].to_f, light[:z].to_f, 1.0] }
+        colors = lights.flat_map { |light| [*light[:color].map(&:to_f), 1.0] }
+        positions.concat(Array.new((MAX_RAY_LIGHTS - lights.size) * 4, 0.0))
+        colors.concat(Array.new((MAX_RAY_LIGHTS - lights.size) * 4, 0.0))
+        uniform4fv('light_positions', MAX_RAY_LIGHTS, positions, program: @sprite_program)
+        uniform4fv('light_colors', MAX_RAY_LIGHTS, colors, program: @sprite_program)
+        super
+      ensure
+        glUseProgram(0) if @sprite_program
+      end
+
+      def before_sprite_draw(_thing, _sprite, sector)
+        uniform1f('sector_light', (sector&.light_level || 128).to_f / 255.0,
+                  program: @sprite_program)
+      end
 
       def ensure_ray_target
         return if @ray_framebuffer
@@ -341,14 +494,15 @@ module Doom
         bind_ray_texture(GL_TEXTURE3, sky_texture, 'sky_texture', 3)
         uniform1f('data_height', @ray_data_height)
         uniform1f('bvh_height', @ray_bvh_height)
-        uniform1i('triangle_count', @ray_triangles.size)
-        uniform1i('node_count', @ray_bvh_nodes.size)
+        uniform1i('node_count', @ray_bvh.nodes.size)
+        uniform1i('fog_enabled', @fog_enabled ? 1 : 0)
+        uniform1i('flashlight_enabled', @flashlight_enabled ? 1 : 0)
         uniform3f('camera_position', @player_x, @player_y, @player_z)
         uniform3f('camera_forward', @cos_angle, @sin_angle, 0.0)
         uniform3f('camera_right', @sin_angle, -@cos_angle, 0.0)
         uniform3f('camera_up', 0.0, 0.0, 1.0)
         uniform1f('aspect_ratio', width.to_f / height)
-        lights = active_lights.first(MAX_RAY_LIGHTS)
+        lights = ray_lights.first(MAX_RAY_LIGHTS)
         uniform1i('light_count', lights.size)
         positions = lights.flat_map { |light| [light[:x].to_f, light[:y].to_f, light[:z].to_f, 1.0] }
         colors = lights.flat_map { |light| [*light[:color].map(&:to_f), 1.0] }
@@ -369,75 +523,53 @@ module Doom
       end
 
       def build_ray_scene
-        warn 'Ray tracing: compiling GPU program...'
-        @ray_program ||= create_program(VERTEX_SHADER, FRAGMENT_SHADER)
-        warn 'Ray tracing: building material atlas...'
-        atlas, rectangles = build_material_atlas(@mesh.triangles.map(&:material).compact.uniq)
-        warn 'Ray tracing: uploading material atlas...'
-        @ray_atlas_texture = replace_texture(@ray_atlas_texture, ATLAS_SIZE, ATLAS_SIZE, GL_RGBA, GL_UNSIGNED_BYTE, atlas)
-        @ray_bvh_nodes = []
-        @ray_triangles = []
-        build_bvh(@mesh.triangles.first(MAX_TRIANGLES))
+        unless @ray_program
+          @ray_program = create_program(VERTEX_SHADER, FRAGMENT_SHADER)
+        end
+        unless @ray_atlas_texture
+          materials = @mesh.triangles.map(&:material).compact
+          if @animations
+            materials.concat(@ray_materials.animation_names)
+          end
+          atlas_builder = RayTracing::TextureAtlas.new(
+            size: ATLAS_SIZE, textures: @textures, flats: @flats, palette: @palette
+          )
+          atlas, @ray_material_rectangles = atlas_builder.build(materials)
+          @ray_atlas_texture = replace_texture(nil, ATLAS_SIZE, ATLAS_SIZE,
+                                               GL_RGBA, GL_UNSIGNED_BYTE, atlas)
+        end
+        source_triangles = @mesh.triangles.first(MAX_TRIANGLES)
+        if @ray_bvh&.compatible?(source_triangles)
+          @ray_bvh.refit(source_triangles)
+        else
+          @ray_bvh = RayTracing::Bvh.new(source_triangles, leaf_size: BVH_LEAF_SIZE)
+        end
+        upload_triangle_data
+        upload_bvh
+        @ray_scene_dirty = false
+        @ray_materials_dirty = false
+      end
+
+      def upload_triangle_data
+        rectangles = @ray_material_rectangles
         floats = []
-        @ray_triangles.each do |triangle|
+        @ray_bvh.triangles.each do |triangle|
           triangle.vertices.each { |vertex| floats.concat([*vertex, 0.0]) }
-          floats.concat([*triangle.normal, triangle.light.to_f])
+          floats.concat([*triangle.normal, @ray_materials.encoded_light(triangle)])
           floats.concat([*triangle.uvs[0], *triangle.uvs[1]])
-          rect = rectangles.fetch(triangle.material, [0.0, 0.0, 1.0 / ATLAS_SIZE, 1.0 / ATLAS_SIZE, 1.0, 1.0])
+          material = @ray_materials.resolve(triangle.material)
+          rect = rectangles.fetch(material, [0.0, 0.0, 1.0 / ATLAS_SIZE, 1.0 / ATLAS_SIZE, 1.0, 1.0])
           floats.concat([*triangle.uvs[2], rect[2], rect[3]])
           floats.concat([rect[0], rect[1], rect[4], rect[5]])
         end
         texel_count = floats.size / 4
         @ray_data_height = [(texel_count.to_f / DATA_WIDTH).ceil, 1].max
         floats.concat(Array.new(DATA_WIDTH * @ray_data_height * 4 - floats.size, 0.0))
-        warn "Ray tracing: uploading #{@ray_triangles.size} triangles and #{@ray_bvh_nodes.size} BVH nodes..."
         @ray_data_texture = replace_texture(@ray_data_texture, DATA_WIDTH, @ray_data_height, GL_RGBA32F, GL_FLOAT, floats.pack('f*'))
-        upload_bvh
-        @ray_scene_dirty = false
-        warn 'Ray tracing: scene ready.'
-      end
-
-      def build_bvh(triangles)
-        node_index = @ray_bvh_nodes.size
-        @ray_bvh_nodes << nil
-        minimum, maximum = triangle_bounds(triangles)
-        if triangles.size <= BVH_LEAF_SIZE
-          start = @ray_triangles.size
-          @ray_triangles.concat(triangles)
-          @ray_bvh_nodes[node_index] = { minimum: minimum, maximum: maximum,
-                                         start: start, count: triangles.size,
-                                         escape: node_index + 1 }
-          return node_index
-        end
-
-        centroids = triangles.map do |triangle|
-          3.times.map { |axis| triangle.vertices.sum { |vertex| vertex[axis] } / 3.0 }
-        end
-        extents = 3.times.map { |axis| centroids.map { |center| center[axis] }.minmax.then { |a, b| b - a } }
-        axis = extents.each_with_index.max_by(&:first).last
-        sorted = triangles.zip(centroids).sort_by { |_triangle, center| center[axis] }.map(&:first)
-        middle = sorted.size / 2
-        build_bvh(sorted[0...middle])
-        build_bvh(sorted[middle..])
-        @ray_bvh_nodes[node_index] = { minimum: minimum, maximum: maximum,
-                                       start: -1, count: 0, escape: @ray_bvh_nodes.size }
-        node_index
-      end
-
-      def triangle_bounds(triangles)
-        points = triangles.flat_map(&:vertices)
-        minimum = 3.times.map { |axis| points.min_by { |point| point[axis] }[axis] - 0.01 }
-        maximum = 3.times.map { |axis| points.max_by { |point| point[axis] }[axis] + 0.01 }
-        [minimum, maximum]
       end
 
       def upload_bvh
-        floats = []
-        @ray_bvh_nodes.each do |node|
-          floats.concat([*node[:minimum], node[:escape].to_f])
-          floats.concat([*node[:maximum], node[:start].to_f])
-          floats.concat([node[:count].to_f, 0.0, 0.0, 0.0])
-        end
+        floats = @ray_bvh.packed_floats
         texels = floats.size / 4
         @ray_bvh_height = [(texels.to_f / NODE_DATA_WIDTH).ceil, 1].max
         floats.concat(Array.new(NODE_DATA_WIDTH * @ray_bvh_height * 4 - floats.size, 0.0))
@@ -445,49 +577,28 @@ module Doom
                                            GL_RGBA32F, GL_FLOAT, floats.pack('f*'))
       end
 
-      def build_material_atlas(materials)
-        pixels = "\0" * (ATLAS_SIZE * ATLAS_SIZE * 4)
-        rectangles = {}
-        x = y = row_height = 0
-        materials.each do |name|
-          source = material_source(name)
-          next unless source
-          width, height, rgba = source
-          if x + width > ATLAS_SIZE
-            x = 0
-            y += row_height
-            row_height = 0
-          end
-          raise 'ray texture atlas overflow' if y + height > ATLAS_SIZE
-          height.times do |row|
-            destination = ((y + row) * ATLAS_SIZE + x) * 4
-            pixels[destination, width * 4] = rgba.byteslice(row * width * 4, width * 4)
-          end
-          rectangles[name] = [x.to_f / ATLAS_SIZE, y.to_f / ATLAS_SIZE, width.to_f / ATLAS_SIZE,
-                              height.to_f / ATLAS_SIZE, width.to_f, height.to_f]
-          x += width
-          row_height = [row_height, height].max
-        end
-        [pixels, rectangles]
+      def ray_lights
+        lights = active_lights + acid_lights
+        lights.sort_by { |light| (light[:x] - @player_x)**2 + (light[:y] - @player_y)**2 }
       end
 
-      def material_source(name)
-        source = @flats[name] || @textures[name]
-        return unless source
-        width = source.width
-        height = source.height
-        indices = if source.respond_to?(:column_pixels)
-                    pixels = Array.new(width * height, 0)
-                    width.times do |column|
-                      source.column_pixels(column).each_with_index do |value, row|
-                        pixels[row * width + column] = value || 0 if row < height
-                      end
-                    end
-                    pixels
-                  else
-                    source.pixels
-                  end
-        [width, height, indices.map { |index| [*@palette.colors[index], 255].pack('C4') }.join]
+      def acid_lights
+        @acid_lights ||= @map.sectors.each_with_index.filter_map do |sector, sector_index|
+          next unless @ray_materials.emissive?(sector.floor_texture)
+
+          points = @map.linedefs.flat_map do |line|
+            touches = [line.sidedef_right, line.sidedef_left].compact.any? do |side_index|
+              side_index >= 0 && @map.sidedefs[side_index]&.sector == sector_index
+            end
+            touches ? [@map.vertices[line.v1], @map.vertices[line.v2]] : []
+          end.uniq { |point| [point.x, point.y] }
+          next if points.empty?
+
+          { x: points.sum(&:x).to_f / points.size,
+            y: points.sum(&:y).to_f / points.size,
+            z: sector.floor_height.to_f + 18.0,
+            color: [0.22, 1.0, 0.18] }
+        end
       end
 
       def replace_texture(old_id, width, height, internal, type, data)
@@ -549,12 +660,14 @@ module Doom
         glActiveTexture(unit); glBindTexture(GL_TEXTURE_2D, texture || 0); uniform1i(uniform, index)
       end
 
-      def uniform1i(name, value) = glUniform1i(glGetUniformLocation(@ray_program, name), value)
-      def uniform1f(name, value) = glUniform1f(glGetUniformLocation(@ray_program, name), value.to_f)
-      def uniform3f(name, x, y, z) = glUniform3f(glGetUniformLocation(@ray_program, name), x.to_f, y.to_f, z.to_f)
+      def uniform1i(name, value, program: @ray_program) = glUniform1i(glGetUniformLocation(program, name), value)
+      def uniform1f(name, value, program: @ray_program) = glUniform1f(glGetUniformLocation(program, name), value.to_f)
+      def uniform3f(name, x, y, z, program: @ray_program)
+        glUniform3f(glGetUniformLocation(program, name), x.to_f, y.to_f, z.to_f)
+      end
 
-      def uniform4fv(name, count, values)
-        glUniform4fv(glGetUniformLocation(@ray_program, name), count, values.pack('f*'))
+      def uniform4fv(name, count, values, program: @ray_program)
+        glUniform4fv(glGetUniformLocation(program, name), count, values.pack('f*'))
       end
     end
   end

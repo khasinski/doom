@@ -1,43 +1,41 @@
-# Modern renderer
+# Modern renderers
 
-The experimental `zbuffer` renderer can be selected at startup:
+Renderers can be selected at startup:
 
 ```sh
-bin/doom --renderer=zbuffer doom1.wad
+bin/doom --renderer=classic doom1.wad
+bin/doom --renderer=rasterizer doom1.wad
+bin/doom --renderer=raytracing doom1.wad
 ```
 
-Press `R` during play to switch between `classic` and `zbuffer` without
-restarting the game. The active renderer is printed to the terminal.
+During play, `R` cycles through `classic`, `rasterizer`, and `raytracing`
+without restarting the simulation. The software `zbuffer` backend remains
+available from the command line for development and comparison.
 
-The hardware 3D path is selected with `--renderer=rasterizer`. In this mode
-`R` switches directly between the classic renderer and the GPU rasterizer.
+## Hardware rasterizer
 
-The ray-tracing development path starts with `--renderer=raytracing`. It is an
-isolated renderer entry point derived from the working GPU rasterizer; until
-ray passes are added, its output is intentionally identical. During play, `R`
-cycles through `classic`, `rasterizer`, and `raytracing`.
+The rasterizer converts BSP subsectors, sector planes and linedefs to ordinary
+triangles. It renders them through Gosu's OpenGL context with a depth buffer,
+WAD textures, animated flats, billboard sprites and alpha-tested two-sided
+middle textures such as grates.
 
-## Implemented
+## GPU ray tracer
 
-- a separate renderer selected through `RendererFactory`;
-- a 320×240 floating-point depth buffer populated by opaque wall geometry;
-- dynamic lights attached to projectiles and explosions;
-- ray-traced hard visibility shadows: wall samples cast rays toward dynamic
-  lights, and one-sided linedefs occlude those rays;
-- palette-aware warm additive lighting;
-- renderer selection survives level changes and works for network clients.
+The ray tracer sends world triangles and a stackless BVH to floating-point GPU
+textures. A GLSL fragment shader traces primary visibility and hard shadow rays
+at 640×480, then scales the result to the window. This is GPU-accelerated
+software ray tracing; it does not require hardware ray-intersection units.
 
-## Current limits
+It supports:
 
-This is the first vertical slice, not a GPU renderer. The BSP renderer still
-determines visibility. Dynamic direct light currently shades opaque walls;
-floors, ceilings, sprites, masked textures, portal-height-aware shadows,
-reflections, and secondary light bounces are not implemented yet. Rays run on
-the CPU against linedefs, so dense maps with many simultaneous lights will need
-a spatial acceleration structure before raising the light limit.
+- textured walls, floors, ceilings and Doom's sky projection;
+- animated flats and wall textures;
+- dynamic point lights and BVH-traced shadows;
+- emissive nukage/slime sectors;
+- optional distance fog and a shadowed flashlight (`Options` menu);
+- lit and fogged rasterized sprites with depth-tested world occlusion;
+- alpha-tested grates for both primary and shadow rays;
+- BVH refitting for moving doors and lifts without rebuilding static textures.
 
-The next useful steps are to triangulate sector floors/ceilings, move all
-geometry through depth-tested fragments, add a blockmap/BVH for shadow rays,
-then introduce a GPU backend with the same renderer interface. That gives a
-sound route to reflections and indirect lighting without coupling rendering to
-game simulation.
+Sprite pixels are still a hybrid raster pass rather than ray-traced geometry.
+Reflections and indirect light bounces are not implemented.

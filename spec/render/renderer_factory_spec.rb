@@ -4,8 +4,10 @@ require 'spec_helper'
 
 RSpec.describe Doom::Render::RendererFactory do
   it 'normalizes supported renderer names' do
-    expect(described_class.normalize('classic')).to eq(:classic)
-    expect(described_class.normalize(:zbuffer)).to eq(:zbuffer)
+    described_class::TYPES.each do |type|
+      expect(described_class.normalize(type.to_s)).to eq(type)
+      expect(described_class.normalize(type)).to eq(type)
+    end
   end
 
   it 'rejects an unknown renderer' do
@@ -13,9 +15,12 @@ RSpec.describe Doom::Render::RendererFactory do
   end
 
   it 'cycles through the three interactive renderers' do
-    classic = instance_double(Doom::Render::Renderer)
-    allow(described_class).to receive(:type_of).with(classic).and_return(:classic)
-    expect(described_class.next_type(classic)).to eq(:rasterizer)
+    renderer = instance_double(Doom::Render::Renderer)
+
+    { classic: :rasterizer, rasterizer: :raytracing, raytracing: :classic }.each do |current, following|
+      allow(described_class).to receive(:type_of).with(renderer).and_return(current)
+      expect(described_class.next_type(renderer)).to eq(following)
+    end
   end
 end
 

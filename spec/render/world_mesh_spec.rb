@@ -7,7 +7,8 @@ RSpec.describe Doom::Render::WorldMesh do
     skip_without_wad
     @wad = Doom::Wad::Reader.new(wad_path)
     @map = Doom::Map::MapData.load(@wad, 'E1M1')
-    @mesh = described_class.new(@map)
+    @textures = Doom::Wad::TextureManager.new(@wad)
+    @mesh = described_class.new(@map, @textures)
   end
 
   after(:all) { @wad&.close }
@@ -29,5 +30,22 @@ RSpec.describe Doom::Render::WorldMesh do
   it 'builds plane triangles for every reconstructable subsector' do
     represented = @mesh.triangles.select { |triangle| triangle.normal[2].abs == 1.0 }
     expect(represented.size).to be > @map.subsectors.size
+  end
+
+  it 'emits transparent middle textures as masked triangles' do
+    masked = @mesh.triangles.select(&:masked)
+
+    expect(masked).not_to be_empty
+    expect(masked.map(&:material)).not_to include(nil, '', '-')
+  end
+
+  it 'does not duplicate a masked wall with mirrored UVs from its other side' do
+    masked = @mesh.triangles.select(&:masked)
+    duplicate = masked.combination(2).any? do |left, right|
+      left.vertices.map(&:sort).sort == right.vertices.map(&:sort).sort &&
+        left.normal.zip(right.normal).all? { |a, b| (a + b).abs < 1e-6 }
+    end
+
+    expect(duplicate).to be(false)
   end
 end

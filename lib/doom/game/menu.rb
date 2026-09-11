@@ -36,13 +36,15 @@ module Doom
       NETGAME_UNSAFE_MAIN = %i[new_game].freeze
 
       # Options menu items
-      OPTIONS_ITEMS = %i[god_mode infinite_ammo all_weapons uncapped_fps fullscreen rubykaigi_mode].freeze
+      OPTIONS_ITEMS = %i[god_mode infinite_ammo all_weapons uncapped_fps fullscreen fog flashlight rubykaigi_mode].freeze
       OPTIONS_LABELS = {
         god_mode: "GOD MODE",
         infinite_ammo: "INFINITE AMMO",
         all_weapons: "ALL WEAPONS",
         uncapped_fps: "UNCAPPED FPS",
         fullscreen: "FULLSCREEN",
+        fog: "RAY FOG",
+        flashlight: "FLASHLIGHT",
         rubykaigi_mode: "RUBYKAIGI MODE",
       }.freeze
 
@@ -83,6 +85,8 @@ module Doom
           all_weapons: false,
           uncapped_fps: true,
           fullscreen: false,
+          fog: true,
+          flashlight: true,
           rubykaigi_mode: false,
         }
 

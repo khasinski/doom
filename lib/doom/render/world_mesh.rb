@@ -5,12 +5,13 @@ module Doom
     # Converts Doom's sector/subsector representation into ordinary triangles.
     # Subsector polygons are convex by construction, so a fan is sufficient.
     class WorldMesh
-      Triangle = Struct.new(:vertices, :uvs, :normal, :light, :material)
+      Triangle = Struct.new(:vertices, :uvs, :normal, :light, :material, :masked)
 
       attr_reader :triangles
 
-      def initialize(map)
+      def initialize(map, textures = nil)
         @map = map
+        @textures = textures
         @triangles = []
         build_planes
         build_walls
@@ -174,6 +175,13 @@ module Doom
                         back.light_level, left.lower_texture, flip: true,
                         u_offset: left.x_offset, v_top: v_top)
             end
+            opening_bottom = [front.floor_height, back.floor_height].max
+            opening_top = [front.ceiling_height, back.ceiling_height].min
+            if middle_material?(right)
+              masked_middle(a, b, opening_bottom, opening_top, front, right, line)
+            elsif middle_material?(left)
+              masked_middle(a, b, opening_bottom, opening_top, back, left, line, flip: true)
+            end
           else
             sector = front || back
             side = right || left
@@ -186,7 +194,30 @@ module Doom
         end
       end
 
-      def wall_quad(a, b, bottom, top, light, material, flip: false, u_offset: 0, v_top: 0)
+      def middle_material?(side)
+        side && !side.middle_texture.nil? && !side.middle_texture.empty? && side.middle_texture != '-'
+      end
+
+      def masked_middle(a, b, opening_bottom, opening_top, sector, side, line, flip: false)
+        material = side.middle_texture
+        return if material.nil? || material.empty? || material == '-'
+
+        texture = @textures&.[](material)
+        texture_height = texture&.height || (opening_top - opening_bottom)
+        texture_top = if line.lower_unpegged?
+                        opening_bottom + texture_height + side.y_offset
+                      else
+                        opening_top + side.y_offset
+                      end
+        bottom = [opening_bottom, texture_top - texture_height].max
+        top = [opening_top, texture_top].min
+        return unless top > bottom
+
+        wall_quad(a, b, bottom, top, sector.light_level, material, flip: flip,
+                  u_offset: side.x_offset, v_top: texture_top - top, masked: true)
+      end
+
+      def wall_quad(a, b, bottom, top, light, material, flip: false, u_offset: 0, v_top: 0, masked: false)
         return unless top > bottom
 
         a, b = b, a if flip
@@ -207,8 +238,8 @@ module Doom
         u1 = u0 + length
         v0_tex = v_top.to_f + (top - bottom)
         v1_tex = v_top.to_f
-        @triangles << Triangle.new([v0, v1, v2], [[u0, v0_tex], [u1, v0_tex], [u1, v1_tex]], normal, light, material)
-        @triangles << Triangle.new([v0, v2, v3], [[u0, v0_tex], [u1, v1_tex], [u0, v1_tex]], normal, light, material)
+        @triangles << Triangle.new([v0, v1, v2], [[u0, v0_tex], [u1, v0_tex], [u1, v1_tex]], normal, light, material, masked)
+        @triangles << Triangle.new([v0, v2, v3], [[u0, v0_tex], [u1, v1_tex], [u0, v1_tex]], normal, light, material, masked)
       end
 
       def add_triangle(a, b, c, z, normal, light, material)
