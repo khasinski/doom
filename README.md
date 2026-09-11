@@ -1,12 +1,17 @@
 # DOOM Ruby
 
-A faithful port of the DOOM (1993) engine to pure Ruby. Renders the original WAD files with near pixel-perfect BSP rendering, full HUD, item pickups, and hitscan/projectile combat.
+A faithful port of the DOOM (1993) engine to Ruby. Play original WAD files with
+the classic software renderer, a hardware rasterizer, or a GPU ray tracer, in
+single-player or multiplayer.
 
 ![DOOM Ruby](demo.gif)
 
 ## Features
 
-- **Rendering**: BSP traversal, visplanes, drawsegs, sprite clipping, sky rendering matching Chocolate Doom
+- **Three renderers**: Classic BSP software rendering, OpenGL rasterization, and GPU ray tracing
+- **Dynamic lighting**: Projectile, explosion, emissive-floor, flashlight, shadow, and fog effects in the ray tracer
+- **Multiplayer**: Authoritative server/client play and deterministic peer-to-peer lockstep, with co-op and deathmatch
+- **Classic rendering**: BSP traversal, visplanes, drawsegs, sprite clipping, and sky rendering matching Chocolate Doom
 - **Combat**: Hitscan weapons (pistol, shotgun, chaingun), melee (fist, chainsaw), projectile rockets with splash damage
 - **Items**: Weapons, ammo, health, armor, keys -- all pickupable with correct DOOM behavior
 - **Movement**: Momentum-based physics with friction, smooth step transitions, wall sliding, view bob
@@ -50,8 +55,51 @@ doom /path/to/doom.wad
 | Space / E | Use (open doors) |
 | 1-7 | Switch weapons |
 | M | Toggle automap |
+| R | Cycle classic, rasterizer, and ray-tracing renderers |
 | Z | Toggle debug overlay |
 | Escape | Release mouse / Quit |
+
+## Renderers
+
+Select a renderer when starting the game:
+
+```bash
+doom --renderer=classic /path/to/doom.wad
+doom --renderer=rasterizer /path/to/doom.wad
+doom --renderer=raytracing /path/to/doom.wad
+```
+
+Press `R` during play to switch between them without restarting the simulation.
+
+- `classic` is the pixel-accurate software BSP renderer.
+- `rasterizer` builds a textured 3D world and draws it through Gosu's OpenGL context with a depth buffer.
+- `raytracing` traces primary and shadow rays on the GPU using a stackless BVH. It includes dynamic lights, hard shadows, emissive nukage, fog, and a flashlight. It does not require dedicated hardware ray-intersection units.
+
+The ray tracer uses a hybrid raster pass for sprites and does not yet implement
+reflections or indirect light bounces. Fog and the flashlight can be toggled in
+the Options menu. See [Modern renderers](docs/modern-renderer.md) for implementation
+details and current limitations.
+
+## Multiplayer
+
+For an authoritative session suitable for more players over the internet, run
+a headless server and connect clients to it:
+
+```bash
+doom --serve --players=4 --port=5029 /path/to/doom.wad
+doom --join=server.example.com:5029 /path/to/doom.wad
+```
+
+For a small LAN, the original-style deterministic lockstep mode is also
+available:
+
+```bash
+doom --host --players=2 --port=5029 /path/to/doom.wad
+doom --connect=192.168.1.10:5029 /path/to/doom.wad
+```
+
+Add `--deathmatch` to host or serve a deathmatch. `--frags=N` sets its frag
+limit. Every participant must use the same WAD.
 
 ## Frame rate
 
@@ -67,8 +115,9 @@ to present every frame the old way.
 ## Requirements
 
 - Ruby 3.1+ (Ruby 4.0 with YJIT recommended for best performance)
-- Gosu gem (for window/graphics)
+- Gosu gem (for window, sound, and graphics)
 - SDL2 (native library required by Gosu)
+- OpenGL 3.3 or newer for the rasterizer and ray tracer
 
 ### Installing SDL2
 
@@ -145,14 +194,8 @@ please purchase DOOM from [Steam](https://store.steampowered.com/app/2280/Ultima
 
 ## License
 
-GPL-2.0 -- Same license as the original DOOM source code.
+GPL-2.0-only -- Same license as the original DOOM source code.
 
 ## Author
 
 Chris Hasinski ([@khasinski](https://github.com/khasinski))
-# Renderer experiment
-
-Run with `--renderer=zbuffer` to enable the experimental per-pixel depth buffer,
-dynamic projectile/explosion lights, and ray-traced hard shadows. Press `R` to
-switch between it and the classic renderer while playing. See
-[`docs/modern-renderer.md`](docs/modern-renderer.md) for scope and limitations.

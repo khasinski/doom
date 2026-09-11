@@ -5,13 +5,13 @@ require_relative 'lib/doom/version'
 Gem::Specification.new do |s|
   s.name        = 'doom'
   s.version     = Doom::VERSION
-  s.summary     = 'Doom engine port in pure Ruby'
-  s.description = 'A faithful port of the Doom (1993) rendering engine to Ruby. ' \
-                  'Supports original WAD files with near pixel-perfect BSP rendering.'
+  s.summary     = 'Doom engine port with multiplayer and modern renderers'
+  s.description = 'A faithful port of the Doom (1993) engine to Ruby with classic ' \
+                  'software rendering, OpenGL rasterization, GPU ray tracing, and multiplayer.'
   s.authors     = ['Chris Hasinski']
   s.email       = ['krzysztof.hasinski@gmail.com']
   s.homepage    = 'https://github.com/khasinski/doom'
-  s.license     = 'GPL-2.0'
+  s.license     = 'GPL-2.0-only'
 
   s.files       = Dir['lib/**/*', 'bin/*', 'README.md', 'LICENSE']
   s.executables = ['doom']
