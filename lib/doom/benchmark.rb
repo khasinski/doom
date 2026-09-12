@@ -45,7 +45,7 @@ module Doom
   module Benchmark
     FREEDOOM_VERSION = '0.13.0'
     FREEDOOM_URL =
-      "https://github.com/freedoom/freedoom/releases/download/" \
+      'https://github.com/freedoom/freedoom/releases/download/' \
       "v#{FREEDOOM_VERSION}/freedoom-#{FREEDOOM_VERSION}.zip"
     FREEDOOM_WAD_BASENAME = 'freedoom1.wad'
     CACHE_DIR = File.join(Dir.home, '.doom')
@@ -72,7 +72,7 @@ module Doom
 
       print_result(result, json: opts[:json])
       0
-    rescue => e
+    rescue StandardError => e
       warn "benchmark failed: #{e.class}: #{e.message}"
       warn e.backtrace.first(10).join("\n")
       1
@@ -84,7 +84,7 @@ module Doom
         frames: DEFAULT_FRAMES,
         map: DEFAULT_MAP,
         wad: nil,
-        json: false,
+        json: false
       }
       argv.each do |arg|
         case arg
@@ -127,7 +127,7 @@ module Doom
 
     # Download URL to dest, following redirects.
     def download_file(url, dest, redirect_limit: 5)
-      raise "too many redirects" if redirect_limit < 0
+      raise 'too many redirects' if redirect_limit < 0
 
       uri = URI.parse(url)
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
@@ -151,19 +151,23 @@ module Doom
       data = File.binread(zip_path)
 
       eocd = find_eocd(data) or raise "ZIP end-of-central-directory not found in #{zip_path}"
-      _, _, _, _, _, _, cdir_offset, _ = data.byteslice(eocd, 22).unpack('VvvvvVVv')
+      _, _, _, _, _, _, cdir_offset, = data.byteslice(eocd, 22).unpack('VvvvvVVv')
 
       ptr = cdir_offset
       while data.byteslice(ptr, 4) == "PK\x01\x02".b
         fields = data.byteslice(ptr, 46).unpack('VvvvvvvVVVvvvvvVV')
-        method, csize = fields[4], fields[8]
-        fname_len, extra_len, comment_len = fields[10], fields[11], fields[12]
+        method = fields[4]
+        csize = fields[8]
+        fname_len = fields[10]
+        extra_len = fields[11]
+        comment_len = fields[12]
         local_offset = fields[16]
         fname = data.byteslice(ptr + 46, fname_len)
 
         if File.basename(fname) == target_basename
           lh = data.byteslice(local_offset, 30).unpack('VvvvvvVVVvv')
-          lh_fname_len, lh_extra_len = lh[9], lh[10]
+          lh_fname_len = lh[9]
+          lh_extra_len = lh[10]
           data_offset = local_offset + 30 + lh_fname_len + lh_extra_len
           compressed = data.byteslice(data_offset, csize)
 
@@ -243,7 +247,7 @@ module Doom
         min_ms: sorted.first * 1000,
         max_ms: sorted.last * 1000,
         fps: frames / total,
-        allocs_per_frame: (gc_after - gc_before).to_f / frames,
+        allocs_per_frame: (gc_after - gc_before).to_f / frames
       }
     end
 
@@ -259,20 +263,20 @@ module Doom
         return
       end
 
-      puts "DOOM-Ruby benchmark"
+      puts 'DOOM-Ruby benchmark'
       puts "  WAD:    #{r[:wad]} (#{r[:map]})"
       puts "  Ruby:   #{r[:ruby]}"
       puts "  JIT:    #{r[:jit]}"
-      puts ""
+      puts ''
       puts "Performance (#{r[:frames]} frames after #{r[:warmup]} warmup):"
-      puts "  avg     %.2f ms" % r[:avg_ms]
-      puts "  median  %.2f ms" % r[:median_ms]
-      puts "  p95     %.2f ms" % r[:p95_ms]
-      puts "  p99     %.2f ms" % r[:p99_ms]
-      puts "  min     %.2f ms" % r[:min_ms]
-      puts "  max     %.2f ms" % r[:max_ms]
-      puts "  fps     %.1f" % r[:fps]
-      puts "  allocs/frame  %.0f" % r[:allocs_per_frame] if r[:allocs_per_frame] > 0
+      puts '  avg     %.2f ms' % r[:avg_ms]
+      puts '  median  %.2f ms' % r[:median_ms]
+      puts '  p95     %.2f ms' % r[:p95_ms]
+      puts '  p99     %.2f ms' % r[:p99_ms]
+      puts '  min     %.2f ms' % r[:min_ms]
+      puts '  max     %.2f ms' % r[:max_ms]
+      puts '  fps     %.1f' % r[:fps]
+      puts '  allocs/frame  %.0f' % r[:allocs_per_frame] if r[:allocs_per_frame] > 0
     end
   end
 end

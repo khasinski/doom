@@ -11,7 +11,7 @@ module Doom
       WEAPONTOP = 32
 
       attr_reader :gfx
-      attr_writer :player  # Re-pointed on world rebind (map change, netgame resync)
+      attr_writer :player # Re-pointed on world rebind (map change, netgame resync)
 
       def initialize(hud_graphics, player_state)
         @gfx = hud_graphics
@@ -46,9 +46,9 @@ module Doom
         draw_weapon_sprite(framebuffer, sprite, x, y)
 
         # Draw muzzle flash only on the first fire frame (the actual shot)
-        if @player.attacking && @player.attack_frame == 0
-          draw_muzzle_flash(framebuffer, weapon_name)
-        end
+        return unless @player.attacking && @player.attack_frame == 0
+
+        draw_muzzle_flash(framebuffer, weapon_name)
       end
 
       private
@@ -67,12 +67,12 @@ module Doom
           next if draw_x < 0 || draw_x >= SCREEN_WIDTH
 
           column.each_with_index do |color, sy|
-            next unless color  # Skip transparent pixels
+            next unless color # Skip transparent pixels
 
             draw_y = base_y + sy
             next if draw_y < 0 || draw_y > max_y
 
-            framebuffer[draw_y * SCREEN_WIDTH + draw_x] = color
+            framebuffer[(draw_y * SCREEN_WIDTH) + draw_x] = color
           end
         end
       end

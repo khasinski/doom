@@ -34,20 +34,21 @@ module Doom
         # Read column offsets
         column_offsets = []
         width.times do |i|
-          column_offsets << data[8 + i * 4, 4].unpack1('V')
+          column_offsets << data[8 + (i * 4), 4].unpack1('V')
         end
 
         # Read columns
         columns = []
         width.times do |x|
-          column = Array.new(height, nil)  # nil = transparent
+          column = Array.new(height, nil) # nil = transparent
           offset = column_offsets[x]
 
           # Read posts for this column
           loop do
             break if offset >= data.size
+
             row_start = data[offset].ord
-            break if row_start == 255  # End of column marker
+            break if row_start == 255 # End of column marker
 
             post_height = data[offset + 1].ord
             break if post_height == 0 || offset + 3 + post_height > data.size
@@ -55,12 +56,10 @@ module Doom
             # Skip padding byte, read pixels, skip trailing padding
             post_height.times do |i|
               y = row_start + i
-              if y < height
-                column[y] = data[offset + 3 + i].ord
-              end
+              column[y] = data[offset + 3 + i].ord if y < height
             end
 
-            offset += post_height + 4  # row_start + count + padding + pixels + padding
+            offset += post_height + 4 # row_start + count + padding + pixels + padding
           end
 
           columns << column
@@ -139,7 +138,7 @@ module Doom
         3005 => 'HEAD', # Cacodemon
         3006 => 'SKUL', # Lost soul
         7 => 'SPID',    # Spider Mastermind
-        16 => 'CYBR',   # Cyberdemon
+        16 => 'CYBR' # Cyberdemon
       }.freeze
 
       # Things that use a specific frame instead of 'A'
@@ -150,7 +149,7 @@ module Doom
       THING_DEFAULT_FRAME = {
         10 => 'W',   # Bloody mess (gibbed)
         12 => 'N',   # Bloody mess 2 (dead body flat)
-        15 => 'N',   # Dead player (dead body flat)
+        15 => 'N' # Dead player (dead body flat)
       }.freeze
 
       def initialize(wad)
@@ -249,12 +248,12 @@ module Doom
           @sprite_index[key] = [name, false]
 
           # Check for mirrored second rotation (e.g., SPOSA2A8)
-          if name.length >= 8
-            frame2 = name[6]
-            rot2 = name[7].to_i
-            key2 = "#{prefix}#{frame2}#{rot2}"
-            @sprite_index[key2] = [name, true]
-          end
+          next unless name.length >= 8
+
+          frame2 = name[6]
+          rot2 = name[7].to_i
+          key2 = "#{prefix}#{frame2}#{rot2}"
+          @sprite_index[key2] = [name, true]
         end
       end
 

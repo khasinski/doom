@@ -14,7 +14,15 @@ RSpec.describe Doom::Net::Client do
 
   after(:all) { @wad&.close }
 
-  after { @closeables&.each { |t| t.close rescue nil } }
+  after {
+    @closeables&.each { |t|
+      begin
+        t.close
+      rescue StandardError
+        nil
+      end
+    }
+  }
 
   def track(t)
     (@closeables ||= []) << t
@@ -125,11 +133,11 @@ RSpec.describe Doom::Net::Client do
       server = new_server
       early = new_client(server)
       run(server, [early], tics: 100,
-          input: ->(_c, i) { Doom::Game::Ticcmd.new(1.0, 0, (i % 5) - 2.0, 0) })
+                           input: ->(_c, i) { Doom::Game::Ticcmd.new(1.0, 0, (i % 5) - 2.0, 0) })
 
       late = new_client(server)
       run(server, [early, late], tics: 60,
-          input: ->(_c, i) { Doom::Game::Ticcmd.new(-1.0, 0, 0, 0) })
+                                 input: ->(_c, _i) { Doom::Game::Ticcmd.new(-1.0, 0, 0, 0) })
 
       expect(late).to be_playing
       expect(late.world.state_hash).to eq(server.world.state_hash)

@@ -107,7 +107,8 @@ module Doom
         bytes = bytes.b
         total = [(bytes.bytesize + SNAPSHOT_CHUNK_BYTES - 1) / SNAPSHOT_CHUNK_BYTES, 1].max
         (0...total).map do |i|
-          encode_snapshot_chunk(snapshot_tic, i, total, bytes.byteslice(i * SNAPSHOT_CHUNK_BYTES, SNAPSHOT_CHUNK_BYTES) || ''.b)
+          encode_snapshot_chunk(snapshot_tic, i, total,
+                                bytes.byteslice(i * SNAPSHOT_CHUNK_BYTES, SNAPSHOT_CHUNK_BYTES) || ''.b)
         end
       end
 
@@ -217,15 +218,24 @@ module Doom
 
           tic = bytes[offset, 4].unpack1('L<')
           offset += 4
-          njoins = bytes[offset].unpack1('C'); offset += 1
+          njoins = bytes[offset].unpack1('C')
+          offset += 1
           return nil if bytes.bytesize < offset + njoins
-          joins = bytes[offset, njoins].unpack('C*'); offset += njoins
+
+          joins = bytes[offset, njoins].unpack('C*')
+          offset += njoins
           return nil if bytes.bytesize < offset + 1
-          nleaves = bytes[offset].unpack1('C'); offset += 1
+
+          nleaves = bytes[offset].unpack1('C')
+          offset += 1
           return nil if bytes.bytesize < offset + nleaves
-          leaves = bytes[offset, nleaves].unpack('C*'); offset += nleaves
+
+          leaves = bytes[offset, nleaves].unpack('C*')
+          offset += nleaves
           return nil if bytes.bytesize < offset + 1
-          ncmds = bytes[offset].unpack1('C'); offset += 1
+
+          ncmds = bytes[offset].unpack1('C')
+          offset += 1
           return nil if bytes.bytesize < offset + (ncmds * entry)
 
           cmds = Array.new(ncmds) do |i|

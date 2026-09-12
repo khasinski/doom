@@ -93,7 +93,10 @@ RSpec.describe Doom::Net::Session do
     it 'survives a repeated hello without allocating a second slot' do
       pump_until([host, client]) { client.started? }
       3.times { client.send(:send_hello_if_waiting) }
-      5.times { host.poll; sleep 0.005 }
+      5.times {
+        host.poll
+        sleep 0.005
+      }
 
       expect(host.transport.peers.size).to eq(1)
     end
@@ -184,7 +187,7 @@ RSpec.describe Doom::Net::Session do
       it 'starts counting only once nothing can advance' do
         world = world_for(host)
         20.times { |i| host.submit(cmd(0, i)) }
-        host.run(world)  # runs the primed tics, then hits the gap
+        host.run(world) # runs the primed tics, then hits the gap
 
         expect(host).to be_stalled
         expect(host.stalled_seconds).to be >= 0.0

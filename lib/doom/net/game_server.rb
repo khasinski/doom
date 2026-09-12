@@ -219,10 +219,10 @@ module Doom
       # per recipient is fine -- joins and resyncs are rare next to the tic loop.
       def send_snapshot_to(client)
         @transport.send_to_addr(client.host, client.port, Protocol.encode_welcome(
-          player_id: client.player_id, num_players: @world.players.size,
-          mode: @world.mode, skill: Session::DEFAULT_SKILL,
-          snapshot_tic: @tic, map: @world.map.name
-        ))
+                                                            player_id: client.player_id, num_players: @world.players.size,
+                                                            mode: @world.mode, skill: Session::DEFAULT_SKILL,
+                                                            snapshot_tic: @tic, map: @world.map.name
+                                                          ))
         Protocol.snapshot_chunks(@tic, Game::Snapshot.dump(@world)).each do |chunk|
           @transport.send_to_addr(client.host, client.port, chunk)
         end

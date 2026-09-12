@@ -48,7 +48,7 @@ module Doom
           (forwardmove * 1000).round.clamp(-32_768, 32_767),
           (sidemove * 1000).round.clamp(-32_768, 32_767),
           (angleturn * 100).round.clamp(-32_768, 32_767),
-          buttons & 0xff,
+          buttons & 0xff
         ].pack('s>s>s>C')
       end
 

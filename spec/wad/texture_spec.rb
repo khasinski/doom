@@ -164,7 +164,7 @@ RSpec.describe Doom::Wad::SpriteManager do
     end
 
     it 'returns nil for unknown thing types' do
-      expect(@sprites[99999]).to be_nil
+      expect(@sprites[99_999]).to be_nil
     end
 
     it 'caches sprites' do

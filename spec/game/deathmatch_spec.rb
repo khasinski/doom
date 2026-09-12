@@ -24,7 +24,7 @@ RSpec.describe 'deathmatch' do
   def duel(mode: :deathmatch, frag_limit: nil, seed: 0)
     map = Doom::Map::MapData.load(@wad, 'E1M1')
     world = Doom::Game::World.new(map, sprites: @sprites, mode: mode, frag_limit: frag_limit,
-                                        random: Doom::Game::Random.new(seed))
+                                       random: Doom::Game::Random.new(seed))
     start = map.player_start
     shooter = world.add_player(start, id: 0)
     victim = world.add_player(start, id: 1)
@@ -39,8 +39,8 @@ RSpec.describe 'deathmatch' do
   def cornered_rocketeer(frag_limit: nil, mode: :deathmatch, solo: false)
     map = Doom::Map::MapData.load(@wad, 'E1M1')
     world = Doom::Game::World.new(map, sprites: @sprites, mode: mode,
-                                        frag_limit: frag_limit,
-                                        random: Doom::Game::Random.new(0))
+                                       frag_limit: frag_limit,
+                                       random: Doom::Game::Random.new(0))
     start = map.player_start
     player = world.add_player(start, id: 0)
     # Player 1 is parked well out of the blast so the score is unambiguous.
@@ -245,8 +245,14 @@ RSpec.describe 'deathmatch' do
       # damage rolls can happen to add up to the same total.
       a, _sa, va = duel(seed: 3)
       b, _sb, vb = duel(seed: 90)
-      trace_a = Array.new(100) { a.run_tic(0 => FIRE); va.state.health }
-      trace_b = Array.new(100) { b.run_tic(0 => FIRE); vb.state.health }
+      trace_a = Array.new(100) {
+        a.run_tic(0 => FIRE)
+        va.state.health
+      }
+      trace_b = Array.new(100) {
+        b.run_tic(0 => FIRE)
+        vb.state.health
+      }
 
       expect(trace_a).not_to eq(trace_b)
     end

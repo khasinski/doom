@@ -26,7 +26,7 @@ RSpec.describe Doom::Net::Lockstep do
 
     it 'primes exactly the delay worth of tics' do
       2.times { expect(step.take_cmds).not_to be_nil }
-      expect(step.take_cmds).to be_nil  # tic 3 needs real input
+      expect(step.take_cmds).to be_nil # tic 3 needs real input
     end
 
     it 'primes them with neutral commands' do
@@ -44,7 +44,7 @@ RSpec.describe Doom::Net::Lockstep do
 
     it 'does not let local input alone advance the simulation' do
       5.times { step.submit_local(cmd) }
-      2.times { step.take_cmds }  # the primed tics
+      2.times { step.take_cmds } # the primed tics
 
       expect(step).not_to be_ready
       expect(step.waiting_on).to eq([1])
@@ -69,7 +69,7 @@ RSpec.describe Doom::Net::Lockstep do
 
       expect(step).to be_stalled
       expect(step.take_cmds).to be_nil
-      expect(step.next_tic).to eq(3)  # did not advance
+      expect(step.next_tic).to eq(3) # did not advance
     end
 
     it 'resumes exactly where it stalled once the command arrives' do
@@ -78,7 +78,7 @@ RSpec.describe Doom::Net::Lockstep do
       step.receive(4, 1, cmd)
       step.receive(5, 1, cmd)
 
-      expect(step).to be_stalled  # tic 3 still missing
+      expect(step).to be_stalled # tic 3 still missing
 
       step.receive(3, 1, cmd)
       expect(step.take_cmds).not_to be_nil
@@ -93,7 +93,7 @@ RSpec.describe Doom::Net::Lockstep do
       2.times { step.take_cmds }
       step.submit_local(cmd)
       step.receive(3, 1, cmd(-1.0))
-      step.receive(3, 1, cmd(0.5))  # a resend arriving late
+      step.receive(3, 1, cmd(0.5)) # a resend arriving late
 
       expect(step.take_cmds[1].forwardmove).to eq(-1.0)
     end
@@ -123,7 +123,7 @@ RSpec.describe Doom::Net::Lockstep do
 
     describe '#local_since' do
       it 'resends from where the peer says it is stuck' do
-        6.times { step.submit_local(cmd) }  # tics 3..8
+        6.times { step.submit_local(cmd) } # tics 3..8
         expect(step.local_since(5, 10).map(&:first)).to eq([5, 6, 7, 8])
       end
 
@@ -269,14 +269,14 @@ RSpec.describe Doom::Net::Lockstep do
       2.times { step.submit_local(cmd) }
       step.receive(3, 1, cmd)
 
-      expect(step.run_ready(w)).to eq(3)  # two primed tics plus tic 3
+      expect(step.run_ready(w)).to eq(3) # two primed tics plus tic 3
       expect(w.leveltime).to eq(3)
     end
 
     it 'stops at the gap and continues from it' do
       w = new_world
       3.times { step.submit_local(cmd) }
-      step.receive(4, 1, cmd)  # tic 3 missing
+      step.receive(4, 1, cmd) # tic 3 missing
 
       expect(step.run_ready(w)).to eq(2)
       step.receive(3, 1, cmd)
@@ -286,7 +286,10 @@ RSpec.describe Doom::Net::Lockstep do
 
     it 'respects the per-call limit so one slow catch-up cannot hang a frame' do
       w = new_world
-      50.times { |i| step.submit_local(cmd); step.receive(3 + i, 1, cmd) }
+      50.times { |i|
+        step.submit_local(cmd)
+        step.receive(3 + i, 1, cmd)
+      }
       expect(step.run_ready(w, limit: 5)).to eq(5)
     end
 

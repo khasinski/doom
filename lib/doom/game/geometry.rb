@@ -20,13 +20,13 @@ module Doom
         d1y = ay2 - ay1
         d2x = bx2 - bx1
         d2y = by2 - by1
-        denom = d1x * d2y - d1y * d2x
+        denom = (d1x * d2y) - (d1y * d2x)
         return false if denom.abs < 0.001
 
         dx = bx1 - ax1
         dy = by1 - ay1
-        t = (dx * d2y - dy * d2x).to_f / denom
-        u = (dx * d1y - dy * d1x).to_f / denom
+        t = ((dx * d2y) - (dy * d2x)).to_f / denom
+        u = ((dx * d1y) - (dy * d1x)).to_f / denom
         t > 0.0 && t < 1.0 && u >= 0.0 && u <= 1.0
       end
 

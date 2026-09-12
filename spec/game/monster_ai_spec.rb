@@ -37,7 +37,7 @@ RSpec.describe Doom::Game::MonsterAI do
     mon.attack_cooldown = 0
     mon.reactiontime = 0
     mon.chase_timer = 0
-    mon.last_saw_target = 99999
+    mon.last_saw_target = 99_999
     mon.attacking = false
     mon.attack_frame_tic = 0
   end
@@ -94,7 +94,7 @@ RSpec.describe Doom::Game::MonsterAI do
 
       closer = new_player_at(mon.x + 10, mon.y)
       chosen = ai.send(:select_target, mon, [locked, closer])
-      expect(chosen).to equal(locked)  # not stolen by the closer player
+      expect(chosen).to equal(locked) # not stolen by the closer player
     end
 
     it 're-picks the nearest living player when its current target dies' do
@@ -123,7 +123,7 @@ RSpec.describe Doom::Game::MonsterAI do
       skip 'No zombieman' unless mon
       # Face the monster toward the player position
       thing = @map.things[mon.thing_idx]
-      thing.angle = 0  # Face east
+      thing.angle = 0 # Face east
       ai.update([at(mon.x + 100, mon.y)])
       expect(mon.active).to be true
     end
@@ -139,8 +139,8 @@ RSpec.describe Doom::Game::MonsterAI do
       thing = @map.things[mon.thing_idx]
       face_rad = thing.angle * Math::PI / 180.0
       # Stand behind the monster
-      behind_x = mon.x - Math.cos(face_rad) * 200
-      behind_y = mon.y - Math.sin(face_rad) * 200
+      behind_x = mon.x - (Math.cos(face_rad) * 200)
+      behind_y = mon.y - (Math.sin(face_rad) * 200)
       ai.update([at(behind_x, behind_y)])
       # Should NOT activate (unless geometry gives LOS another way)
     end
@@ -210,7 +210,7 @@ RSpec.describe Doom::Game::MonsterAI do
 
       # POSS attack: frame E (raise), frame F (fire)
       # Fire frame index = 1, at tic = ATTACK_FRAME_TICS * 1
-      fire_tic = described_class::ATTACK_FRAME_TICS * 1
+      fire_tic = described_class::ATTACK_FRAME_TICS
       expect(fire_tic).to eq(8) # Sanity check
     end
 
@@ -305,14 +305,12 @@ RSpec.describe Doom::Game::MonsterAI do
 
       proj = combat.projectiles.last
       expect(proj).not_to be_nil
-      expect(proj.dz).to be < 0  # Must descend toward player
+      expect(proj.dz).to be < 0 # Must descend toward player
       expect(proj.z).to eq(128.0)
 
       # After a few tics, z should decrease
       5.times { combat.update }
-      if combat.projectiles.any?
-        expect(combat.projectiles.last.z).to be < 128.0
-      end
+      expect(combat.projectiles.last.z).to be < 128.0 if combat.projectiles.any?
     end
 
     it 'fireball hits floor or ceiling and explodes' do
@@ -352,7 +350,8 @@ RSpec.describe Doom::Game::MonsterAI do
       mon.attacking = true
       mon.attack_frame_tic = 0
 
-      initial_x, initial_y = mon.x, mon.y
+      initial_x = mon.x
+      initial_y = mon.y
       10.times { ai.update([at(mon.x + 200, mon.y)]) }
 
       expect(mon.x).to eq(initial_x)
@@ -365,7 +364,7 @@ RSpec.describe Doom::Game::MonsterAI do
       mon.active = true
       mon.attacking = true
       mon.attack_frame_tic = 0
-      mon.last_saw_target = 99999
+      mon.last_saw_target = 99_999
 
       # Run through the full attack animation (2 frames * 8 tics = 16)
       20.times { ai.update([at(mon.x + 200, mon.y)]) }
@@ -378,7 +377,7 @@ RSpec.describe Doom::Game::MonsterAI do
       mon = find_monster(ai, 3004)
       skip 'No zombieman' unless mon
       mon.active = true
-      mon.last_saw_target = 99999
+      mon.last_saw_target = 99_999
 
       # Player is 100 units away (< KEEP_DISTANCE)
       target_x = mon.x + 100
@@ -394,7 +393,7 @@ RSpec.describe Doom::Game::MonsterAI do
       demon = find_monster(ai, 3002)
       skip 'No demon' unless demon
       demon.active = true
-      demon.last_saw_target = 99999
+      demon.last_saw_target = 99_999
 
       initial_x = demon.x
       target_x = demon.x + 100
@@ -429,7 +428,7 @@ RSpec.describe Doom::Game::MonsterAI do
       mon = find_monster(ai, 3004)
       skip 'No zombieman' unless mon
       mon.active = true
-      combat.instance_variable_get(:@pain_until)[mon.thing_idx] = 99999
+      combat.instance_variable_get(:@pain_until)[mon.thing_idx] = 99_999
 
       initial_x = mon.x
       5.times { ai.update([at(mon.x + 200, mon.y)]) }
@@ -444,7 +443,7 @@ RSpec.describe Doom::Game::MonsterAI do
       'TROO' => %w[E F G H],
       'SARG' => %w[E F G],
       'HEAD' => %w[E F],
-      'BOSS' => %w[E F G],
+      'BOSS' => %w[E F G]
     }.each do |prefix, expected_frames|
       it "#{prefix} has correct attack frames" do
         expect(described_class::ATTACK_FRAMES[prefix]).to eq(expected_frames)
@@ -457,7 +456,7 @@ RSpec.describe Doom::Game::MonsterAI do
       'POSS' => 1,  # Frame F = fire
       'SPOS' => 1,  # Frame F = fire
       'TROO' => 2,  # Frame G = throw fireball
-      'SARG' => 1,  # Frame F = bite
+      'SARG' => 1 # Frame F = bite
     }.each do |prefix, expected_fire_idx|
       it "#{prefix} fires on frame index #{expected_fire_idx}" do
         expect(described_class::FIRE_FRAME_INDEX[prefix]).to eq(expected_fire_idx)

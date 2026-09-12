@@ -16,7 +16,7 @@ module Doom
       STATIC_LIGHTS = {
         44 => [0.25, 0.35, 1.0], 45 => [0.25, 1.0, 0.35],
         46 => [1.0, 0.22, 0.12], 34 => [1.0, 0.65, 0.22],
-        35 => [1.0, 0.65, 0.22], 2028 => [1.0, 0.75, 0.35],
+        35 => [1.0, 0.65, 0.22], 2028 => [1.0, 0.75, 0.35]
       }.freeze
 
       attr_reader :mesh
@@ -117,10 +117,10 @@ module Doom
           sin, 0.0, -cos, 0.0,
           -cos, 0.0, -sin, 0.0,
           0.0, 1.0, 0.0, 0.0,
-          -sin * @player_x + cos * @player_y,
+          (-sin * @player_x) + (cos * @player_y),
           -@player_z,
-          cos * @player_x + sin * @player_y,
-          1.0,
+          (cos * @player_x) + (sin * @player_y),
+          1.0
         ]
       end
 
@@ -242,11 +242,11 @@ module Doom
           end
         end
         if @view_player&.state&.attacking && @view_player.state.attack_frame <= 1
-          lights << { x: @view_player.x + @view_player.cos_angle * 24.0,
-                      y: @view_player.y + @view_player.sin_angle * 24.0,
+          lights << { x: @view_player.x + (@view_player.cos_angle * 24.0),
+                      y: @view_player.y + (@view_player.sin_angle * 24.0),
                       z: @view_player.z, color: [1.0, 0.72, 0.3] }
         end
-        lights.sort_by { |light| (light[:x] - @player_x)**2 + (light[:y] - @player_y)**2 }
+        lights.sort_by { |light| ((light[:x] - @player_x)**2) + ((light[:y] - @player_y)**2) }
       end
 
       def draw_occluder_depth_prepass(include_ceilings: false)
@@ -292,7 +292,7 @@ module Doom
         height.times do |screen_y|
           source_y = height - 1 - screen_y
           width.times do |screen_x|
-            offset = (source_y * width + screen_x) * 4
+            offset = ((source_y * width) + screen_x) * 4
             red, green, blue, alpha = bytes.byteslice(offset, 4).unpack('C4')
             image[screen_x, screen_y] = ChunkyPNG::Color.rgba(red, green, blue, alpha)
           end
@@ -364,11 +364,13 @@ module Doom
         bottom_v = 200.0 / 128.0
         glBegin(GL_QUAD_STRIP)
         (0..SCREEN_WIDTH).each do |column|
-          screen_x = (column.to_f / SCREEN_WIDTH) * 2.0 - 1.0
+          screen_x = ((column.to_f / SCREEN_WIDTH) * 2.0) - 1.0
           column_angle = @player_angle - Math.atan2(column - HALF_WIDTH, @projection)
           u = column_angle * 2.0 / Math::PI
-          glTexCoord2f(u, bottom_v); glVertex3f(screen_x, -1.0, 0.0)
-          glTexCoord2f(u, 0.0);      glVertex3f(screen_x, 1.0, 0.0)
+          glTexCoord2f(u, bottom_v)
+          glVertex3f(screen_x, -1.0, 0.0)
+          glTexCoord2f(u, 0.0)
+          glVertex3f(screen_x, 1.0, 0.0)
         end
         glEnd
         glEnable(GL_DEPTH_TEST)
@@ -399,10 +401,10 @@ module Doom
           bottom = top - sprite.height
           right_x = @sin_angle
           right_y = -@cos_angle
-          left_x = thing.x - right_x * sprite.left_offset
-          left_y = thing.y - right_y * sprite.left_offset
-          right_edge_x = left_x + right_x * sprite.width
-          right_edge_y = left_y + right_y * sprite.width
+          left_x = thing.x - (right_x * sprite.left_offset)
+          left_y = thing.y - (right_y * sprite.left_offset)
+          right_edge_x = left_x + (right_x * sprite.width)
+          right_edge_y = left_y + (right_y * sprite.width)
 
           before_sprite_draw(thing, sprite, sector)
           glBindTexture(GL_TEXTURE_2D, id)
@@ -455,7 +457,7 @@ module Doom
           if monster.attacking
             frames = Game::MonsterAI::ATTACK_FRAMES[prefix]
             frame = frames && frames[(monster.attack_frame_tic / Game::MonsterAI::ATTACK_FRAME_TICS)
-                                     .clamp(0, frames.size - 1)]
+                    .clamp(0, frames.size - 1)]
           else
             frame = %w[A B C D][@leveltime / 4 % 4]
           end

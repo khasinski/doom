@@ -55,7 +55,7 @@ module Doom
           b = @map.vertices[seg.v2]
           dx = b.x - a.x
           dy = b.y - a.y
-          clip_by_values(polygon) { |point| (point.x - a.x) * dy - (point.y - a.y) * dx }
+          clip_by_values(polygon) { |point| ((point.x - a.x) * dy) - ((point.y - a.y) * dx) }
         end
       end
 
@@ -70,8 +70,8 @@ module Doom
           if current_inside != previous_inside
             t = previous_value / (previous_value - current_value).to_f
             output << Map::Vertex.new(
-              previous.x + (current.x - previous.x) * t,
-              previous.y + (current.y - previous.y) * t
+              previous.x + ((current.x - previous.x) * t),
+              previous.y + ((current.y - previous.y) * t)
             )
           end
           output << current if current_inside
@@ -90,7 +90,7 @@ module Doom
           [xs.min - padding, ys.min - padding],
           [xs.max + padding, ys.min - padding],
           [xs.max + padding, ys.max + padding],
-          [xs.min - padding, ys.max + padding],
+          [xs.min - padding, ys.max + padding]
         ]
         leaves = {}
         visit_bsp(@map.nodes.size - 1, root_polygon, leaves)
@@ -121,8 +121,8 @@ module Doom
 
           if current_inside != previous_inside
             t = previous_side / (previous_side - current_side).to_f
-            output << [previous[0] + (current[0] - previous[0]) * t,
-                       previous[1] + (current[1] - previous[1]) * t]
+            output << [previous[0] + ((current[0] - previous[0]) * t),
+                       previous[1] + ((current[1] - previous[1]) * t)]
           end
           output << current if current_inside
         end
@@ -130,7 +130,7 @@ module Doom
       end
 
       def partition_value(point, node)
-        (point[0] - node.x) * node.dy - (point[1] - node.y) * node.dx
+        ((point[0] - node.x) * node.dy) - ((point[1] - node.y) * node.dx)
       end
 
       def build_walls
@@ -160,7 +160,7 @@ module Doom
               v_top += front.ceiling_height - back.ceiling_height unless line.upper_unpegged?
               wall_quad(a, b, front.ceiling_height, back.ceiling_height,
                         back.light_level, left.upper_texture, flip: true,
-                        u_offset: left.x_offset, v_top: v_top)
+                                                              u_offset: left.x_offset, v_top: v_top)
             end
             if back.floor_height > front.floor_height
               v_top = right.y_offset
@@ -173,7 +173,7 @@ module Doom
               v_top += back.ceiling_height - front.floor_height if line.lower_unpegged?
               wall_quad(a, b, back.floor_height, front.floor_height,
                         back.light_level, left.lower_texture, flip: true,
-                        u_offset: left.x_offset, v_top: v_top)
+                                                              u_offset: left.x_offset, v_top: v_top)
             end
             opening_bottom = [front.floor_height, back.floor_height].max
             opening_top = [front.ceiling_height, back.ceiling_height].min
@@ -189,7 +189,7 @@ module Doom
             v_top -= sector.ceiling_height - sector.floor_height if line.lower_unpegged?
             wall_quad(a, b, sector.floor_height, sector.ceiling_height,
                       sector.light_level, side.middle_texture, flip: !right,
-                      u_offset: side.x_offset, v_top: v_top)
+                                                               u_offset: side.x_offset, v_top: v_top)
           end
         end
       end
@@ -214,7 +214,7 @@ module Doom
         return unless top > bottom
 
         wall_quad(a, b, bottom, top, sector.light_level, material, flip: flip,
-                  u_offset: side.x_offset, v_top: texture_top - top, masked: true)
+                                                                   u_offset: side.x_offset, v_top: texture_top - top, masked: true)
       end
 
       def wall_quad(a, b, bottom, top, light, material, flip: false, u_offset: 0, v_top: 0, masked: false)
@@ -238,12 +238,14 @@ module Doom
         u1 = u0 + length
         v0_tex = v_top.to_f + (top - bottom)
         v1_tex = v_top.to_f
-        @triangles << Triangle.new([v0, v1, v2], [[u0, v0_tex], [u1, v0_tex], [u1, v1_tex]], normal, light, material, masked)
-        @triangles << Triangle.new([v0, v2, v3], [[u0, v0_tex], [u1, v1_tex], [u0, v1_tex]], normal, light, material, masked)
+        @triangles << Triangle.new([v0, v1, v2], [[u0, v0_tex], [u1, v0_tex], [u1, v1_tex]], normal, light, material,
+                                   masked)
+        @triangles << Triangle.new([v0, v2, v3], [[u0, v0_tex], [u1, v1_tex], [u0, v1_tex]], normal, light, material,
+                                   masked)
       end
 
       def add_triangle(a, b, c, z, normal, light, material)
-        area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+        area = ((b.x - a.x) * (c.y - a.y)) - ((b.y - a.y) * (c.x - a.x))
         return if area.abs < 1e-6
 
         vertices = [a, b, c].map { |point| [point.x.to_f, point.y.to_f, z.to_f] }

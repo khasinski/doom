@@ -43,23 +43,23 @@ module Doom
         # Reconstruct the world-space wall hit. Each dynamic source casts a
         # visibility ray to it; one-sided linedefs produce hard shadows.
         ray_distance = dist * @column_distscale[x]
-        hit_x = @player_x + ray_distance * @column_cos[x]
-        hit_y = @player_y - ray_distance * @column_sin[x]
+        hit_x = @player_x + (ray_distance * @column_cos[x])
+        hit_y = @player_y - (ray_distance * @column_sin[x])
         visible_lights = @dynamic_lights.select do |light|
           dx = light.x - hit_x
           dy = light.y - hit_y
-          dx * dx + dy * dy < light.radius * light.radius && light_visible?(hit_x, hit_y, light)
+          (dx * dx) + (dy * dy) < light.radius * light.radius && light_visible?(hit_x, hit_y, light)
         end
 
         y = first
         while y <= last
-          offset = y * SCREEN_WIDTH + x
+          offset = (y * SCREEN_WIDTH) + x
           @depth_buffer[offset] = dist if dist < @depth_buffer[offset]
           unless visible_lights.empty?
-            world_z = world_top - (y - (HALF_HEIGHT - (world_top - @player_z) * scale)) / scale
+            world_z = world_top - ((y - (HALF_HEIGHT - ((world_top - @player_z) * scale))) / scale)
             intensity = visible_lights.sum do |light|
-              distance = Math.sqrt((light.x - hit_x)**2 + (light.y - hit_y)**2 + (light.z - world_z)**2)
-              distance < light.radius ? light.energy * (1.0 - distance / light.radius)**2 : 0.0
+              distance = Math.sqrt(((light.x - hit_x)**2) + ((light.y - hit_y)**2) + ((light.z - world_z)**2))
+              distance < light.radius ? light.energy * ((1.0 - (distance / light.radius))**2) : 0.0
             end
             level = (intensity * (LIGHT_LEVELS - 1)).to_i.clamp(0, LIGHT_LEVELS - 1)
             @framebuffer[offset] = @light_lut[level][@framebuffer[offset]] if level.positive?
@@ -80,8 +80,8 @@ module Doom
         # still produce a real, short-lived muzzle light at the camera.
         if @view_player&.state&.attacking && @view_player.state.attack_frame <= 1
           lights << Light.new(
-            @view_player.x + @view_player.cos_angle * 24.0,
-            @view_player.y + @view_player.sin_angle * 24.0,
+            @view_player.x + (@view_player.cos_angle * 24.0),
+            @view_player.y + (@view_player.sin_angle * 24.0),
             @view_player.z,
             448.0,
             1.8
@@ -89,16 +89,16 @@ module Doom
         end
         @combat.puffs.each do |puff|
           age = @leveltime - puff[:tic]
-          energy = (1.0 - age / 12.0).clamp(0.0, 1.0)
+          energy = (1.0 - (age / 12.0)).clamp(0.0, 1.0)
           lights << Light.new(puff[:x], puff[:y], puff[:z], 192.0, energy * 0.8)
         end
         @combat.explosions.each do |explosion|
           age = @leveltime - explosion[:tic]
-          energy = (1.0 - age / 20.0).clamp(0.0, 1.0)
+          energy = (1.0 - (age / 20.0)).clamp(0.0, 1.0)
           lights << Light.new(explosion[:x], explosion[:y], explosion[:z] || @player_z,
                               384.0, energy * 1.5)
         end
-        lights.sort_by { |light| (light.x - @player_x)**2 + (light.y - @player_y)**2 }
+        lights.sort_by { |light| ((light.x - @player_x)**2) + ((light.y - @player_y)**2) }
               .first(MAX_DYNAMIC_LIGHTS)
       end
 
@@ -119,13 +119,13 @@ module Doom
         aby = by - ay
         cdx = dx - cx
         cdy = dy - cy
-        denominator = abx * cdy - aby * cdx
+        denominator = (abx * cdy) - (aby * cdx)
         return false if denominator.abs < 1e-9
 
         acx = cx - ax
         acy = cy - ay
-        t = (acx * cdy - acy * cdx) / denominator.to_f
-        u = (acx * aby - acy * abx) / denominator.to_f
+        t = ((acx * cdy) - (acy * cdx)) / denominator.to_f
+        u = ((acx * aby) - (acy * abx)) / denominator.to_f
         t > 1e-4 && t < 0.9999 && u >= 0.0 && u <= 1.0
       end
 
@@ -136,12 +136,12 @@ module Doom
         LIGHT_LEVELS.times.map do |level|
           amount = level.to_f / (LIGHT_LEVELS - 1)
           colors.map do |red, green, blue|
-            target = [red + 255 * amount, green + 176 * amount, blue + 72 * amount]
+            target = [red + (255 * amount), green + (176 * amount), blue + (72 * amount)]
                      .map { |channel| channel.clamp(0, 255) }
             colors.each_index.min_by do |index|
               candidate = colors[index]
-              (candidate[0] - target[0])**2 + (candidate[1] - target[1])**2 +
-                (candidate[2] - target[2])**2
+              ((candidate[0] - target[0])**2) + ((candidate[1] - target[1])**2) +
+                ((candidate[2] - target[2])**2)
             end
           end
         end

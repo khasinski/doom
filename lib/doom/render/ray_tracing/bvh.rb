@@ -94,8 +94,8 @@ module Doom
           [minimum, maximum]
         end
 
-        def axes(&block)
-          3.times.map(&block)
+        def axes(&)
+          3.times.map(&)
         end
       end
     end

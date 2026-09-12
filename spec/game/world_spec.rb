@@ -81,10 +81,13 @@ RSpec.describe Doom::Game::World do
       it 'bounces the camera (eye height) while moving' do
         w = new_world
         p = w.player(0)
-        heights = Array.new(30) { w.run_tic(0 => forward); p.z.round(3) }
+        heights = Array.new(30) {
+          w.run_tic(0 => forward)
+          p.z.round(3)
+        }
 
         expect(p.state.view_bob_offset).not_to eq(0.0)
-        expect(heights.uniq.size).to be > 5   # z actually oscillates, not static
+        expect(heights.uniq.size).to be > 5 # z actually oscillates, not static
       end
 
       it 'bobs the weapon while moving and settles it when stopped' do
@@ -96,7 +99,7 @@ RSpec.describe Doom::Game::World do
 
         40.times { w.run_tic(0 => Doom::Game::Ticcmd.none) }
         expect(p.state.is_moving).to be(false)
-        expect(p.state.weapon_bob_y.abs).to be < 0.1  # decays to rest
+        expect(p.state.weapon_bob_y.abs).to be < 0.1 # decays to rest
       end
     end
 
@@ -118,7 +121,7 @@ RSpec.describe Doom::Game::World do
 
       expect(p.momx).to eq(0.0)
       expect(p.momy).to eq(0.0)
-      expect([p.x, p.y]).not_to eq(moving)  # coasted to a stop, did not teleport
+      expect([p.x, p.y]).not_to eq(moving) # coasted to a stop, did not teleport
     end
 
     it 'keeps snapshots one tic behind for interpolation' do
@@ -136,7 +139,7 @@ RSpec.describe Doom::Game::World do
         map = Doom::Map::MapData.load(@wad, 'E1M1')
         sound = spy('sound')
         world = described_class.new(map, sprites: @sprites, sound: sound,
-                                    random: Doom::Game::Random.new(0))
+                                         random: Doom::Game::Random.new(0))
         world.add_player(map.player_start)
         player = world.player(0)
 
@@ -171,7 +174,7 @@ RSpec.describe Doom::Game::World do
         world, _player, sound = world_on_damaging_floor
         interval = described_class::SECTOR_DAMAGE_INTERVAL
 
-        (interval * 2 + 4).times { world.run_tic }
+        ((interval * 2) + 4).times { world.run_tic }
 
         expect(sound).to have_received(:player_pain).exactly(2).times
       end
@@ -205,7 +208,7 @@ RSpec.describe Doom::Game::World do
         world.random.index,
         world.combat.dead_things.keys.sort,
         world.monster_ai.monsters.map { |m| [m.thing_idx, m.x, m.y, m.movedir] },
-        world.map.sectors.map(&:light_level),
+        world.map.sectors.map(&:light_level)
       ]
     end
 
@@ -297,7 +300,10 @@ RSpec.describe Doom::Game::World do
         p = w.add_player
         skip 'Map has too few deathmatch starts' if w.map.deathmatch_starts.size < 2
 
-        seen = Array.new(12) { w.respawn(p); [p.x, p.y] }.uniq
+        seen = Array.new(12) {
+          w.respawn(p)
+          [p.x, p.y]
+        }.uniq
         expect(seen.size).to be > 1
       end
 
@@ -428,7 +434,7 @@ RSpec.describe Doom::Game::World do
       20.times { w.combat.update }
 
       expect(w.player(1).state.health).to be < 100
-      expect(aimed_at.state.health).to eq(100)  # stopped before reaching them
+      expect(aimed_at.state.health).to eq(100) # stopped before reaching them
     end
   end
 

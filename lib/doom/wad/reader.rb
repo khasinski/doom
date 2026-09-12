@@ -55,7 +55,8 @@ module Doom
       # PWAD lumps override IWAD lumps with the same name.
       # Map lumps (between map markers) are replaced as a group.
       def merge_pwad(pwad)
-        raise Error, "Can only merge a PWAD" unless pwad.pwad?
+        raise Error, 'Can only merge a PWAD' unless pwad.pwad?
+
         @lump_cache.clear
 
         pwad.directory.each do |pwad_entry|
@@ -80,9 +81,7 @@ module Doom
       def read_lump_at(entry)
         # Try PWAD files first (they may own this entry)
         (@pwad_files || []).each do |pwad|
-          if pwad.directory.include?(entry)
-            return pwad.read_lump_own(entry)
-          end
+          return pwad.read_lump_own(entry) if pwad.directory.include?(entry)
         end
         @file.seek(entry.offset)
         @file.read(entry.size)
@@ -108,9 +107,9 @@ module Doom
         @directory_offset = data[8, 4].unpack1('V')
         @lump_cache = {}
 
-        unless [@type == IWAD, @type == PWAD].any?
-          raise Error, "Invalid WAD type: #{@type}"
-        end
+        return if [@type == IWAD, @type == PWAD].any?
+
+        raise Error, "Invalid WAD type: #{@type}"
       end
 
       def read_directory

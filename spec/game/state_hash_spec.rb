@@ -24,7 +24,11 @@ RSpec.describe Doom::Game::StateHash do
       Doom::Game::Combat::MONSTER_HP[t.type] && t.type != Doom::Game::Combat::BARREL_TYPE
     end
     w.player(0).place(target.x - 96.0, target.y.to_f, Doom::Game::PlayerState::VIEWHEIGHT, 0)
-    w.monster_ai.monsters.each { |m| m.active = true; m.reactiontime = 0; m.chase_timer = 0 }
+    w.monster_ai.monsters.each { |m|
+      m.active = true
+      m.reactiontime = 0
+      m.chase_timer = 0
+    }
     w
   end
 
@@ -181,12 +185,20 @@ RSpec.describe Doom::Game::StateHash do
                                            :rocket, 7, 'MISL', :monsters, nil, 1.0)
       end
 
-      a = busy_world(1); a.combat.projectiles << base.call
-      b = busy_world(1); pb = base.call; pb.dz = 60.0; b.combat.projectiles << pb
+      a = busy_world(1)
+      a.combat.projectiles << base.call
+      b = busy_world(1)
+      pb = base.call
+      pb.dz = 60.0
+      b.combat.projectiles << pb
       expect(a.state_hash).not_to eq(b.state_hash)
 
-      c = busy_world(1); c.combat.projectiles << base.call
-      d = busy_world(1); pd = base.call; pd.spawn_tic = 999; d.combat.projectiles << pd
+      c = busy_world(1)
+      c.combat.projectiles << base.call
+      d = busy_world(1)
+      pd = base.call
+      pd.spawn_tic = 999
+      d.combat.projectiles << pd
       expect(c.state_hash).not_to eq(d.state_hash)
     end
 
@@ -242,7 +254,10 @@ RSpec.describe Doom::Game::StateHash do
     it 'reports no differing section for equal worlds' do
       a = busy_world(2)
       b = busy_world(2)
-      cmds(40).each { |c| a.run_tic(0 => c); b.run_tic(0 => c) }
+      cmds(40).each { |c|
+        a.run_tic(0 => c)
+        b.run_tic(0 => c)
+      }
 
       expect(a.state_hash_sections).to eq(b.state_hash_sections)
     end

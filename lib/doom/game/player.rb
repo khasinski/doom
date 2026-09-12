@@ -12,16 +12,14 @@ module Doom
     #
     # Angles are radians internally (Renderer's old setters took degrees).
     class Player
-      attr_accessor :id, :x, :y, :z, :angle
-      attr_accessor :momx, :momy
+      attr_accessor :id, :x, :y, :z, :angle, :momx, :momy
       # Edge-trigger latch for the use key, per player: holding the key must
       # not spam doors, and each player needs its own latch.
       attr_accessor :use_held
       # Deathmatch score. It lives on the player rather than in a side table so
       # it survives respawning, which throws away the whole PlayerState.
       attr_accessor :frags
-      attr_reader :state
-      attr_reader :sin_angle, :cos_angle
+      attr_reader :state, :sin_angle, :cos_angle
 
       # Previous tic's pose, kept so the renderer can interpolate between tics
       # and stay smooth above 35 FPS.
@@ -32,7 +30,7 @@ module Doom
         @state = state
         @x = 0.0
         @y = 0.0
-        @z = 41.0     # eye height
+        @z = 41.0 # eye height
         @momx = 0.0
         @momy = 0.0
         @use_held = false
@@ -95,7 +93,7 @@ module Doom
           @prev_x + ((@x - @prev_x) * a),
           @prev_y + ((@y - @prev_y) * a),
           @prev_z + ((@z - @prev_z) * a),
-          @prev_angle + (delta * a),
+          @prev_angle + (delta * a)
         ]
       end
 

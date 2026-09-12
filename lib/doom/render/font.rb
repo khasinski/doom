@@ -7,10 +7,10 @@ module Doom
     class Font
       SPACE_WIDTH = 4
 
-      def initialize(wad, hud_graphics)
+      def initialize(_wad, hud_graphics)
         @chars = {}
         (33..121).each do |ascii|
-          name = "STCFN%03d" % ascii
+          name = 'STCFN%03d' % ascii
           sprite = hud_graphics.send(:load_graphic, name)
           @chars[ascii] = sprite if sprite
         end
@@ -67,9 +67,11 @@ module Doom
 
           col.each_with_index do |color, col_y|
             next unless color
+
             sy = y + col_y
             next if sy < 0 || sy >= screen_height
-            framebuffer[sy * screen_width + sx] = color
+
+            framebuffer[(sy * screen_width) + sx] = color
           end
         end
       end

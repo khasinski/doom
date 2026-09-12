@@ -115,7 +115,7 @@ RSpec.describe 'tic-based player movement' do
 
     it 'strafes perpendicular to facing' do
       p = new_player
-      p.angle_degrees = 0    # facing +x
+      p.angle_degrees = 0 # facing +x
       phys = new_physics(p)
       run(p, phys, Array.new(10) { Doom::Game::Ticcmd.new(0.0, 1.0, 0.0, 0) })
 

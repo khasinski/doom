@@ -32,7 +32,10 @@ RSpec.describe Doom::Game::Snapshot do
     world = Doom::Game::World.new(map, sprites: @sprites, mode: :deathmatch,
                                        random: Doom::Game::Random.new(seed))
     players.times { |i| world.add_player(id: i) }
-    world.monster_ai.monsters.each { |m| m.active = true; m.reactiontime = 0 }
+    world.monster_ai.monsters.each { |m|
+      m.active = true
+      m.reactiontime = 0
+    }
 
     # A duel: player 0 stands point-blank in front of player 1 and fires, so
     # bullets connect -- health drops, pain fires, someone dies.

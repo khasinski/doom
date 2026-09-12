@@ -38,14 +38,14 @@ module Doom
 
         count = data[0, 4].unpack1('V')
         count.times.map do |i|
-          data[4 + i * 8, 8].delete("\x00").upcase
+          data[4 + (i * 8), 8].delete("\x00").upcase
         end
       end
 
       def self.parse_texture_lump(data)
         num_textures = data[0, 4].unpack1('V')
         offsets = num_textures.times.map do |i|
-          data[4 + i * 4, 4].unpack1('V')
+          data[4 + (i * 4), 4].unpack1('V')
         end
 
         offsets.map do |offset|
@@ -60,7 +60,7 @@ module Doom
         patch_count = data[offset + 20, 2].unpack1('v')
 
         patch_refs = patch_count.times.map do |i|
-          po = offset + 22 + i * 10
+          po = offset + 22 + (i * 10)
           PatchRef.new(
             data[po, 2].unpack1('s<'),
             data[po + 2, 2].unpack1('s<'),
@@ -148,7 +148,7 @@ module Doom
       def precompute_columns
         @width.times do |x|
           posts = @columns[x]
-          pixels = Array.new(@height)  # nil = transparent
+          pixels = Array.new(@height) # nil = transparent
           posts.each do |post|
             td = post.top_delta
             post.pixels.each_with_index do |color, i|

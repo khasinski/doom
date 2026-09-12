@@ -23,7 +23,7 @@ module Doom
       end
 
       def [](x, y)
-        @pixels[(y & 63) * WIDTH + (x & 63)]
+        @pixels[((y & 63) * WIDTH) + (x & 63)]
       end
 
       def self.load_all(wad)

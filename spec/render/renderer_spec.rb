@@ -91,7 +91,7 @@ RSpec.describe Doom::Render::Renderer do
 
       # Check that different columns have different patterns
       columns = (0...w).map do |x|
-        (0...h).map { |y| @renderer.framebuffer[y * w + x] }
+        (0...h).map { |y| @renderer.framebuffer[(y * w) + x] }
       end
 
       unique_columns = columns.uniq.size

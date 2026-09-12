@@ -74,7 +74,11 @@ module Doom
       # If it's a PWAD, we need a base IWAD for resources (palette, textures, etc.)
       if wad.pwad?
         iwad_path = find_iwad
-        raise Error, "PWAD requires a base IWAD (doom1.wad). Place it in the current directory or ~/.doom/" unless iwad_path
+        unless iwad_path
+          raise Error,
+                'PWAD requires a base IWAD (doom1.wad). Place it in the current directory or ~/.doom/'
+        end
+
         puts "  PWAD detected, loading base IWAD: #{iwad_path}"
         base_wad = Wad::Reader.new(iwad_path)
         base_wad.merge_pwad(wad)
@@ -117,7 +121,7 @@ module Doom
         puts "  Player start: (#{player_start.x}, #{player_start.y}) angle #{player_start.angle}"
       else
         puts '  Warning: No player start found!'
-        player_start = Map::Thing.new(0, 0, 90, 1, 0)
+        Map::Thing.new(0, 0, 90, 1, 0)
       end
 
       puts 'Initializing animations...'
@@ -210,8 +214,8 @@ module Doom
     # snapshot, so we block on the join (there is nothing to render yet), then
     # open a window that follows the server's frame stream instead of
     # simulating locally.
-    def run_client(wad_path, map_name, net, renderer_type)
-      wad = merge_pwad_if_needed(Wad::Reader.new(wad_path)) { |name| map_name = name }
+    def run_client(wad_path, _map_name, net, renderer_type)
+      wad = merge_pwad_if_needed(Wad::Reader.new(wad_path)) { |name| name }
       palette = Wad::Palette.load(wad)
       colormap = Wad::Colormap.load(wad)
       flats = Wad::Flat.load_all(wad)
@@ -303,7 +307,7 @@ module Doom
       candidates = [
         File.join(Dir.pwd, 'doom1.wad'),
         File.join(Dir.pwd, 'doom.wad'),
-        File.join(Dir.home, '.doom', 'doom1.wad'),
+        File.join(Dir.home, '.doom', 'doom1.wad')
       ]
       candidates.find { |p| File.exist?(p) }
     end

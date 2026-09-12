@@ -29,7 +29,7 @@ module Doom
             sy = y + col_y
             next if sy < 0 || sy >= h
 
-            framebuffer[sy * w + sx] = color
+            framebuffer[(sy * w) + sx] = color
           end
         end
       end

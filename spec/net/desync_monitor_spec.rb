@@ -138,7 +138,7 @@ RSpec.describe Doom::Net::DesyncMonitor do
       end
 
       expect(monitor).to be_desynced
-      expect(caught.first.tic).to eq(105)  # first checkpoint after the drift
+      expect(caught.first.tic).to eq(105) # first checkpoint after the drift
       expect(caught.first.sections).to include(:players)
     end
   end

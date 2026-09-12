@@ -10,29 +10,29 @@ module Doom
     class Combat
       # Monster starting HP (from mobjinfo[] in info.c)
       MONSTER_HP = {
-        3004 => 20,   # Zombieman
-        9    => 30,   # Shotgun Guy
+        3004 => 20, # Zombieman
+        9 => 30, # Shotgun Guy
         3001 => 60,   # Imp
         3002 => 150,  # Demon
-        58   => 150,  # Spectre
+        58 => 150, # Spectre
         3003 => 1000, # Baron of Hell
-        69   => 500,  # Hell Knight
+        69 => 500, # Hell Knight
         3005 => 400,  # Cacodemon
         3006 => 100,  # Lost Soul
-        16   => 4000, # Cyberdemon
-        7    => 3000, # Spider Mastermind
-        65   => 70,   # Heavy Weapon Dude
-        64   => 700,  # Archvile
-        71   => 400,  # Pain Elemental
-        84   => 20,   # Wolfenstein SS
-        2035 => 20,   # Explosive barrel
+        16 => 4000, # Cyberdemon
+        7 => 3000, # Spider Mastermind
+        65 => 70,   # Heavy Weapon Dude
+        64 => 700,  # Archvile
+        71 => 400,  # Pain Elemental
+        84 => 20,   # Wolfenstein SS
+        2035 => 20 # Explosive barrel
       }.freeze
 
       MONSTER_RADIUS = {
         3004 => 20, 9 => 20, 3001 => 20, 3002 => 30, 58 => 30,
         3003 => 24, 69 => 24, 3005 => 31, 3006 => 16, 16 => 40,
         7 => 128, 65 => 20, 64 => 20, 71 => 31, 84 => 20,
-        2035 => 10,  # Barrel
+        2035 => 10 # Barrel
       }.freeze
 
       # Barrel (explosive, not a monster but damageable). Its HP comes from
@@ -55,18 +55,18 @@ module Doom
         'CPOS' => %w[H I J K L M N],   # Heavy Weapon Dude
         'PAIN' => %w[H I J K L M],     # Pain Elemental
         'SSWV' => %w[I J K L M],       # Wolfenstein SS
-        'BEXP' => %w[A B C D E],       # Barrel explosion
+        'BEXP' => %w[A B C D E] # Barrel explosion
       }.freeze
 
-      DEATH_ANIM_TICS = 6  # Tics per death frame
+      DEATH_ANIM_TICS = 6 # Tics per death frame
 
       # Pain chance per monster (out of 256, from mobjinfo)
       PAIN_CHANCE = {
         3004 => 200, 9 => 170, 3001 => 200, 3002 => 180, 58 => 180,
         3003 => 50, 69 => 50, 3005 => 128, 3006 => 256, 16 => 40,
-        7 => 40, 65 => 170, 64 => 10, 71 => 128, 84 => 170,
+        7 => 40, 65 => 170, 64 => 10, 71 => 128, 84 => 170
       }.freeze
-      PAIN_DURATION = 6  # Tics monster is stunned when in pain
+      PAIN_DURATION = 6 # Tics monster is stunned when in pain
 
       # Projectile constants
       ROCKET_SPEED = 20.0       # Map units per tic (matches DOOM's mobjinfo MISSILESPEED)
@@ -78,17 +78,17 @@ module Doom
       # Monster projectile definitions. :radius is the projectile's own collision
       # radius, added to the player radius when testing a hit.
       MONSTER_PROJECTILES = {
-        imp:    { sprite: 'BAL1', speed: 10.0, damage: [3, 24], radius: 6 },
-        baron:  { sprite: 'BAL7', speed: 15.0, damage: [8, 64], radius: 6 },
-        caco:   { sprite: 'BAL2', speed: 10.0, damage: [5, 40], radius: 6 },
+        imp: { sprite: 'BAL1', speed: 10.0, damage: [3, 24], radius: 6 },
+        baron: { sprite: 'BAL7', speed: 15.0, damage: [8, 64], radius: 6 },
+        caco: { sprite: 'BAL2', speed: 10.0, damage: [5, 40], radius: 6 }
       }.freeze
 
       # Map monster type to projectile type
       MONSTER_PROJECTILE_TYPE = {
         3001 => :imp,     # Imp
         3003 => :baron,   # Baron
-        69   => :baron,   # Hell Knight
-        3005 => :caco,    # Cacodemon
+        69 => :baron, # Hell Knight
+        3005 => :caco # Cacodemon
       }.freeze
 
       # Radius used when a shot or a rocket is tested against a player. Matches
@@ -140,7 +140,7 @@ module Doom
 
         dx = target.x - monster_x
         dy = target.y - monster_y
-        dist = Math.sqrt(dx * dx + dy * dy)
+        dist = Math.sqrt((dx * dx) + (dy * dy))
         return if dist < 1
 
         # Normalize direction and apply speed
@@ -150,13 +150,13 @@ module Doom
 
         # P_SpawnMissile: momz = (target.z - source.z) / (dist / speed)
         # This makes the projectile arc toward the target's height
-        target_z = target.z - 16  # Aim at player center (z + height/2, roughly)
+        target_z = target.z - 16 # Aim at player center (z + height/2, roughly)
         travel_tics = dist / speed
         travel_tics = 1.0 if travel_tics < 1.0
         ndz = (target_z - monster_z) / travel_tics
 
         @projectiles << Projectile.new(
-          monster_x + ndx * 2, monster_y + ndy * 2, monster_z,
+          monster_x + (ndx * 2), monster_y + (ndy * 2), monster_z,
           ndx, ndy, ndz, proj_type, @tic, info[:sprite], :player, nil, damage_multiplier
         )
       end
@@ -184,19 +184,17 @@ module Doom
         frame_idx = elapsed / DEATH_ANIM_TICS
 
         # Barrels disappear after explosion animation (S_NULL in Chocolate Doom)
-        if thing_type == BARREL_TYPE && frame_idx >= frames.size
-          return nil
-        end
+        return nil if thing_type == BARREL_TYPE && frame_idx >= frames.size
 
         frame_idx = frame_idx.clamp(0, frames.size - 1)
         frame_letter = frames[frame_idx]
 
         # Use prefix directly if it differs from the thing's sprite (e.g. BEXP for barrels)
         thing_prefix = @sprites.prefix_for(thing_type)
-        if prefix != thing_prefix
-          @sprites.get_frame_by_prefix(prefix, frame_letter)
-        else
+        if prefix == thing_prefix
           @sprites.get_frame(thing_type, frame_letter, viewer_angle, thing_angle)
+        else
+          @sprites.get_frame_by_prefix(prefix, frame_letter)
         end
       end
 
@@ -230,7 +228,7 @@ module Doom
 
       def spawn_rocket(px, py, pz, cos_a, sin_a, shooter = nil)
         @projectiles << Projectile.new(
-          px + cos_a * 20, py + sin_a * 20, pz,
+          px + (cos_a * 20), py + (sin_a * 20), pz,
           cos_a * ROCKET_SPEED, sin_a * ROCKET_SPEED, 0.0,
           :rocket, @tic, 'MISL', :monsters, shooter, 1.0
         )
@@ -283,9 +281,7 @@ module Doom
 
           # Check if projectile hit the floor or ceiling
           sector = @map.sector_at(new_x, new_y)
-          if sector
-            hit_wall = true if new_z <= sector.floor_height || new_z >= sector.ceiling_height
-          end
+          hit_wall = true if sector && (new_z <= sector.floor_height || new_z >= sector.ceiling_height)
           hit = false
 
           if proj.target == :monsters
@@ -294,10 +290,11 @@ module Doom
             @map.things.each_with_index do |thing, idx|
               next unless MONSTER_HP[thing.type]
               next if @dead_things[idx]
+
               radius = (MONSTER_RADIUS[thing.type] || 20) + ROCKET_RADIUS
               dx = new_x - thing.x
               dy = new_y - thing.y
-              if dx * dx + dy * dy < radius * radius
+              if (dx * dx) + (dy * dy) < radius * radius
                 hit_monster = idx
                 break
               end
@@ -328,6 +325,7 @@ module Doom
             hit_radius = PLAYER_RADIUS + (info ? info[:radius] : 6)
             struck = @players.find do |pl|
               next false if pl.state.dead
+
               dx = new_x - pl.x
               dy = new_y - pl.y
               (dx * dx) + (dy * dy) < hit_radius**2
@@ -381,7 +379,7 @@ module Doom
 
           dx = x - thing.x
           dy = y - thing.y
-          dist = Math.sqrt(dx * dx + dy * dy)
+          dist = Math.sqrt((dx * dx) + (dy * dy))
           next if dist >= radius
 
           damage = (max_damage * (1.0 - (dist / radius))).to_i
@@ -424,7 +422,7 @@ module Doom
             bs = @map.sectors[back.sector]
             max_floor = [fs.floor_height, bs.floor_height].max
             min_ceil = [fs.ceiling_height, bs.ceiling_height].min
-            blocks = (min_ceil - max_floor) < 1  # Closed door/wall
+            blocks = (min_ceil - max_floor) < 1 # Closed door/wall
           else
             next
           end
@@ -432,9 +430,7 @@ module Doom
 
           v1 = @map.vertices[ld.v1]
           v2 = @map.vertices[ld.v2]
-          if Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
-            return true
-          end
+          return true if Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
         end
         false
       end
@@ -443,12 +439,12 @@ module Doom
         pellets.times do
           # Add random spread
           if spread > 0
-            angle = Math.atan2(sin_a, cos_a) + (@random.rand - 0.5) * spread * 2
+            angle = Math.atan2(sin_a, cos_a) + ((@random.rand - 0.5) * spread * 2)
             ca = Math.cos(angle)
             sa = Math.sin(angle)
           else
             # Slight pistol/chaingun spread
-            angle = Math.atan2(sin_a, cos_a) + (@random.rand - 0.5) * 0.04
+            angle = Math.atan2(sin_a, cos_a) + ((@random.rand - 0.5) * 0.04)
             ca = Math.cos(angle)
             sa = Math.sin(angle)
           end
@@ -485,8 +481,8 @@ module Doom
           end
 
           # Spawn bullet puff at hit location
-          puff_x = px + ca * best_dist
-          puff_y = py + sa * best_dist
+          puff_x = px + (ca * best_dist)
+          puff_y = py + (sa * best_dist)
           puff_z = pz
           @puffs << { x: puff_x, y: puff_y, z: puff_z, tic: @tic }
 
@@ -510,11 +506,11 @@ module Doom
 
           dx = thing.x - px
           dy = thing.y - py
-          dist = Math.sqrt(dx * dx + dy * dy)
+          dist = Math.sqrt((dx * dx) + (dy * dy))
           next if dist > range + (MONSTER_RADIUS[thing.type] || 20)
 
           # Check if roughly facing the monster
-          dot = dx * cos_a + dy * sin_a
+          dot = (dx * cos_a) + (dy * sin_a)
           next if dot < 0
 
           if dist < best_dist
@@ -528,7 +524,7 @@ module Doom
           dy = pl.y - py
           dist = Math.hypot(dx, dy)
           next if dist > range + PLAYER_RADIUS
-          next if (dx * cos_a) + (dy * sin_a) < 0  # behind the swing
+          next if (dx * cos_a) + (dy * sin_a) < 0 # behind the swing
           next unless dist < best_dist
 
           best_dist = dist
@@ -551,7 +547,7 @@ module Doom
         @monster_hp[thing_idx] -= damage
 
         if @monster_hp[thing_idx] <= 0
-          return if @dead_things[thing_idx]  # Already dead
+          return if @dead_things[thing_idx] # Already dead
 
           if thing.type == BARREL_TYPE
             @dead_things[thing_idx] = { tic: @tic, prefix: 'BEXP' }
@@ -585,7 +581,7 @@ module Doom
       end
 
       def trace_wall(px, py, cos_a, sin_a)
-        best_t = 4096.0  # Max hitscan range
+        best_t = 4096.0 # Max hitscan range
 
         @map.linedefs.each do |ld|
           v1 = @map.vertices[ld.v1]
@@ -610,7 +606,7 @@ module Doom
           next unless blocks
 
           t = ray_segment_intersect(px, py, cos_a, sin_a,
-                                     v1.x, v1.y, v2.x, v2.y)
+                                    v1.x, v1.y, v2.x, v2.y)
           best_t = t if t && t > 0 && t < best_t
         end
 
@@ -620,25 +616,25 @@ module Doom
       def ray_segment_intersect(px, py, dx, dy, x1, y1, x2, y2)
         sx = x2 - x1
         sy = y2 - y1
-        denom = dx * sy - dy * sx
+        denom = (dx * sy) - (dy * sx)
         return nil if denom.abs < 0.001
 
-        t = ((x1 - px) * sy - (y1 - py) * sx) / denom
-        u = ((x1 - px) * dy - (y1 - py) * dx) / denom
+        t = (((x1 - px) * sy) - ((y1 - py) * sx)) / denom
+        u = (((x1 - px) * dy) - ((y1 - py) * dx)) / denom
 
-        (t > 0 && u >= 0.0 && u <= 1.0) ? t : nil
+        t > 0 && u >= 0.0 && u <= 1.0 ? t : nil
       end
 
       def ray_circle_hit(px, py, cos_a, sin_a, cx, cy, radius)
         dx = cx - px
         dy = cy - py
-        proj = dx * cos_a + dy * sin_a
+        proj = (dx * cos_a) + (dy * sin_a)
         return nil if proj < 0
 
-        perp_sq = dx * dx + dy * dy - proj * proj
+        perp_sq = (dx * dx) + (dy * dy) - (proj * proj)
         return nil if perp_sq > radius * radius
 
-        chord_half = Math.sqrt([radius * radius - perp_sq, 0].max)
+        chord_half = Math.sqrt([(radius * radius) - perp_sq, 0].max)
         proj - chord_half
       end
     end

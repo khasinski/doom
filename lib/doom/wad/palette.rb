@@ -24,9 +24,9 @@ module Doom
         offset = palette_index * PALETTE_SIZE
         colors = COLORS.times.map do |i|
           [
-            data[offset + i * 3].ord,
-            data[offset + i * 3 + 1].ord,
-            data[offset + i * 3 + 2].ord
+            data[offset + (i * 3)].ord,
+            data[offset + (i * 3) + 1].ord,
+            data[offset + (i * 3) + 2].ord
           ]
         end
 

@@ -45,13 +45,13 @@ RSpec.describe 'lockstep over UDP' do
     # sampling still has to keep resending, or a peer stalled on a lost command
     # would never be freed.
     def transmit(redundancy: 8)
-      return if @rng.rand < @drop  # simulated packet loss
+      return if @rng.rand < @drop # simulated packet loss
 
       @transport.peers.each_value do |peer|
         @transport.send_to(peer, Doom::Net::Protocol.encode_ticcmds(
-          @id, @lockstep.local_since(@peer_ack[peer.player_id], redundancy),
-          ack: @lockstep.ack_tic
-        ))
+                                   @id, @lockstep.local_since(@peer_ack[peer.player_id], redundancy),
+                                   ack: @lockstep.ack_tic
+                                 ))
       end
     end
 
@@ -114,7 +114,7 @@ RSpec.describe 'lockstep over UDP' do
       raise "stalled at #{peers.map { |p| p.world.leveltime }.inspect}" if Time.now > deadline
 
       peers.each { |p| p.submit(scripted_cmd(p.id, i)) if p.lockstep.sample_tic <= target }
-      peers.each(&:transmit)  # always, even once sampling is done
+      peers.each(&:transmit) # always, even once sampling is done
       peers.each(&:receive)
       peers.each(&:run)
       peers.each(&:report_hash)
@@ -172,7 +172,7 @@ RSpec.describe 'lockstep over UDP' do
     play(@peers, target: 40)
     before = a.world.leveltime
 
-    b.drop = 1.0  # b stops transmitting entirely
+    b.drop = 1.0 # b stops transmitting entirely
     20.times do |i|
       a.send_input(scripted_cmd(0, i))
       b.send_input(scripted_cmd(1, i))

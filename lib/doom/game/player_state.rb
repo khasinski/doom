@@ -36,25 +36,14 @@ module Doom
         WEAPON_PLASMA => 8,      # Fast energy weapon
         WEAPON_BFG => 60,        # Long charge + fire
         WEAPON_CHAINSAW => 6     # Fast melee
-      }.freeze
-
-      attr_accessor :health, :armor, :max_health, :max_armor
-      attr_accessor :ammo_bullets, :ammo_shells, :ammo_rockets, :ammo_cells
-      attr_accessor :max_bullets, :max_shells, :max_rockets, :max_cells
-      attr_accessor :weapon, :has_weapons
-      attr_accessor :keys
-      attr_accessor :attacking, :attack_frame, :attack_tics
-      attr_accessor :bob_angle, :bob_amount
-      attr_accessor :is_moving
-      attr_accessor :dead, :death_tic
-      attr_accessor :damage_count  # Red flash intensity (0-8), decays each tic
-      attr_accessor :god_mode, :infinite_ammo
+      }.freeze # Red flash intensity (0-8), decays each tic
+      attr_accessor :health, :armor, :max_health, :max_armor, :ammo_bullets, :ammo_shells, :ammo_rockets, :ammo_cells,
+                    :max_bullets, :max_shells, :max_rockets, :max_cells, :weapon, :has_weapons, :keys, :attacking, :attack_frame, :attack_tics, :bob_angle, :bob_amount, :is_moving, :dead, :death_tic, :damage_count, :god_mode, :infinite_ammo
 
       # Smooth step-up/down (matching Chocolate Doom's P_CalcHeight / P_ZMovement)
       VIEWHEIGHT = 41.0
       VIEWHEIGHT_HALF = VIEWHEIGHT / 2.0
-      DELTA_ACCEL = 0.25        # deltaviewheight += FRACUNIT/4 per tic
-      attr_reader :viewheight, :deltaviewheight
+      DELTA_ACCEL = 0.25 # deltaviewheight += FRACUNIT/4 per tic
 
       # View bob (camera bounce when walking, matching Chocolate Doom's
       # P_CalcHeight + P_XYMovement + P_Thrust from p_user.c / p_mobj.c)
@@ -68,7 +57,7 @@ module Doom
       BOB_DECAY_RATE = 3.44   # Friction as continuous decay rate (1/sec)
       BOB_THRUST = 26.0       # Walk thrust (map units/sec), gives terminal ~7.5
       BOB_FREQUENCY = 11.0    # Bob cycle frequency (rad/sec): FINEANGLES/20 * 35 / 8192 * 2*PI
-      attr_reader :view_bob_offset
+      attr_reader :viewheight, :deltaviewheight, :view_bob_offset
 
       def initialize
         reset
@@ -207,21 +196,21 @@ module Doom
         @attack_frame = (@attack_tics / tics_per_frame).to_i
 
         # Attack finished?
-        if @attack_tics >= duration
-          @attacking = false
-          @attack_frame = 0
-          @attack_tics = 0
-        end
+        return unless @attack_tics >= duration
+
+        @attacking = false
+        @attack_frame = 0
+        @attack_tics = 0
       end
 
       def update_bob(delta_time)
         if @is_moving
           # Increase bob while moving
           @bob_angle += delta_time * 10.0
-          @bob_amount = [@bob_amount + delta_time * 16.0, 6.0].min
+          @bob_amount = [@bob_amount + (delta_time * 16.0), 6.0].min
         else
           # Decay bob when stopped
-          @bob_amount = [@bob_amount - delta_time * 12.0, 0.0].max
+          @bob_amount = [@bob_amount - (delta_time * 12.0), 0.0].max
         end
       end
 
@@ -230,6 +219,7 @@ module Doom
       # so the camera doesn't snap, then let P_CalcHeight recover it smoothly.
       def notify_step(step_amount)
         return if step_amount == 0
+
         @viewheight -= step_amount
         @deltaviewheight = (VIEWHEIGHT - @viewheight) / 8.0
       end
@@ -258,10 +248,10 @@ module Doom
           @deltaviewheight = 1.0 if @deltaviewheight <= 0
         end
 
-        if @deltaviewheight != 0
-          @deltaviewheight += DELTA_ACCEL
-          @deltaviewheight = 0.0 if @deltaviewheight.abs < 0.01 && (@viewheight - VIEWHEIGHT).abs < 0.5
-        end
+        return unless @deltaviewheight != 0
+
+        @deltaviewheight += DELTA_ACCEL
+        @deltaviewheight = 0.0 if @deltaviewheight.abs < 0.01 && (@viewheight - VIEWHEIGHT).abs < 0.5
       end
 
       # Set movement momentum directly (called from GosuWindow with actual
@@ -276,13 +266,13 @@ module Doom
       #   bob = (momx*momx + momy*momy) >> 2, capped at MAXBOB
       #   viewz += finesine[angle] * bob/2
       # Momentum is in units/sec; DOOM's bob uses units/tic (divide by 35).
-      BOB_MOM_SCALE = 1.0 / (35.0 * 35.0 * 4.0)  # (mom/35)^2 / 4
+      BOB_MOM_SCALE = 1.0 / (35.0 * 35.0 * 4.0) # (mom/35)^2 / 4
 
       def update_view_bob(delta_time)
         dt = delta_time.clamp(0.001, 0.05)
 
         # P_CalcHeight: bob = (momx_per_tic^2 + momy_per_tic^2) / 4, capped at MAXBOB
-        bob = (@momx * @momx + @momy * @momy) * BOB_MOM_SCALE
+        bob = ((@momx * @momx) + (@momy * @momy)) * BOB_MOM_SCALE
         bob = MAXBOB if bob > MAXBOB
 
         # Advance bob sine wave (FINEANGLES/20 per tic = ~11 rad/sec)
@@ -315,7 +305,7 @@ module Doom
 
         absorbed = 0
         if @armor > 0
-          absorbed = amount / 3  # Green armor absorbs 1/3
+          absorbed = amount / 3 # Green armor absorbs 1/3
           absorbed = @armor if absorbed > @armor
           @armor -= absorbed
         end
@@ -324,13 +314,13 @@ module Doom
         @health -= actual
 
         # Red flash proportional to damage (capped at palette 8)
-        @damage_count = [(@damage_count + actual / 2.0).ceil, 8].min
+        @damage_count = [(@damage_count + (actual / 2.0)).ceil, 8].min
 
-        if @health <= 0
-          @health = 0
-          @damage_count = 8
-          die
-        end
+        return unless @health <= 0
+
+        @health = 0
+        @damage_count = 8
+        die
       end
 
       # Decay damage flash each tic
@@ -342,7 +332,7 @@ module Doom
         @dead = true
         @death_tic = 0
         @attacking = false
-        @deltaviewheight = -VIEWHEIGHT / 8.0  # View drops to ground
+        @deltaviewheight = -VIEWHEIGHT / 8.0 # View drops to ground
       end
     end
   end

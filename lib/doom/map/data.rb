@@ -107,9 +107,7 @@ module Doom
 
         # BLOCKMAP is at lump +10 (REJECT is +9). Optional -- parse defensively.
         blockmap_entry = wad.directory[lump_idx + 10]
-        if blockmap_entry && blockmap_entry.name == 'BLOCKMAP'
-          map.load_blockmap(wad.read_lump_at(blockmap_entry))
-        end
+        map.load_blockmap(wad.read_lump_at(blockmap_entry)) if blockmap_entry && blockmap_entry.name == 'BLOCKMAP'
 
         map
       end
@@ -284,7 +282,7 @@ module Doom
         @blockmap_blocks = Array.new(block_count)
 
         block_count.times do |i|
-          offset_words = data[8 + i * 2, 2].unpack1('v')
+          offset_words = data[8 + (i * 2), 2].unpack1('v')
           byte_offset = offset_words * 2
           linedefs_in_block = []
           ptr = byte_offset
@@ -292,7 +290,8 @@ module Doom
           ptr += 2 if ptr + 2 <= data.size && data[ptr, 2].unpack1('s<') == 0
           while ptr + 2 <= data.size
             idx = data[ptr, 2].unpack1('s<')
-            break if idx == -1  # 0xFFFF terminator
+            break if idx == -1 # 0xFFFF terminator
+
             linedefs_in_block << idx
             ptr += 2
           end
@@ -303,9 +302,9 @@ module Doom
       # Yield each linedef whose block overlaps the bounding box (min_x, min_y,
       # max_x, max_y). Yields each linedef at most once per call. Falls back
       # to iterating all linedefs if no blockmap is loaded.
-      def each_linedef_near(min_x, min_y, max_x, max_y)
+      def each_linedef_near(min_x, min_y, max_x, max_y, &)
         unless @blockmap_blocks
-          @linedefs.each { |ld| yield ld }
+          @linedefs.each(&)
           return
         end
 
@@ -320,8 +319,10 @@ module Doom
           bx0.upto(bx1) do |bx|
             indices = @blockmap_blocks[row_base + bx]
             next unless indices
+
             indices.each do |idx|
               next if seen[idx]
+
               seen[idx] = true
               yield @linedefs[idx]
             end

@@ -6,8 +6,14 @@ module Doom
     # Matches Chocolate Doom's A_Look / A_Chase / P_NewChaseDir from p_enemy.c.
     class MonsterAI
       # 8 movement directions + no direction
-      DI_EAST = 0; DI_NORTHEAST = 1; DI_NORTH = 2; DI_NORTHWEST = 3
-      DI_WEST = 4; DI_SOUTHWEST = 5; DI_SOUTH = 6; DI_SOUTHEAST = 7
+      DI_EAST = 0
+      DI_NORTHEAST = 1
+      DI_NORTH = 2
+      DI_NORTHWEST = 3
+      DI_WEST = 4
+      DI_SOUTHWEST = 5
+      DI_SOUTH = 6
+      DI_SOUTHEAST = 7
       DI_NODIR = 8
 
       # Movement deltas per direction (map units, 1.0 = FRACUNIT)
@@ -21,32 +27,32 @@ module Doom
       MONSTER_SPEED = {
         3004 => 8, 9 => 8, 3001 => 8, 3002 => 10, 58 => 10,
         3003 => 8, 69 => 8, 3005 => 8, 3006 => 8, 16 => 16,
-        7 => 12, 65 => 8, 64 => 15, 71 => 8, 84 => 8,
+        7 => 12, 65 => 8, 64 => 15, 71 => 8, 84 => 8
       }.freeze
 
       CHASE_TICS = 4       # Steps between A_Chase calls
       SIGHT_RANGE = 768.0  # Max distance for sight check
       MELEE_RANGE = 64.0
       MISSILE_RANGE = 768.0
-      KEEP_DISTANCE = 196.0  # Ranged monsters prefer to stay this far from player
+      KEEP_DISTANCE = 196.0 # Ranged monsters prefer to stay this far from player
 
       # Monster attack definitions (from mobjinfo / A_Chase)
       # Cooldown = attack_anim_tics + avg_movecount(7.5) * chase_tics(4)
       # In DOOM, monsters only attempt attacks when movecount reaches 0,
       # then play full attack animation before returning to chase.
       MONSTER_ATTACK = {
-        3004 => { type: :hitscan, damage: [3, 15], cooldown: 56 },     # Zombieman
-        9    => { type: :hitscan, damage: [3, 15], cooldown: 56 },     # Shotgun Guy
-        3001 => { type: :projectile, cooldown: 52 },                    # Imp: fireball
-        3002 => { type: :melee,  damage: [4, 40], cooldown: 42 },      # Demon
-        58   => { type: :melee,  damage: [4, 40], cooldown: 42 },      # Spectre
-        3003 => { type: :projectile, cooldown: 54 },                    # Baron: fireball
-        69   => { type: :projectile, cooldown: 54 },                    # Hell Knight
-        3005 => { type: :projectile, cooldown: 56 },                    # Cacodemon
-        65   => { type: :hitscan, damage: [3, 15], cooldown: 40 },     # Heavy Weapon Dude
+        3004 => { type: :hitscan, damage: [3, 15], cooldown: 56 }, # Zombieman
+        9 => { type: :hitscan, damage: [3, 15], cooldown: 56 }, # Shotgun Guy
+        3001 => { type: :projectile, cooldown: 52 }, # Imp: fireball
+        3002 => { type: :melee, damage: [4, 40], cooldown: 42 }, # Demon
+        58 => { type: :melee, damage: [4, 40], cooldown: 42 }, # Spectre
+        3003 => { type: :projectile, cooldown: 54 }, # Baron: fireball
+        69 => { type: :projectile, cooldown: 54 }, # Hell Knight
+        3005 => { type: :projectile, cooldown: 56 }, # Cacodemon
+        65 => { type: :hitscan, damage: [3, 15], cooldown: 40 } # Heavy Weapon Dude
       }.freeze
 
-      REACTIONTIME = 8  # Tics before first attack after activation (from mobjinfo)
+      REACTIONTIME = 8 # Tics before first attack after activation (from mobjinfo)
 
       # Hitscan hit probability by distance (DOOM's P_AimLineAttack has bullet spread)
       # The falloff is HITSCAN_ACCURACY * (1 - dist / (MISSILE_RANGE * 2)):
@@ -62,10 +68,10 @@ module Doom
         'HEAD' => %w[E F],       # Cacodemon
         'BOSS' => %w[E F G],     # Baron
         'BOS2' => %w[E F G],     # Hell Knight
-        'CPOS' => %w[E F],       # Heavy Weapon Dude
+        'CPOS' => %w[E F] # Heavy Weapon Dude
       }.freeze
 
-      ATTACK_FRAME_TICS = 8  # Tics per attack animation frame
+      ATTACK_FRAME_TICS = 8 # Tics per attack animation frame
 
       # Which frame index the actual attack happens on (matching Chocolate Doom)
       # Zombieman: A_PosAttack on frame F (index 1)
@@ -79,7 +85,7 @@ module Doom
         'HEAD' => 1,  # Cacodemon: E=charge, F=fire
         'BOSS' => 1,  # Baron: E=raise, F=throw, G=recover
         'BOS2' => 1,  # Hell Knight
-        'CPOS' => 1,  # Heavy Weapon Dude
+        'CPOS' => 1 # Heavy Weapon Dude
       }.freeze
 
       MonsterState = Struct.new(:thing_idx, :x, :y, :movedir, :movecount,
@@ -94,16 +100,17 @@ module Doom
         @random = random
         @sprites_mgr = sprites_mgr
         @monsters = []
-        @aggression = true  # Monsters fight back (toggle with C)
+        @aggression = true # Monsters fight back (toggle with C)
         @damage_multiplier = 1.0
         @tic_counter = 0
         @sound = sound_engine
         @monster_by_thing_idx = {}
 
         map.things.each_with_index do |thing, idx|
-          next if hidden_things[idx]  # Filtered by difficulty
+          next if hidden_things[idx] # Filtered by difficulty
           next unless Combat::MONSTER_HP[thing.type]
           next if thing.type == Combat::BARREL_TYPE
+
           mon = MonsterState.new(
             idx, thing.x.to_f, thing.y.to_f,
             DI_NODIR, 0, false, 0, thing.type, 0, REACTIONTIME, 0,
@@ -116,6 +123,7 @@ module Doom
 
       attr_reader :monsters, :monster_by_thing_idx
       attr_accessor :aggression, :damage_multiplier
+
       # Called each game tic with every live player. Each monster keeps its own
       # target so a second player walking past does not yank a monster off the
       # one it is already fighting; it re-picks only when its target dies or
@@ -186,7 +194,7 @@ module Doom
         target_y = target.y
         dx = target_x - mon.x
         dy = target_y - mon.y
-        dist = Math.sqrt(dx * dx + dy * dy)
+        dist = Math.sqrt((dx * dx) + (dy * dy))
         return if dist > SIGHT_RANGE
 
         # DOOM A_Look: monster only sees in ~180-degree forward arc
@@ -195,15 +203,15 @@ module Doom
           thing = @map.things[mon.thing_idx]
           face_angle = thing.angle * Math::PI / 180.0
           to_target = Math.atan2(dy, dx)
-          angle_diff = ((to_target - face_angle + Math::PI) % (2 * Math::PI) - Math::PI).abs
-          return if angle_diff > Math::PI / 2  # 90 degrees each side = 180 arc
+          angle_diff = (((to_target - face_angle + Math::PI) % (2 * Math::PI)) - Math::PI).abs
+          return if angle_diff > Math::PI / 2 # 90 degrees each side = 180 arc
         end
 
-        if has_line_of_sight?(mon.x, mon.y, target_x, target_y)
-          mon.active = true
-          mon.chase_timer = CHASE_TICS
-          @sound&.monster_see(mon.type)
-        end
+        return unless has_line_of_sight?(mon.x, mon.y, target_x, target_y)
+
+        mon.active = true
+        mon.chase_timer = CHASE_TICS
+        @sound&.monster_see(mon.type)
       end
 
       def chase(mon, target)
@@ -216,13 +224,13 @@ module Doom
 
         dx = target_x - mon.x
         dy = target_y - mon.y
-        dist = Math.sqrt(dx * dx + dy * dy)
+        dist = Math.sqrt((dx * dx) + (dy * dy))
 
         # Track if monster can see the target
         can_see = dist < SIGHT_RANGE && has_line_of_sight?(mon.x, mon.y, target_x, target_y)
         if can_see
           mon.last_saw_target = @tic_counter
-        elsif @tic_counter - (mon.last_saw_target || 0) > 105  # ~3 seconds without LOS
+        elsif @tic_counter - (mon.last_saw_target || 0) > 105 # ~3 seconds without LOS
           # Monster gives up and goes idle (like DOOM's A_Chase returning to spawnstate)
           mon.active = false
           mon.reactiontime = REACTIONTIME
@@ -238,7 +246,7 @@ module Doom
         # In DOOM, A_Chase skips movement when P_CheckMissileRange succeeds
         unless attacked
           atk = MONSTER_ATTACK[mon.type]
-          ranged = atk && (atk[:type] == :hitscan || atk[:type] == :projectile)
+          ranged = atk && %i[hitscan projectile].include?(atk[:type])
           skip_move = ranged && can_see && dist < KEEP_DISTANCE
 
           if skip_move
@@ -246,9 +254,7 @@ module Doom
             mon.movecount -= 1 if mon.movecount > 0
           else
             mon.movecount -= 1
-            if mon.movecount < 0 || !try_move(mon, speed)
-              new_chase_dir(mon, target)
-            end
+            new_chase_dir(mon, target) if mon.movecount < 0 || !try_move(mon, speed)
           end
         end
 
@@ -283,10 +289,10 @@ module Doom
           return false unless has_line_of_sight?(mon.x, mon.y, target_x, target_y)
 
           # P_CheckMissileRange: subtract grace distance, cap at 200
-          check_dist = dist - 64  # 64 unit grace distance
-          check_dist -= 128 if atk[:type] == :projectile  # Pure ranged fire more
+          check_dist = dist - 64 # 64 unit grace distance
+          check_dist -= 128 if atk[:type] == :projectile # Pure ranged fire more
           check_dist = [check_dist, 0].max
-          check_dist = [check_dist, 200].min  # Cap: always >= 22% chance to fire
+          check_dist = [check_dist, 200].min # Cap: always >= 22% chance to fire
           return false if @random.rand(256) < check_dist
         end
 
@@ -309,13 +315,13 @@ module Doom
 
         dx = target_x - mon.x
         dy = target_y - mon.y
-        dist = Math.sqrt(dx * dx + dy * dy)
+        dist = Math.sqrt((dx * dx) + (dy * dy))
 
         # Re-check line of sight at fire time. The player may have moved
         # behind cover or a door may have closed during the attack animation
         # (which spans several tics between try_attack and the fire frame).
         # Melee always lands on contact; ranged skips silently if LOS broke.
-        ranged = atk[:type] == :hitscan || atk[:type] == :projectile
+        ranged = %i[hitscan projectile].include?(atk[:type])
         return if ranged && !has_line_of_sight?(mon.x, mon.y, target_x, target_y)
 
         case atk[:type]
@@ -325,7 +331,7 @@ module Doom
           target.state.take_damage(damage) if damage > 0
 
         when :hitscan
-          hit_chance = HITSCAN_ACCURACY * (1.0 - dist / (MISSILE_RANGE * 2))
+          hit_chance = HITSCAN_ACCURACY * (1.0 - (dist / (MISSILE_RANGE * 2)))
           hit_chance = [hit_chance, 0.15].max
           if @random.rand < hit_chance
             min_dmg, max_dmg = atk[:damage]
@@ -344,8 +350,8 @@ module Doom
       def try_move(mon, speed)
         return false if mon.movedir == DI_NODIR
 
-        new_x = mon.x + speed * XSPEED[mon.movedir]
-        new_y = mon.y + speed * YSPEED[mon.movedir]
+        new_x = mon.x + (speed * XSPEED[mon.movedir])
+        new_y = mon.y + (speed * YSPEED[mon.movedir])
 
         # Check if the position is valid (inside a sector, not blocked by walls)
         sector = @map.sector_at(new_x, new_y)
@@ -368,16 +374,16 @@ module Doom
           end
 
           # Two-sided: check step height and headroom
-          if ld.sidedef_left < 0xFFFF
-            front = @map.sectors[@map.sidedefs[ld.sidedef_right].sector]
-            back = @map.sectors[@map.sidedefs[ld.sidedef_left].sector]
-            step = (back.floor_height - front.floor_height).abs
-            min_ceil = [front.ceiling_height, back.ceiling_height].min
-            max_floor = [front.floor_height, back.floor_height].max
-            if step > 24 || (min_ceil - max_floor) < 56
-              blocked = true
-              break
-            end
+          next unless ld.sidedef_left < 0xFFFF
+
+          front = @map.sectors[@map.sidedefs[ld.sidedef_right].sector]
+          back = @map.sectors[@map.sidedefs[ld.sidedef_left].sector]
+          step = (back.floor_height - front.floor_height).abs
+          min_ceil = [front.ceiling_height, back.ceiling_height].min
+          max_floor = [front.floor_height, back.floor_height].max
+          if step > 24 || (min_ceil - max_floor) < 56
+            blocked = true
+            break
           end
         end
         return false if blocked
@@ -410,16 +416,12 @@ module Doom
           diag = diagonal_dir(dir_x, dir_y)
           if diag != OPPOSITE[old_dir]
             mon.movedir = diag
-            if try_walk(mon)
-              return
-            end
+            return if try_walk(mon)
           end
         end
 
         # Randomly swap X/Y priority
-        if @random.rand > 0.22 || deltay.abs > deltax.abs
-          dir_x, dir_y = dir_y, dir_x
-        end
+        dir_x, dir_y = dir_y, dir_x if @random.rand > 0.22 || deltay.abs > deltax.abs
 
         # Try primary direction
         if dir_x != DI_NODIR && dir_x != OPPOSITE[old_dir]
@@ -444,6 +446,7 @@ module Doom
         8.times do |i|
           d = (start + i) % 8
           next if d == OPPOSITE[old_dir]
+
           mon.movedir = d
           return if try_walk(mon)
         end
@@ -489,14 +492,14 @@ module Doom
           return false if ld.sidedef_left == 0xFFFF
 
           # Two-sided: check if opening is big enough to see through
-          if ld.sidedef_left < 0xFFFF
-            front = @map.sectors[@map.sidedefs[ld.sidedef_right].sector]
-            back = @map.sectors[@map.sidedefs[ld.sidedef_left].sector]
-            max_floor = [front.floor_height, back.floor_height].max
-            min_ceil = [front.ceiling_height, back.ceiling_height].min
-            # Block sight if the opening is too small
-            return false if (min_ceil - max_floor) < 1
-          end
+          next unless ld.sidedef_left < 0xFFFF
+
+          front = @map.sectors[@map.sidedefs[ld.sidedef_right].sector]
+          back = @map.sectors[@map.sidedefs[ld.sidedef_left].sector]
+          max_floor = [front.floor_height, back.floor_height].max
+          min_ceil = [front.ceiling_height, back.ceiling_height].min
+          # Block sight if the opening is too small
+          return false if (min_ceil - max_floor) < 1
         end
         true
       end

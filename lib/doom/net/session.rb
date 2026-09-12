@@ -15,15 +15,13 @@ module Doom
     class Session
       HELLO_RESEND_SECONDS = 0.25
       DEFAULT_PORT = 5029
-      REDUNDANCY = 8  # Commands per packet; loss is covered by resending
+      REDUNDANCY = 8 # Commands per packet; loss is covered by resending
 
       # How long a stall must last before it is worth telling the player about.
       # Well under a second so a real problem shows up promptly, but far longer
       # than the sub-tic waits that healthy play produces constantly.
       STALL_WARNING_SECONDS = 0.35
-
-      attr_reader :transport, :lockstep, :monitor, :local_id, :player_ids
-      attr_reader :seed, :map_name, :mode, :skill, :num_players
+      attr_reader :transport, :lockstep, :monitor, :local_id, :player_ids, :seed, :map_name, :mode, :skill, :num_players
 
       # Skill is a plain number here rather than Game::Menu::SKILL_MEDIUM: the
       # network layer has no business depending on the menu.
@@ -48,7 +46,7 @@ module Doom
         @transport = Transport.new(port: role == :host ? port : 0)
         @started = false
         @peer_acks = Hash.new(0)
-        @joined = {}   # player_id => [host, port]
+        @joined = {} # player_id => [host, port]
         @last_hello = nil
 
         if host?
@@ -59,7 +57,7 @@ module Doom
           @skill = skill
           # The seed is part of the simulation, so it is chosen once and told
           # to everyone rather than derived locally by each peer.
-          @seed = seed || ::Random.new_seed % 256
+          @seed = seed || (::Random.new_seed % 256)
           start if solo?
         else
           @remote = @transport.add_peer(remote_host, remote_port, player_id: 0)
@@ -241,9 +239,9 @@ module Doom
 
       def send_setup(peer)
         @transport.send_to(peer, Protocol.encode_setup(
-          player_id: peer.player_id, num_players: @num_players, seed: @seed,
-          map: @map_name, mode: @mode, skill: @skill
-        ))
+                                   player_id: peer.player_id, num_players: @num_players, seed: @seed,
+                                   map: @map_name, mode: @mode, skill: @skill
+                                 ))
       end
 
       # Everyone except the recipient, so the mesh can form without the host

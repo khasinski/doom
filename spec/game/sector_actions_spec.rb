@@ -15,27 +15,27 @@ RSpec.describe Doom::Game::SectorActions do
       Doom::Map::Vertex.new(64, 64),
       Doom::Map::Vertex.new(0, 64),
       Doom::Map::Vertex.new(128, 0),
-      Doom::Map::Vertex.new(128, 64),
+      Doom::Map::Vertex.new(128, 64)
     ]
     sectors = [
       Doom::Map::Sector.new(0, 128, 'F', 'C', 192, room_special, 0),
-      Doom::Map::Sector.new(door_floor, door_ceiling, 'F', 'C', 192, 0, door_tag),
+      Doom::Map::Sector.new(door_floor, door_ceiling, 'F', 'C', 192, 0, door_tag)
     ]
     sidedefs = [
       Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 0),  # room side of door linedef
       Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 1),  # door side of door linedef
       Doom::Map::Sidedef.new(0, 0, 'W', '-', '-', 0),  # one-sided walls of room
-      Doom::Map::Sidedef.new(0, 0, 'W', '-', '-', 1),  # one-sided walls of door sector
+      Doom::Map::Sidedef.new(0, 0, 'W', '-', '-', 1) # one-sided walls of door sector
     ]
-    flags = 0x0004  # TWOSIDED
+    flags = 0x0004 # TWOSIDED
     linedefs = [
-      Doom::Map::Linedef.new(1, 2, flags, door_special, door_tag, 0, 1),  # door linedef (room->door)
+      Doom::Map::Linedef.new(1, 2, flags, door_special, door_tag, 0, 1), # door linedef (room->door)
       Doom::Map::Linedef.new(0, 1, 0, 0, 0, 2, 0xFFFF),
       Doom::Map::Linedef.new(2, 3, 0, 0, 0, 2, 0xFFFF),
       Doom::Map::Linedef.new(3, 0, 0, 0, 0, 2, 0xFFFF),
       Doom::Map::Linedef.new(2, 5, 0, 0, 0, 3, 0xFFFF),
       Doom::Map::Linedef.new(5, 4, 0, 0, 0, 3, 0xFFFF),
-      Doom::Map::Linedef.new(4, 1, 0, 0, 0, 3, 0xFFFF),
+      Doom::Map::Linedef.new(4, 1, 0, 0, 0, 3, 0xFFFF)
     ]
     fake_map(vertices, linedefs, sidedefs, sectors, things: things)
   end
@@ -48,14 +48,18 @@ RSpec.describe Doom::Game::SectorActions do
     map.define_singleton_method(:sectors) { sectors }
     map.define_singleton_method(:things) { things }
     map.define_singleton_method(:sector_at) do |x, _y|
-      x < 64 ? sectors[0] : (x < 128 ? sectors[1] : nil)
+      if x < 64
+        sectors[0]
+      else
+        (x < 128 ? sectors[1] : nil)
+      end
     end
     # subsector_at is used by check_secrets; return a stub when player is in sector 0.
     map.define_singleton_method(:subsector_at) do |_x, _y|
       Struct.new(:first_seg).new(0)
     end
     map.define_singleton_method(:segs) do
-      [Struct.new(:linedef, :direction).new(1, 0)]  # references linedef 1 (room wall)
+      [Struct.new(:linedef, :direction).new(1, 0)] # references linedef 1 (room wall)
     end
     map
   end
@@ -98,8 +102,8 @@ RSpec.describe Doom::Game::SectorActions do
       62.times { actions.update }   # opened
       150.times { actions.update }  # waited
       actions.update                # one closing tic; ceiling at 122
-      actions.update_player_position(96, 32)  # in door sector
-      actions.update                # checks player sector, reopens
+      actions.update_player_position(96, 32) # in door sector
+      actions.update # checks player sector, reopens
       door = actions.instance_variable_get(:@active_doors)[1]
       expect(door[:state]).to eq(Doom::Game::SectorActions::DOOR_OPENING)
     end
@@ -188,7 +192,7 @@ RSpec.describe Doom::Game::SectorActions do
     # Sector 0 floor=64, ceiling=128. Sector 1 floor=64 (lift), ceiling=128. Tag 7.
     def lift_map
       m = build_map(door_special: 62, door_tag: 7, door_floor: 64, door_ceiling: 128)
-      m.sectors[0].floor_height = 0  # adjacent floor lower than lift
+      m.sectors[0].floor_height = 0 # adjacent floor lower than lift
       m
     end
 
@@ -256,7 +260,7 @@ RSpec.describe Doom::Game::SectorActions do
   end
 
   describe 'secret sector discovery' do
-    let(:map) { build_map(room_special: 9) }  # Sector 0 is a secret
+    let(:map) { build_map(room_special: 9) } # Sector 0 is a secret
 
     it 'records the secret when the player enters and clears the special' do
       actions.update_player_position(32, 32)

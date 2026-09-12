@@ -139,7 +139,7 @@ RSpec.describe Doom::Game::PlayerState do
     end
 
     it 'caps bob at MAXBOB' do
-      player.set_movement_momentum(99999, 0)
+      player.set_movement_momentum(99_999, 0)
       # Run several frames to get past zero-crossing
       10.times { player.update_view_bob(0.016) }
       expect(player.view_bob_offset.abs).to be <= 8.0 # MAXBOB/2

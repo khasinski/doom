@@ -32,9 +32,7 @@ module Doom
         flag_bit = skill_flag_bit(skill)
         hidden = {}
         things.each_with_index do |thing, idx|
-          if (thing.flags & MULTIPLAYER_ONLY_FLAG) != 0 || (thing.flags & flag_bit) == 0
-            hidden[idx] = true
-          end
+          hidden[idx] = true if (thing.flags & MULTIPLAYER_ONLY_FLAG) != 0 || (thing.flags & flag_bit) == 0
         end
         hidden
       end
@@ -54,12 +52,8 @@ module Doom
                                 stall_threshold:, desync: nil)
         lines = []
         lines << (host ? 'WAITING FOR PLAYERS' : 'CONNECTING...') unless started
-        if waiting.any? && stalled_seconds > stall_threshold
-          lines << "WAITING FOR PLAYER #{waiting.join(', ')}"
-        end
-        if desync
-          lines << "DESYNC AT TIC #{desync.tic} (#{Array(desync.sections).join(', ')})"
-        end
+        lines << "WAITING FOR PLAYER #{waiting.join(', ')}" if waiting.any? && stalled_seconds > stall_threshold
+        lines << "DESYNC AT TIC #{desync.tic} (#{Array(desync.sections).join(', ')})" if desync
         lines
       end
     end

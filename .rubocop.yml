@@ -1,0 +1,48 @@
+inherit_from: .rubocop_todo.yml
+
+require:
+  - rubocop-performance
+
+AllCops:
+  TargetRubyVersion: 3.1
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - 'doom_bench/**/*'
+    - 'vendor/**/*'
+    - 'bench/**/*'
+    - 'tools/**/*'
+    - 'tmp/**/*'
+    # Files with uncommitted in-progress work when RuboCop was introduced.
+    # Excluded so the linter does not fight a half-finished change; drop these
+    # entries and run `rubocop -a` on them once that work is committed.
+    - 'lib/doom/game/animations.rb'
+    - 'lib/doom/game/menu.rb'
+    - 'lib/doom/render/ray_tracing/material_state.rb'
+    - 'lib/doom/render/ray_tracing_renderer.rb'
+    - 'spec/game/animations_spec.rb'
+    - 'spec/game/menu_netgame_spec.rb'
+    - 'spec/render/ray_tracing_material_state_spec.rb'
+
+# This is a game engine ported from C: the rendering and simulation hot paths
+# have inherently long methods and dense math that a length or complexity cap
+# would only push into worse shapes. Track real style issues instead.
+Metrics:
+  Enabled: false
+
+# The code deliberately favours explanatory prose comments over class-level
+# doc blocks, and every non-trivial class already carries one.
+Style/Documentation:
+  Enabled: false
+
+# Frozen string literals are already declared per-file.
+Style/FrozenStringLiteralComment:
+  EnforcedStyle: always
+
+Layout/LineLength:
+  Max: 120
+
+# Specs read better with long describe/context blocks and expressive matchers.
+Style/BlockDelimiters:
+  Exclude:
+    - 'spec/**/*'

@@ -30,4 +30,7 @@ Gem::Specification.new do |s|
   # requires it lazily. Normal gameplay never loads it, so it stays out of the
   # runtime dependencies.
   s.add_development_dependency 'chunky_png', '~> 1.4'
+  s.add_development_dependency 'rubocop', '~> 1.90'
+  s.add_development_dependency 'rubocop-performance', '~> 1.27'
+  s.metadata['rubygems_mfa_required'] = 'true'
 end

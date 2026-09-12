@@ -14,11 +14,11 @@ module Doom
 
       # Door speeds (units per tic, 35 tics/sec)
       DOOR_SPEED = 2
-      DOOR_WAIT = 150  # Tics to wait when open (~4 seconds)
+      DOOR_WAIT = 150 # Tics to wait when open (~4 seconds)
 
       # Lift constants
       LIFT_SPEED = 4
-      LIFT_WAIT = 105  # ~3 seconds
+      LIFT_WAIT = 105 # ~3 seconds
 
       attr_reader :exit_triggered, :secrets_found
 
@@ -39,7 +39,7 @@ module Doom
         @active_lifts = {}   # sector_index => lift_state
         @player_x = 0
         @player_y = 0
-        @player_positions = []  # [[player_id, x, y], ...] in id order
+        @player_positions = [] # [[player_id, x, y], ...] in id order
         @exit_triggered = nil
         @secrets_found = {}  # sector_index => true
         @crossed_linedefs = {}
@@ -77,7 +77,7 @@ module Doom
       # Try to use a linedef (called when player presses use key). `keys` is the
       # acting player's key ring (a hash like {blue_card: true}); locked doors
       # consult it and refuse to open without the matching card.
-      def use_linedef(linedef, linedef_idx, keys = {})
+      def use_linedef(linedef, _linedef_idx, keys = {})
         return false if linedef.special == 0
 
         case linedef.special
@@ -102,7 +102,7 @@ module Doom
           activate_tagged_door(linedef)
 
         # --- Lifts ---
-        when 62   # SR Lift Lower Wait Raise (repeatable)
+        when 62 # SR Lift Lower Wait Raise (repeatable)
           activate_lift(linedef)
 
         # --- Floor changes ---
@@ -138,8 +138,8 @@ module Doom
       # Note: stair builders (specials 7 and 8) are not modeled, so they are
       # intentionally absent here.
       WALK_TRIGGERS = {
-        2  => :door_open_stay,    # W1 Door Open Stay
-        5  => :raise_floor,       # W1 Raise Floor to Lowest Ceiling
+        2 => :door_open_stay,    # W1 Door Open Stay
+        5 => :raise_floor,       # W1 Raise Floor to Lowest Ceiling
         52 => :exit,              # W1 Exit
         82 => :lower_floor,       # WR Lower Floor to Lowest
         86 => :door_open_stay,    # WR Door Open Stay
@@ -148,7 +148,7 @@ module Doom
         91 => :raise_floor,       # WR Raise Floor to Lowest Ceiling
         97 => :teleport,          # WR Teleport
         98 => :lower_floor,       # WR Lower Floor to Highest - 8
-        124 => :secret_exit,      # W1 Secret Exit
+        124 => :secret_exit # W1 Secret Exit
       }.freeze
 
       # W1 types that only trigger once
@@ -170,14 +170,13 @@ module Doom
       def check_walk_triggers_for(pid, px, py, sides)
         @map.linedefs.each_with_index do |ld, idx|
           next if ld.special == 0
+
           action = WALK_TRIGGERS[ld.special]
           next unless action
 
           # W1 types only trigger once (level-global: once any player crosses,
           # it is spent), so the crossed record stays shared across players.
-          if W1_TYPES.include?(ld.special)
-            next if @crossed_linedefs[idx]
-          end
+          next if W1_TYPES.include?(ld.special) && @crossed_linedefs[idx]
 
           v1 = @map.vertices[ld.v1]
           v2 = @map.vertices[ld.v2]
@@ -187,7 +186,7 @@ module Doom
           side = line_side(px, py, v1.x, v1.y, v2.x, v2.y)
           dist = Geometry.point_to_segment_distance(px, py, v1.x, v1.y, v2.x, v2.y)
 
-          near = dist < 32  # Detection range
+          near = dist < 32 # Detection range
           prev_side = sides[idx]
 
           if near && prev_side && prev_side != side
@@ -201,7 +200,7 @@ module Doom
             sides[idx] = nil
             next
           else
-            next  # Same side, no crossing
+            next # Same side, no crossing
           end
 
           @crossed_linedefs[idx] = true
@@ -234,7 +233,7 @@ module Doom
       # 0 = back). An integer rather than a symbol so the value serializes
       # cleanly into the snapshot's per-player side memory.
       def line_side(px, py, x1, y1, x2, y2)
-        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
+        cross = ((x2 - x1) * (py - y1)) - ((y2 - y1) * (px - x1))
         cross >= 0 ? 1 : 0
       end
 
@@ -262,9 +261,7 @@ module Doom
         if @active_doors[sector_idx]
           door = @active_doors[sector_idx]
           # If closing, reverse direction
-          if door[:state] == DOOR_CLOSING
-            door[:state] = DOOR_OPENING
-          end
+          door[:state] = DOOR_OPENING if door[:state] == DOOR_CLOSING
           return
         end
 
@@ -340,9 +337,7 @@ module Doom
             adjacent_sector = @map.sectors[right_sidedef.sector]
           end
 
-          if adjacent_sector
-            lowest = [lowest, adjacent_sector.ceiling_height].min
-          end
+          lowest = [lowest, adjacent_sector.ceiling_height].min if adjacent_sector
         end
 
         lowest == Float::INFINITY ? 128 : lowest
@@ -364,7 +359,7 @@ module Doom
             target_height: target,
             original_height: sector.ceiling_height,
             wait_tics: 0,
-            stay_open: stay_open,
+            stay_open: stay_open
           }
         end
         @sound&.door_open
@@ -378,7 +373,7 @@ module Doom
         activated = false
         @map.sectors.each_with_index do |sector, idx|
           next unless sector_has_tag?(idx, tag)
-          next if @active_lifts[idx]  # Already moving
+          next if @active_lifts[idx] # Already moving
 
           lowest = find_lowest_floor_around(idx)
           @active_lifts[idx] = {
@@ -386,7 +381,7 @@ module Doom
             state: :lowering,
             target_low: lowest,
             original_height: sector.floor_height,
-            wait_tics: 0,
+            wait_tics: 0
           }
           activated = true
         end
@@ -434,6 +429,7 @@ module Doom
 
         @map.sectors.each_with_index do |sector, idx|
           next unless sector_has_tag?(idx, tag)
+
           target = find_next_higher_floor(idx)
           next if target <= sector.floor_height
 
@@ -442,7 +438,7 @@ module Doom
             state: :raising,
             target_low: sector.floor_height,
             original_height: target,
-            wait_tics: 0,
+            wait_tics: 0
           }
         end
       end
@@ -456,6 +452,7 @@ module Doom
 
         @map.sectors.each_with_index do |sector, idx|
           next unless sector_has_tag?(idx, tag)
+
           target = find_lowest_ceiling_around(idx)
           next if target <= sector.floor_height
 
@@ -464,7 +461,7 @@ module Doom
             state: :raising,
             target_low: sector.floor_height,
             original_height: target,
-            wait_tics: 0,
+            wait_tics: 0
           }
         end
       end
@@ -475,7 +472,8 @@ module Doom
 
         @map.sectors.each_with_index do |sector, idx|
           next unless sector_has_tag?(idx, tag)
-          next if @active_lifts[idx]  # Already moving
+          next if @active_lifts[idx] # Already moving
+
           target = find_lowest_floor_around(idx)
           next if target >= sector.floor_height
 
@@ -485,7 +483,7 @@ module Doom
             state: :floor_lowering,
             target_low: target,
             original_height: sector.floor_height,
-            wait_tics: 0,
+            wait_tics: 0
           }
         end
       end
@@ -496,6 +494,7 @@ module Doom
 
         @map.sectors.each_with_index do |sector, idx|
           next unless sector_has_tag?(idx, tag)
+
           target = find_highest_floor_around(idx) - 8
           sector.floor_height = target if target < sector.floor_height
         end
@@ -507,9 +506,11 @@ module Doom
 
         # Find teleport destination thing (type 14) in tagged sector
         @map.things.each do |thing|
-          next unless thing.type == 14  # Teleport destination
+          next unless thing.type == 14 # Teleport destination
+
           sector = @map.sector_at(thing.x, thing.y)
           next unless sector
+
           sector_idx = @map.sectors.index(sector)
           next unless sector_has_tag?(sector_idx, tag)
 
@@ -517,7 +518,6 @@ module Doom
           return
         end
       end
-
 
       def check_secrets
         # Build set of secret sector indices on first call
@@ -542,12 +542,12 @@ module Doom
         sector_idx = @map.sidedefs[sd_idx].sector
         return if @secrets_found[sector_idx]
 
-        if @secret_sectors.include?(sector_idx)
-          @secrets_found[sector_idx] = true
-          # Clear the special so it doesn't retrigger (matching Chocolate Doom)
-          @map.sectors[sector_idx].special = 0
-          @secret_sectors.delete(sector_idx)
-        end
+        return unless @secret_sectors.include?(sector_idx)
+
+        @secrets_found[sector_idx] = true
+        # Clear the special so it doesn't retrigger (matching Chocolate Doom)
+        @map.sectors[sector_idx].special = 0
+        @secret_sectors.delete(sector_idx)
       end
 
       def sector_has_tag?(sector_idx, tag)
@@ -563,20 +563,18 @@ module Doom
       end
 
       def find_highest_floor_around(sector_idx)
-        highest = -32768
+        highest = -32_768
         each_adjacent_sector(sector_idx) do |adj|
           highest = adj.floor_height if adj.floor_height > highest
         end
-        highest == -32768 ? @map.sectors[sector_idx].floor_height : highest
+        highest == -32_768 ? @map.sectors[sector_idx].floor_height : highest
       end
 
       def find_next_higher_floor(sector_idx)
         current = @map.sectors[sector_idx].floor_height
         best = Float::INFINITY
         each_adjacent_sector(sector_idx) do |adj|
-          if adj.floor_height > current && adj.floor_height < best
-            best = adj.floor_height
-          end
+          best = adj.floor_height if adj.floor_height > current && adj.floor_height < best
         end
         best == Float::INFINITY ? current : best
       end
@@ -584,6 +582,7 @@ module Doom
       def each_adjacent_sector(sector_idx)
         @map.linedefs.each do |ld|
           next unless ld.two_sided?
+
           right = @map.sidedefs[ld.sidedef_right]
           left = @map.sidedefs[ld.sidedef_left] if ld.sidedef_left != 0xFFFF
           next unless left

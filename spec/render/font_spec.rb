@@ -70,8 +70,8 @@ RSpec.describe Doom::Render::Font do
 
       font.draw_text(fb, 'A', 2, 1, screen_width: w, screen_height: h)
 
-      expect(fb[w * 1 + 2, 3]).to eq([1, 1, 1])
-      expect(fb[w * 2 + 2, 3]).to eq([2, 2, 2])
+      expect(fb[w + 2, 3]).to eq([1, 1, 1])
+      expect(fb[(w * 2) + 2, 3]).to eq([2, 2, 2])
     end
 
     it 'clips pixels outside the screen bounds' do

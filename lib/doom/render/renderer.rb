@@ -19,11 +19,11 @@ module Doom
     Drawseg = Struct.new(:x1, :x2, :scale1, :scale2, :scalestep,
                          :silhouette, :bsilheight, :tsilheight,
                          :sprtopclip, :sprbottomclip,
-                         :curline,  # seg for point-on-side test
-                         :maskedtexturecol,  # per-column texture X for masked mid textures
-                         :frontsector, :backsector,  # sectors for masked rendering
-                         :sidedef,  # sidedef for texture lookup
-                         :dist1, :dist2, :sx1, :sx2)  # for per-column distance recomputation
+                         :curline, # seg for point-on-side test
+                         :maskedtexturecol, # per-column texture X for masked mid textures
+                         :frontsector, :backsector, # sectors for masked rendering
+                         :sidedef, # sidedef for texture lookup
+                         :dist1, :dist2, :sx1, :sx2) # for per-column distance recomputation
 
     # VisibleSprite stores sprite data for sorting and rendering
     # Struct is faster than Hash for fixed-field data
@@ -43,6 +43,7 @@ module Doom
 
       def mark(x, y1, y2)
         return if y1 > y2
+
         top[x] = [top[x], y1].min
         bottom[x] = [bottom[x], y2].max
         self.minx = [minx, x].min
@@ -55,8 +56,6 @@ module Doom
     end
 
     class Renderer
-      attr_reader :framebuffer
-
       def initialize(wad, map, textures, palette, colormap, flats, sprites = nil, animations = nil)
         @wad = wad
         @map = map
@@ -94,7 +93,7 @@ module Doom
         # Column distance scale is constant (doesn't depend on player angle)
         @column_distscale = Array.new(SCREEN_WIDTH) do |x|
           dx = x - HALF_WIDTH
-          Math.sqrt(dx * dx + @projection * @projection) / @projection
+          Math.sqrt((dx * dx) + (@projection * @projection)) / @projection
         end
 
         # Clipping arrays
@@ -117,12 +116,10 @@ module Doom
         @y_slope_ceil = Array.new(HALF_HEIGHT + 1, 0.0)
         @y_slope_floor = Array.new(HALF_HEIGHT + 1, 0.0)
       end
-
-      attr_reader :player_x, :player_y, :player_z, :player_angle, :sin_angle, :cos_angle
-      attr_reader :wad, :map, :textures, :palette, :colormap, :flats, :sprites, :animations
+      attr_reader :framebuffer, :player_x, :player_y, :player_z, :player_angle, :sin_angle, :cos_angle, :wad, :map,
+                  :textures, :palette, :colormap, :flats, :sprites, :animations
       attr_writer :hidden_things, :combat, :monster_ai, :leveltime
-      attr_accessor :players, :view_player
-      attr_accessor :skip_background_fill
+      attr_accessor :players, :view_player, :skip_background_fill
 
       # Diagnostic: returns info about all sprites and why they are/aren't visible
       def sprite_diagnostics
@@ -140,7 +137,7 @@ module Doom
           info[:view_y] = view_y.round(1)
 
           if view_y <= 0
-            info[:status] = "behind_player"
+            info[:status] = 'behind_player'
             results << info
             next
           end
@@ -155,7 +152,7 @@ module Doom
           angle_to_thing = Math.atan2(dy, dx)
           sprite = @sprites.get_rotated(thing.type, angle_to_thing, thing.angle)
           unless sprite
-            info[:status] = "no_sprite_frame"
+            info[:status] = 'no_sprite_frame'
             results << info
             next
           end
@@ -165,20 +162,19 @@ module Doom
           info[:sprite_scale] = sprite_scale.round(3)
 
           if screen_x + sprite_half_width < 0
-            info[:status] = "off_screen_left"
+            info[:status] = 'off_screen_left'
           elsif screen_x - sprite_half_width >= SCREEN_WIDTH
-            info[:status] = "off_screen_right"
+            info[:status] = 'off_screen_right'
           else
             # Check drawseg clipping
-            sprite_left = (screen_x - sprite.left_offset * sprite_scale).to_i
+            sprite_left = (screen_x - (sprite.left_offset * sprite_scale)).to_i
             sprite_right = sprite_left + (sprite.width * sprite_scale).to_i - 1
             x1 = [sprite_left, 0].max
             x2 = [sprite_right, SCREEN_WIDTH - 1].min
 
             sector = @map.sector_at(thing.x, thing.y)
             thing_floor = sector ? sector.floor_height : 0
-            sprite_gz = thing_floor
-            sprite_gzt = thing_floor + sprite.top_offset
+            thing_floor + sprite.top_offset
 
             clipping_segs = []
             @drawsegs.reverse_each do |ds|
@@ -204,7 +200,7 @@ module Doom
             info[:screen_range] = "#{x1}..#{x2}"
             info[:clipping_segs] = clipping_segs.size
             info[:clipping_detail] = clipping_segs
-            info[:status] = "visible"
+            info[:status] = 'visible'
           end
 
           results << info
@@ -252,7 +248,7 @@ module Doom
 
         # Initialize visplanes for tracking visible floor/ceiling spans
         @visplanes = []
-        @visplane_hash = {}  # Hash for O(1) lookup by (height, texture, light_level, is_ceiling)
+        @visplane_hash = {} # Hash for O(1) lookup by (height, texture, light_level, is_ceiling)
 
         # Initialize drawsegs for sprite clipping
         @drawsegs = []
@@ -288,6 +284,7 @@ module Doom
 
       def draw_floor_ceiling_background
         return if @skip_background_fill
+
         player_sector = @map.sector_at(@player_x, @player_y)
         return unless player_sector
 
@@ -312,7 +309,7 @@ module Doom
       def render_visplane_spans(plane)
         return if plane.minx > plane.maxx
 
-        spanstart = Array.new(SCREEN_HEIGHT)  # Track where each row's span started
+        spanstart = Array.new(SCREEN_HEIGHT) # Track where each row's span started
 
         # Process columns left to right
         ((plane.minx)..(plane.maxx + 1)).each do |x|
@@ -320,9 +317,10 @@ module Doom
           if x <= plane.maxx
             t2 = plane.top[x]
             b2 = plane.bottom[x]
-            t2 = SCREEN_HEIGHT if t2 > b2  # Invalid = empty
+            t2 = SCREEN_HEIGHT if t2 > b2 # Invalid = empty
           else
-            t2, b2 = SCREEN_HEIGHT, -1  # Sentinel for final column
+            t2 = SCREEN_HEIGHT
+            b2 = -1 # Sentinel for final column
           end
 
           # Get previous column bounds
@@ -331,7 +329,8 @@ module Doom
             b1 = plane.bottom[x - 1]
             t1 = SCREEN_HEIGHT if t1 > b1
           else
-            t1, b1 = SCREEN_HEIGHT, -1
+            t1 = SCREEN_HEIGHT
+            b1 = -1
           end
 
           # Close spans that ended (visible in prev column, not in current)
@@ -348,10 +347,10 @@ module Doom
           end
 
           # Open new spans (visible in current, not started yet)
-          if t2 < SCREEN_HEIGHT
-            (t2..b2).each do |y|
-              spanstart[y] ||= x
-            end
+          next unless t2 < SCREEN_HEIGHT
+
+          (t2..b2).each do |y|
+            spanstart[y] ||= x
           end
         end
       end
@@ -396,9 +395,9 @@ module Doom
         x = x1
         while x <= x2
           ray_dist = perp_dist * column_distscale[x]
-          tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
-          tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
-          color = flat_pixels[tex_y * 64 + tex_x]
+          tex_x = (player_x + (ray_dist * column_cos[x])).to_i & 63
+          tex_y = (neg_player_y - (ray_dist * column_sin[x])).to_i & 63
+          color = flat_pixels[(tex_y * 64) + tex_x]
           framebuffer[row_offset + x] = cmap[color]
           x += 1
         end
@@ -409,7 +408,7 @@ module Doom
       # Chocolate Doom: skytexturemid = SCREENHEIGHT/2 = 100 (for 200px screen).
       # Scale factor: our 240px screen maps to DOOM's 200px sky coordinates.
       SKY_TEXTUREMID = 100.0
-      SKY_YSCALE = 200.0 / SCREEN_HEIGHT  # 0.833 - maps our pixels to DOOM's 200px space
+      SKY_YSCALE = 200.0 / SCREEN_HEIGHT # 0.833 - maps our pixels to DOOM's 200px space
       # Chocolate Doom: ANGLETOSKYSHIFT=22 gives 4 sky repetitions per 360 degrees.
       # Full circle (2pi) * 512/pi = 1024 columns, masked to 256 = 4 repetitions.
       SKY_XSCALE = 512.0 / Math::PI
@@ -446,9 +445,9 @@ module Doom
           # Sky Y: texel = skytexturemid + (y - centery) * scale
           # Maps texel 0 to screen top, texel 100 to horizon (1:1 for DOOM's 200px)
           (y1..y2).each do |y|
-            tex_y = (SKY_TEXTUREMID + (y - HALF_HEIGHT) * SKY_YSCALE).to_i % sky_height
+            tex_y = (SKY_TEXTUREMID + ((y - HALF_HEIGHT) * SKY_YSCALE)).to_i % sky_height
             color = column[tex_y]
-            framebuffer[y * SCREEN_WIDTH + x] = color
+            framebuffer[(y * SCREEN_WIDTH) + x] = color
           end
         end
       end
@@ -494,13 +493,14 @@ module Doom
         overlap = false
         (intrl..intrh).each do |x|
           next if x < 0 || x >= SCREEN_WIDTH
+
           if plane.top[x] <= plane.bottom[x]
             overlap = true
             break
           end
         end
 
-        if !overlap
+        unless overlap
           # No overlap - reuse same visplane with expanded range
           plane.minx = unionl if unionl < plane.minx
           plane.maxx = unionh if unionh > plane.maxx
@@ -570,7 +570,7 @@ module Doom
               if is_sky && sky_texture
                 sky_w = sky_texture.width
                 sky_h = sky_texture.height
-                sky_y = (SKY_TEXTUREMID + (y - HALF_HEIGHT) * SKY_YSCALE).to_i % sky_h
+                sky_y = (SKY_TEXTUREMID + ((y - HALF_HEIGHT) * SKY_YSCALE)).to_i % sky_h
                 x = 0
                 while x < SCREEN_WIDTH
                   column_angle = player_angle - Math.atan2(x - HALF_WIDTH, projection)
@@ -583,9 +583,9 @@ module Doom
                 x = 0
                 while x < SCREEN_WIDTH
                   ray_dist = perp_dist * column_distscale[x]
-                  tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
-                  tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
-                  color = ceil_pixels[tex_y * 64 + tex_x]
+                  tex_x = (player_x + (ray_dist * column_cos[x])).to_i & 63
+                  tex_y = (neg_player_y - (ray_dist * column_sin[x])).to_i & 63
+                  color = ceil_pixels[(tex_y * 64) + tex_x]
                   framebuffer[row_offset + x] = cmap[color]
                   x += 1
                 end
@@ -610,9 +610,9 @@ module Doom
                 x = 0
                 while x < SCREEN_WIDTH
                   ray_dist = perp_dist * column_distscale[x]
-                  tex_x = (player_x + ray_dist * column_cos[x]).to_i & 63
-                  tex_y = (neg_player_y - ray_dist * column_sin[x]).to_i & 63
-                  color = floor_pixels[tex_y * 64 + tex_x]
+                  tex_x = (player_x + (ray_dist * column_cos[x])).to_i & 63
+                  tex_y = (neg_player_y - (ray_dist * column_sin[x])).to_i & 63
+                  color = floor_pixels[(tex_y * 64) + tex_x]
                   framebuffer[row_offset + x] = cmap[color]
                   x += 1
                 end
@@ -701,6 +701,7 @@ module Doom
         x = min_sx
         while x <= max_sx
           return true if @ceiling_clip[x] < @floor_clip[x] - 1
+
           x += 1
         end
 
@@ -730,32 +731,28 @@ module Doom
 
         # Create floor visplane if floor is visible (below eye level)
         # Matches Chocolate Doom: if (frontsector->floorheight < viewz)
-        if @current_sector.floor_height < @player_z
-          @current_floor_plane = find_or_create_visplane(
-            @current_sector,
-            @current_sector.floor_height,
-            @current_sector.floor_texture,
-            @current_sector.light_level,
-            false
-          )
-        else
-          @current_floor_plane = nil
-        end
+        @current_floor_plane = if @current_sector.floor_height < @player_z
+                                 find_or_create_visplane(
+                                   @current_sector,
+                                   @current_sector.floor_height,
+                                   @current_sector.floor_texture,
+                                   @current_sector.light_level,
+                                   false
+                                 )
+                               end
 
         # Create ceiling visplane if ceiling is visible (above eye level or sky)
         # Matches Chocolate Doom: if (frontsector->ceilingheight > viewz || frontsector->ceilingpic == skyflatnum)
         is_sky = @current_sector.ceiling_texture == 'F_SKY1'
-        if @current_sector.ceiling_height > @player_z || is_sky
-          @current_ceiling_plane = find_or_create_visplane(
-            @current_sector,
-            @current_sector.ceiling_height,
-            @current_sector.ceiling_texture,
-            @current_sector.light_level,
-            true
-          )
-        else
-          @current_ceiling_plane = nil
-        end
+        @current_ceiling_plane = if @current_sector.ceiling_height > @player_z || is_sky
+                                   find_or_create_visplane(
+                                     @current_sector,
+                                     @current_sector.ceiling_height,
+                                     @current_sector.ceiling_texture,
+                                     @current_sector.light_level,
+                                     true
+                                   )
+                                 end
 
         # Process all segs in this subsector
         subsector.seg_count.times do |i|
@@ -783,11 +780,11 @@ module Doom
             return
           elsif y1 < near
             t = (near - y1) / (y2 - y1)
-            x1 = x1 + t * (x2 - x1)
+            x1 += (t * (x2 - x1))
             y1 = near
           elsif y2 < near
             t = (near - y1) / (y2 - y1)
-            x2 = x1 + t * (x2 - x1)
+            x2 = x1 + (t * (x2 - x1))
             y2 = near
           end
         end
@@ -831,7 +828,7 @@ module Doom
         # Calculate seg length for texture mapping
         seg_v1 = @map.vertices[seg.v1]
         seg_v2 = @map.vertices[seg.v2]
-        seg_length = Math.sqrt((seg_v2.x - seg_v1.x)**2 + (seg_v2.y - seg_v1.y)**2)
+        seg_length = Math.sqrt(((seg_v2.x - seg_v1.x)**2) + ((seg_v2.y - seg_v1.y)**2))
 
         draw_seg_range(x1i, x2i, sx1, sx2, y1, y2, sector, back_sector, sidedef, linedef, seg, seg_length)
       end
@@ -843,8 +840,8 @@ module Doom
 
         # Rotate - transform world to view space
         # View space: +Y forward (in direction of angle), +X is right
-        x = dx * @sin_angle - dy * @cos_angle
-        y = dx * @cos_angle + dy * @sin_angle
+        x = (dx * @sin_angle) - (dy * @cos_angle)
+        y = (dx * @cos_angle) + (dy * @sin_angle)
 
         [x, y]
       end
@@ -897,16 +894,16 @@ module Doom
         cos_a = @cos_angle
         proj = @projection
 
-        c1 = cos_a * proj - sin_a * HALF_WIDTH
-        c2 = sin_a * proj + cos_a * HALF_WIDTH
+        c1 = (cos_a * proj) - (sin_a * HALF_WIDTH)
+        c2 = (sin_a * proj) + (cos_a * HALF_WIDTH)
 
         # denom(x) = seg_dy * ray_dx - seg_dx * ray_dy = A * x + B
-        tex_a = seg_dy * sin_a + seg_dx * cos_a
-        tex_b = seg_dy * c1 - seg_dx * c2
+        tex_a = (seg_dy * sin_a) + (seg_dx * cos_a)
+        tex_b = (seg_dy * c1) - (seg_dx * c2)
 
         # numer(x) = py * ray_dx - px * ray_dy = E * x + F
-        tex_e = py * sin_a + px * cos_a
-        tex_f = py * c1 - px * c2
+        tex_e = (py * sin_a) + (px * cos_a)
+        tex_f = (py * c1) - (px * c2)
 
         tex_offset = seg.offset + sidedef.x_offset
 
@@ -964,22 +961,18 @@ module Doom
         end
 
         # Check planes for this seg range (R_CheckPlane equivalent)
-        if @current_floor_plane
-          @current_floor_plane = check_plane(@current_floor_plane, x1, x2)
-        end
-        if @current_ceiling_plane
-          @current_ceiling_plane = check_plane(@current_ceiling_plane, x1, x2)
-        end
+        @current_floor_plane = check_plane(@current_floor_plane, x1, x2) if @current_floor_plane
+        @current_ceiling_plane = check_plane(@current_ceiling_plane, x1, x2) if @current_ceiling_plane
 
         (x1..x2).each do |x|
           next if @ceiling_clip[x] >= @floor_clip[x] - 1
 
           # Screen-space interpolation for distance
-          t = sx2 != sx1 ? (x - sx1) / (sx2 - sx1) : 0
+          t = sx2 == sx1 ? 0 : (x - sx1) / (sx2 - sx1)
           t = t.clamp(0.0, 1.0)
 
           if dist1 > 0 && dist2 > 0
-            inv_dist = (1.0 - t) / dist1 + t / dist2
+            inv_dist = ((1.0 - t) / dist1) + (t / dist2)
             dist = 1.0 / inv_dist
           else
             dist = dist1 > 0 ? dist1 : dist2
@@ -987,13 +980,13 @@ module Doom
 
           # Ray-seg intersection for texture column
           # s = (E * x + F) / (A * x + B) gives position along seg in world units
-          denom = tex_a * x + tex_b
-          if denom.abs < 0.001
-            s = 0.0
-          else
-            s = (tex_e * x + tex_f) / denom
-          end
-          tex_col = (tex_offset + s * seg_length).to_i
+          denom = (tex_a * x) + tex_b
+          s = if denom.abs < 0.001
+                0.0
+              else
+                ((tex_e * x) + tex_f) / denom
+              end
+          tex_col = (tex_offset + (s * seg_length)).to_i
 
           # Skip if too close
           next if dist < 1
@@ -1009,8 +1002,8 @@ module Doom
           # Chocolate Doom rounds ceiling UP and floor DOWN to avoid 1-pixel gaps:
           #   yl = (topfrac+HEIGHTUNIT-1)>>HEIGHTBITS  (ceil for front ceiling)
           #   yh = bottomfrac>>HEIGHTBITS              (floor for front floor)
-          front_ceil_y = (HALF_HEIGHT - front_ceil * scale).ceil
-          front_floor_y = (HALF_HEIGHT - front_floor * scale).to_i
+          front_ceil_y = (HALF_HEIGHT - (front_ceil * scale)).ceil
+          front_floor_y = (HALF_HEIGHT - (front_floor * scale)).to_i
 
           # Clamp to current clip bounds
           ceil_y = [front_ceil_y, @ceiling_clip[x] + 1].max
@@ -1024,14 +1017,14 @@ module Doom
             # Chocolate Doom rounding:
             #   pixhigh>>HEIGHTBITS (truncate for back ceiling / upper wall end)
             #   (pixlow+HEIGHTUNIT-1)>>HEIGHTBITS (ceil for back floor / lower wall start)
-            back_ceil_y = (HALF_HEIGHT - back_ceil * scale).to_i
-            back_floor_y = (HALF_HEIGHT - back_floor * scale).ceil
+            back_ceil_y = (HALF_HEIGHT - (back_ceil * scale)).to_i
+            back_floor_y = (HALF_HEIGHT - (back_floor * scale)).ceil
 
             # Determine visible ceiling/floor boundaries (the opening between sectors)
             # high_ceil = top of the opening on screen (max Y = lower world ceiling)
             # low_floor = bottom of the opening on screen (min Y = higher world floor)
-            high_ceil = [ceil_y, back_ceil_y].max
-            low_floor = [floor_y, back_floor_y].min
+            [ceil_y, back_ceil_y].max
+            [floor_y, back_floor_y].min
 
             # Check for closed door (no opening between sectors)
             # Matches Chocolate Doom: backsector->ceilingheight <= frontsector->floorheight
@@ -1066,9 +1059,7 @@ module Doom
               mark_top = @ceiling_clip[x] + 1
               mark_bottom = ceil_y - 1
               mark_bottom = [@floor_clip[x] - 1, mark_bottom].min
-              if mark_top <= mark_bottom
-                @current_ceiling_plane.mark(x, mark_top, mark_bottom)
-              end
+              @current_ceiling_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
             end
 
             # Mark floor visplane
@@ -1076,9 +1067,7 @@ module Doom
               mark_top = floor_y + 1
               mark_bottom = @floor_clip[x] - 1
               mark_top = [@ceiling_clip[x] + 1, mark_top].max
-              if mark_top <= mark_bottom
-                @current_floor_plane.mark(x, mark_top, mark_bottom)
-              end
+              @current_floor_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
             end
 
             # Upper wall (ceiling step down) - skip if both sectors have sky
@@ -1096,19 +1085,17 @@ module Doom
 
             # Lower wall (floor step up)
             if sector.floor_height < back_sector.floor_height
-              if linedef.lower_unpegged?
-                lower_tex_y = sidedef.y_offset + sector.ceiling_height - back_sector.floor_height
-              else
-                lower_tex_y = sidedef.y_offset
-              end
+              lower_tex_y = if linedef.lower_unpegged?
+                              sidedef.y_offset + sector.ceiling_height - back_sector.floor_height
+                            else
+                              sidedef.y_offset
+                            end
               draw_wall_column_ex(x, back_floor_y, floor_y, sidedef.lower_texture, dist,
                                   sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height)
             end
 
             # Store masked texture column for deferred rendering (grates, bars)
-            if @current_masked_cols
-              @current_masked_cols[x - x1] = tex_col
-            end
+            @current_masked_cols[x - x1] = tex_col if @current_masked_cols
 
             # Update clip bounds
             if closed_door
@@ -1144,9 +1131,7 @@ module Doom
             if @current_ceiling_plane
               mark_top = @ceiling_clip[x] + 1
               mark_bottom = [ceil_y - 1, @floor_clip[x] - 1].min
-              if mark_top <= mark_bottom
-                @current_ceiling_plane.mark(x, mark_top, mark_bottom)
-              end
+              @current_ceiling_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
             end
 
             # Mark floor visplane (from wall's floor to previous floor clip)
@@ -1154,9 +1139,7 @@ module Doom
             if @current_floor_plane
               mark_top = [floor_y + 1, @ceiling_clip[x] + 1].max
               mark_bottom = @floor_clip[x] - 1
-              if mark_top <= mark_bottom
-                @current_floor_plane.mark(x, mark_top, mark_bottom)
-              end
+              @current_floor_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
             end
 
             # Draw wall (from clipped ceiling to clipped floor)
@@ -1186,7 +1169,7 @@ module Doom
         if silhouette != SIL_NONE || has_masked
           sprtopclip = @ceiling_clip[x1..x2].dup
           sprbottomclip = @floor_clip[x1..x2].dup
-          scalestep = (x2 > x1) ? (scale2 - scale1) / (x2 - x1) : 0
+          scalestep = x2 > x1 ? (scale2 - scale1) / (x2 - x1) : 0
 
           drawseg = Drawseg.new(
             x1, x2,
@@ -1240,10 +1223,10 @@ module Doom
         tex_step = 1.0 / scale
 
         # Calculate where the unclipped wall top would be on screen
-        unclipped_y1 = HALF_HEIGHT - (world_top - @player_z) * scale
+        unclipped_y1 = HALF_HEIGHT - ((world_top - @player_z) * scale)
 
         # Adjust tex_y_start for any clipping at the top
-        tex_y_at_y1 = tex_y_start + (y1 - unclipped_y1) * tex_step
+        tex_y_at_y1 = tex_y_start + ((y1 - unclipped_y1) * tex_step)
 
         # Clamp to screen bounds
         y1 = 0 if y1 < 0
@@ -1253,10 +1236,10 @@ module Doom
         y = y1
         while y <= y2
           screen_offset = y - y1
-          tex_y = (tex_y_at_y1 + screen_offset * tex_step).to_i % tex_height
+          tex_y = (tex_y_at_y1 + (screen_offset * tex_step)).to_i % tex_height
 
           color = column[tex_y]
-          framebuffer[y * SCREEN_WIDTH + x] = cmap[color] if color
+          framebuffer[(y * SCREEN_WIDTH) + x] = cmap[color] if color
           y += 1
         end
       end
@@ -1354,7 +1337,7 @@ module Doom
           # Get sprite: death frame > walking frame > idle frame
           if @combat && @combat.dead?(thing_idx)
             sprite = @combat.death_sprite(thing_idx, thing.type, angle_to_thing, thing.angle)
-            next unless sprite  # Barrel disappeared after explosion
+            next unless sprite # Barrel disappeared after explosion
           elsif @monster_ai
             mon = @monster_ai.monster_by_thing_idx[thing_idx]
             if mon && mon.active
@@ -1402,14 +1385,15 @@ module Doom
         # Draw remaining masked segs not triggered by sprites
         @drawsegs.reverse_each do |ds|
           next unless ds.maskedtexturecol
+
           render_masked_seg_range(ds, ds.x1, ds.x2)
         end
 
         # Draw projectiles, explosions, and bullet puffs
-        if @combat
-          render_projectiles
-          render_puffs
-        end
+        return unless @combat
+
+        render_projectiles
+        render_puffs
       end
 
       # Chocolate Doom R_DrawMasked: interleave sprites with masked drawsegs
@@ -1425,7 +1409,7 @@ module Doom
       PLAYER_DEATH_FRAMES = %w[H I J K L M N].freeze
       PLAYER_DEATH_FRAME_TICS = 6
       PLAYER_ATTACK_FRAME = 'E'
-      PLAYER_MOVING_SPEED = 1.0  # units/sec below which a player reads as still
+      PLAYER_MOVING_SPEED = 1.0 # units/sec below which a player reads as still
 
       def collect_player_sprites(visible_sprites)
         return if @players.nil? || @players.empty?
@@ -1481,18 +1465,18 @@ module Doom
           next if ds.silhouette == SIL_NONE && ds.maskedtexturecol.nil?
 
           ds_max_scale = [ds.scale1, ds.scale2].max
-          ds_min_scale = [ds.scale1, ds.scale2].min
+          [ds.scale1, ds.scale2].min
 
           # Is the drawseg behind the sprite?
-          if ds_max_scale < sprite_scale
-            # Draw masked texture behind the sprite
-            if ds.maskedtexturecol
-              r1 = [ds.x1, spr.screen_x.to_i - spr.sprite.width].max
-              r2 = [ds.x2, spr.screen_x.to_i + spr.sprite.width].min
-              render_masked_seg_range(ds, r1, r2)
-            end
-            next  # Don't clip against things behind
+          next unless ds_max_scale < sprite_scale
+
+          # Draw masked texture behind the sprite
+          if ds.maskedtexturecol
+            r1 = [ds.x1, spr.screen_x.to_i - spr.sprite.width].max
+            r2 = [ds.x2, spr.screen_x.to_i + spr.sprite.width].min
+            render_masked_seg_range(ds, r1, r2)
           end
+          next # Don't clip against things behind
         end
 
         draw_sprite(spr)
@@ -1534,22 +1518,23 @@ module Doom
           next if col_idx < 0 || col_idx >= ds.maskedtexturecol.size
 
           tex_col = ds.maskedtexturecol[col_idx]
-          next unless tex_col  # nil = already drawn or empty
+          next unless tex_col # nil = already drawn or empty
 
           # Per-column distance using same 1/z interpolation as wall renderer
           if ds.dist1 && ds.dist2 && ds.dist1 > 0 && ds.dist2 > 0 && ds.sx2 != ds.sx1
             t = ((x - ds.sx1) / (ds.sx2 - ds.sx1)).clamp(0.0, 1.0)
-            inv_dist = (1.0 - t) / ds.dist1 + t / ds.dist2
+            inv_dist = ((1.0 - t) / ds.dist1) + (t / ds.dist2)
             col_dist = 1.0 / inv_dist
           else
             col_dist = ds.dist1 || 1.0
           end
           next if col_dist < 1
+
           spryscale = @projection / col_dist
           spryscale = [spryscale, 64.0].min
 
           # Screen Y of texture top
-          sprtopscreen = HALF_HEIGHT - dc_texturemid * spryscale
+          sprtopscreen = HALF_HEIGHT - (dc_texturemid * spryscale)
 
           # Get clip bounds from drawseg
           clip_idx = x - ds.x1
@@ -1572,23 +1557,23 @@ module Doom
           (0..tex_height).each do |ty|
             color = ty < tex_height ? column[ty] : nil
             if color
-              y_start = ty unless y_start
+              y_start ||= ty
             elsif y_start
               # Draw run from y_start to ty-1
-              top_y = (sprtopscreen + y_start * spryscale).to_i
-              bot_y = (sprtopscreen + ty * spryscale).to_i - 1
+              top_y = (sprtopscreen + (y_start * spryscale)).to_i
+              bot_y = (sprtopscreen + (ty * spryscale)).to_i - 1
               top_y = [top_y, mceilingclip + 1].max
               bot_y = [bot_y, mfloorclip - 1].min
 
               if top_y <= bot_y
                 top_y = [top_y, 0].max
                 bot_y = [bot_y, SCREEN_HEIGHT - 1].min
-                tex_frac = y_start + (top_y - (sprtopscreen + y_start * spryscale)) * iscale
+                tex_frac = y_start + ((top_y - (sprtopscreen + (y_start * spryscale))) * iscale)
                 y = top_y
                 while y <= bot_y
-                  t = ((tex_frac).to_i % tex_height)
+                  t = (tex_frac.to_i % tex_height)
                   c = column[t]
-                  @framebuffer[y * SCREEN_WIDTH + x] = cmap[c] if c
+                  @framebuffer[(y * SCREEN_WIDTH) + x] = cmap[c] if c
                   tex_frac += iscale
                   y += 1
                 end
@@ -1617,7 +1602,7 @@ module Doom
           rocket_angle = Math.atan2(proj.dy, proj.dx)
           viewer_angle = Math.atan2(proj.y - @player_y, proj.x - @player_x)
           angle_diff = (viewer_angle - rocket_angle) % (2 * Math::PI)
-          rotation = ((angle_diff + Math::PI / 8) / (Math::PI / 4)).to_i % 8 + 1
+          rotation = (((angle_diff + (Math::PI / 8)) / (Math::PI / 4)).to_i % 8) + 1
 
           # Animate flight: cycle A/B frames
           flight_frame = %w[A B][@leveltime / 4 % 2]
@@ -1636,14 +1621,16 @@ module Doom
         @combat.explosions.each do |expl|
           view_x, view_y = transform_point(expl[:x], expl[:y])
           next if view_y <= 0
+
           elapsed = (@combat.instance_variable_get(:@tic) - expl[:tic])
           frame_idx = (elapsed / 4).clamp(0, 2)
 
           prefix = expl[:sprite] || 'MISL'
-          frame_letter = (prefix == 'MISL') ? %w[B C D][frame_idx] : %w[C D E][frame_idx]
+          frame_letter = prefix == 'MISL' ? %w[B C D][frame_idx] : %w[C D E][frame_idx]
 
           expl_sprite = @sprites.send(:load_sprite_frame, prefix, frame_letter, 0)
           next unless expl_sprite
+
           screen_x = HALF_WIDTH + (view_x * @projection / view_y)
           expl_z = expl[:z] || @player_z
           stub = ProjectileStub.new(expl[:x], expl[:y], 0, 0, 0, expl_z)
@@ -1656,11 +1643,13 @@ module Doom
         @combat.puffs.each do |puff|
           view_x, view_y = transform_point(puff[:x], puff[:y])
           next if view_y <= 0
+
           elapsed = @combat.instance_variable_get(:@tic) - puff[:tic]
           frame_idx = (elapsed / 3).clamp(0, 3)
           frame_letter = %w[A B C D][frame_idx]
           puff_sprite = @sprites.send(:load_sprite_frame, 'PUFF', frame_letter, 0)
           next unless puff_sprite
+
           screen_x = HALF_WIDTH + (view_x * @projection / view_y)
           stub = ProjectileStub.new(puff[:x], puff[:y], 0, 0, 0, puff[:z])
           visible = VisibleSprite.new(stub, puff_sprite, view_x, view_y, view_y, screen_x)
@@ -1689,7 +1678,7 @@ module Doom
         light = calculate_light(light_level, dist)
 
         # Sprite screen bounds
-        sprite_left = (screen_x - sprite.left_offset * sprite_scale).to_i
+        sprite_left = (screen_x - (sprite.left_offset * sprite_scale)).to_i
         sprite_right = sprite_left + sprite_screen_width - 1
 
         # Clamp to screen
@@ -1701,11 +1690,11 @@ module Doom
         # gzt = mobj->z + spritetopoffset (top of sprite)
         # gz = gzt - spriteheight (bottom of sprite, 1:1 pixel:unit)
         thing_floor = sector ? sector.floor_height : 0
-        if thing.is_a?(ProjectileStub) && thing.z
-          base_z = thing.z
-        else
-          base_z = thing_floor
-        end
+        base_z = if thing.is_a?(ProjectileStub) && thing.z
+                   thing.z
+                 else
+                   thing_floor
+                 end
         sprite_gzt = base_z + sprite.top_offset
         sprite_gz = sprite_gzt - sprite.height
 
@@ -1748,26 +1737,22 @@ module Doom
           silhouette = ds.silhouette
 
           # If sprite bottom is at or above the bottom silhouette height, don't clip bottom
-          if sprite_gz >= ds.bsilheight
-            silhouette &= ~SIL_BOTTOM
-          end
+          silhouette &= ~SIL_BOTTOM if sprite_gz >= ds.bsilheight
 
           # If sprite top is at or below the top silhouette height, don't clip top
-          if sprite_gzt <= ds.tsilheight
-            silhouette &= ~SIL_TOP
-          end
+          silhouette &= ~SIL_TOP if sprite_gzt <= ds.tsilheight
 
           # Apply clipping for each column in the overlap
           (r1..r2).each do |x|
             # Index into drawseg's clip arrays (0-based from ds.x1)
             ds_idx = x - ds.x1
 
-            if (silhouette & SIL_BOTTOM) != 0 && clipbot[x] == -2
-              clipbot[x] = ds.sprbottomclip[ds_idx] if ds.sprbottomclip && ds_idx < ds.sprbottomclip.length
+            if (silhouette & SIL_BOTTOM) != 0 && clipbot[x] == -2 && ds.sprbottomclip && ds_idx < ds.sprbottomclip.length
+              clipbot[x] = ds.sprbottomclip[ds_idx]
             end
 
-            if (silhouette & SIL_TOP) != 0 && cliptop[x] == -2
-              cliptop[x] = ds.sprtopclip[ds_idx] if ds.sprtopclip && ds_idx < ds.sprtopclip.length
+            if (silhouette & SIL_TOP) != 0 && cliptop[x] == -2 && ds.sprtopclip && ds_idx < ds.sprtopclip.length
+              cliptop[x] = ds.sprtopclip[ds_idx]
             end
           end
         end
@@ -1781,8 +1766,8 @@ module Doom
         # Calculate sprite screen Y positions
         sprite_top_world = sprite_gzt - @player_z
         sprite_bottom_world = sprite_gz - @player_z
-        sprite_top_screen = (HALF_HEIGHT - sprite_top_world * sprite_scale).to_i
-        sprite_bottom_screen = (HALF_HEIGHT - sprite_bottom_world * sprite_scale).to_i
+        sprite_top_screen = (HALF_HEIGHT - (sprite_top_world * sprite_scale)).to_i
+        sprite_bottom_screen = (HALF_HEIGHT - (sprite_bottom_world * sprite_scale)).to_i
 
         # Cache for inner loop
         framebuffer = @framebuffer
@@ -1820,7 +1805,7 @@ module Doom
             next unless color
 
             # Apply lighting and write directly to framebuffer
-            framebuffer[y * SCREEN_WIDTH + x] = cmap[color]
+            framebuffer[(y * SCREEN_WIDTH) + x] = cmap[color]
           end
         end
       end

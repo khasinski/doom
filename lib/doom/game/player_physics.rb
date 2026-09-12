@@ -57,7 +57,7 @@ module Doom
         55 => 16, 56 => 16, 57 => 16,                     # Short torches
         47 => 16, 70 => 16,                               # Stubs
         85 => 16, 86 => 16,                               # Tall tech lamps
-        2046 => 16,                                       # Burning barrel
+        2046 => 16 # Burning barrel
       }.freeze
 
       attr_reader :floor_z, :momz
@@ -82,6 +82,7 @@ module Doom
       # Returns nil before the first settle_at.
       def eye_z
         return nil unless @floor_z
+
         if @player_state
           @floor_z + @player_state.viewheight + @player_state.view_bob_offset
         else
@@ -118,6 +119,7 @@ module Doom
 
         sector = @map.sector_at(x, y)
         return unless sector
+
         ground = sector.floor_height
 
         if @floor_z > ground
@@ -249,12 +251,12 @@ module Doom
         v2 = @map.vertices[best_wall.v2]
         wall_dx = (v2.x - v1.x).to_f
         wall_dy = (v2.y - v1.y).to_f
-        wall_len = Math.sqrt(wall_dx * wall_dx + wall_dy * wall_dy)
+        wall_len = Math.sqrt((wall_dx * wall_dx) + (wall_dy * wall_dy))
         return nil if wall_len == 0
 
         wall_dx /= wall_len
         wall_dy /= wall_len
-        dot = dx * wall_dx + dy * wall_dy
+        dot = (dx * wall_dx) + (dy * wall_dy)
         [dot * wall_dx, dot * wall_dy]
       end
 
@@ -282,9 +284,9 @@ module Doom
       # Iterate linedefs that may interact with the player moving from
       # (x1, y1) to (x2, y2). Uses BLOCKMAP when available; otherwise falls
       # back to scanning all linedefs.
-      def each_nearby_linedef(x1, y1, x2, y2)
+      def each_nearby_linedef(x1, y1, x2, y2, &)
         unless @map.respond_to?(:blockmap_loaded?) && @map.blockmap_loaded?
-          @map.linedefs.each { |ld| yield ld }
+          @map.linedefs.each(&)
           return
         end
 
@@ -293,18 +295,16 @@ module Doom
         max_x = [x1, x2].max + PLAYER_RADIUS
         min_y = [y1, y2].min - PLAYER_RADIUS
         max_y = [y1, y2].max + PLAYER_RADIUS
-        @map.each_linedef_near(min_x, min_y, max_x, max_y) { |ld| yield ld }
+        @map.each_linedef_near(min_x, min_y, max_x, max_y, &)
       end
 
       def crosses_blocking_linedef?(x1, y1, x2, y2, linedef)
         v1 = @map.vertices[linedef.v1]
         v2 = @map.vertices[linedef.v2]
 
-        if linedef.sidedef_left == 0xFFFF
-          return Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
-        end
+        return Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y) if linedef.sidedef_left == 0xFFFF
 
-        if (linedef.flags & 0x0001) != 0  # ML_BLOCKING
+        if (linedef.flags & 0x0001) != 0 # ML_BLOCKING
           return Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
         end
 
@@ -349,13 +349,14 @@ module Doom
           next if @skill_hidden[idx]
           next if picked && picked[idx]
           next if @combat && @combat.dead?(idx)
+
           thing_radius = SOLID_THING_RADIUS[thing.type]
           next unless thing_radius
 
           dx = x - thing.x
           dy = y - thing.y
           min_dist = PLAYER_RADIUS + thing_radius
-          return true if dx * dx + dy * dy < min_dist * min_dist
+          return true if (dx * dx) + (dy * dy) < min_dist * min_dist
         end
         false
       end

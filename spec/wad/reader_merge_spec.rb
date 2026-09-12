@@ -35,10 +35,10 @@ RSpec.describe 'Doom::Wad::Reader PWAD merge' do
 
   it 'reads an overridden non-map lump from the PWAD, not the base IWAD offset' do
     iwad = Doom::Wad::Reader.new(
-      wad_path_for('IWAD', [['PLAYPAL', 'IWAD-PALETTE-DATA'], ['COLORMAP', 'iwad-colormap']])
+      wad_path_for('IWAD', [%w[PLAYPAL IWAD-PALETTE-DATA], %w[COLORMAP iwad-colormap]])
     )
     pwad = Doom::Wad::Reader.new(
-      wad_path_for('PWAD', [['PLAYPAL', 'PWAD-OVERRIDE-PAL']])
+      wad_path_for('PWAD', [%w[PLAYPAL PWAD-OVERRIDE-PAL]])
     )
 
     iwad.merge_pwad(pwad)
@@ -54,8 +54,8 @@ RSpec.describe 'Doom::Wad::Reader PWAD merge' do
   end
 
   it 'appends a PWAD-only lump and reads it from the PWAD file' do
-    iwad = Doom::Wad::Reader.new(wad_path_for('IWAD', [['PLAYPAL', 'base-pal']]))
-    pwad = Doom::Wad::Reader.new(wad_path_for('PWAD', [['NEWLUMP', 'brand-new-lump']]))
+    iwad = Doom::Wad::Reader.new(wad_path_for('IWAD', [%w[PLAYPAL base-pal]]))
+    pwad = Doom::Wad::Reader.new(wad_path_for('PWAD', [%w[NEWLUMP brand-new-lump]]))
 
     iwad.merge_pwad(pwad)
 

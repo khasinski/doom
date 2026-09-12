@@ -28,13 +28,13 @@ module Doom
       # Small ammo counts (right side of status bar)
       SMALL_AMMO_X = 288     # Current ammo X
       SMALL_MAX_X = 314      # Max ammo X
-      SMALL_AMMO_Y = [5, 11, 23, 17]  # Bullets, Shells, Cells, Rockets (relative to bar)
+      SMALL_AMMO_Y = [5, 11, 23, 17] # Bullets, Shells, Cells, Rockets (relative to bar)
 
       NUM_WIDTH = 14          # Width of large digit
       SMALL_NUM_WIDTH = 4     # Width of small digit
 
       attr_reader :gfx
-      attr_writer :player  # Re-pointed on world rebind (map change, netgame resync)
+      attr_writer :player # Re-pointed on world rebind (map change, netgame resync)
 
       def initialize(hud_graphics, player_state)
         @gfx = hud_graphics
@@ -80,10 +80,10 @@ module Doom
       def update
         # Cycle face animation
         @face_timer += 1
-        if @face_timer > 15  # Change face every ~0.5 seconds
-          @face_timer = 0
-          @face_index = (@face_index + 1) % 3
-        end
+        return unless @face_timer > 15 # Change face every ~0.5 seconds
+
+        @face_timer = 0
+        @face_index = (@face_index + 1) % 3
       end
 
       private
@@ -104,7 +104,7 @@ module Doom
             draw_y = y + sy
             next if draw_y < 0 || draw_y >= SCREEN_HEIGHT
 
-            framebuffer[draw_y * SCREEN_WIDTH + draw_x] = color
+            framebuffer[(draw_y * SCREEN_WIDTH) + draw_x] = color
           end
         end
       end
@@ -140,13 +140,13 @@ module Doom
       def draw_arms(framebuffer)
         # Weapon numbers 2-7 in a 3x2 grid
         6.times do |i|
-          weapon_num = i + 2  # weapons 2-7
+          weapon_num = i + 2 # weapons 2-7
           owned = @player.has_weapons[weapon_num]
           digit = owned ? @gfx.yellow_numbers[weapon_num] : @gfx.grey_numbers[weapon_num]
           next unless digit
 
-          x = ARMS_X + (i % 3) * ARMS_XSPACE
-          y = STATUS_BAR_Y + ARMS_Y + (i / 3) * ARMS_YSPACE
+          x = ARMS_X + ((i % 3) * ARMS_XSPACE)
+          y = STATUS_BAR_Y + ARMS_Y + ((i / 3) * ARMS_YSPACE)
           draw_sprite(framebuffer, digit, x, y)
         end
       end
@@ -164,6 +164,7 @@ module Doom
                end
 
         return unless face
+
         draw_sprite(framebuffer, face, FACE_X, STATUS_BAR_Y + FACE_Y)
       end
 
@@ -180,6 +181,7 @@ module Doom
 
       def draw_small_number_right(framebuffer, value, right_x, y)
         return unless value
+
         str = value.to_i.to_s
         current_x = right_x
         str.reverse.each_char do |char|
@@ -193,7 +195,6 @@ module Doom
 
       def draw_keys(framebuffer)
         key_x = KEYS_X
-        key_spacing = 10
 
         # Blue keys (top row)
         if @player.keys[:blue_card]

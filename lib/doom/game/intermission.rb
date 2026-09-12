@@ -12,14 +12,14 @@ module Doom
       # Episode 1 par times in seconds (from Chocolate Doom)
       PAR_TIMES = {
         'E1M1' => 30, 'E1M2' => 75, 'E1M3' => 120, 'E1M4' => 90,
-        'E1M5' => 165, 'E1M6' => 180, 'E1M7' => 180, 'E1M8' => 30, 'E1M9' => 165,
+        'E1M5' => 165, 'E1M6' => 180, 'E1M7' => 180, 'E1M8' => 30, 'E1M9' => 165
       }.freeze
 
       # Next map progression
       NEXT_MAP = {
         'E1M1' => 'E1M2', 'E1M2' => 'E1M3', 'E1M3' => 'E1M4', 'E1M4' => 'E1M5',
         'E1M5' => 'E1M6', 'E1M6' => 'E1M7', 'E1M7' => 'E1M8', 'E1M8' => nil,
-        'E1M9' => 'E1M4',
+        'E1M9' => 'E1M4'
       }.freeze
 
       # Counter animation speed (percentage points per tic)
@@ -30,7 +30,7 @@ module Doom
 
       def initialize(_wad, hud_graphics, stats)
         @gfx = hud_graphics
-        @stats = stats  # { map:, kills:, total_kills:, items:, total_items:, secrets:, total_secrets:, time_tics: }
+        @stats = stats # { map:, kills:, total_kills:, items:, total_items:, secrets:, total_secrets:, time_tics: }
         @finished = false
         @next_map = NEXT_MAP[stats[:map]]
         @tic = 0
@@ -113,11 +113,11 @@ module Doom
         end
 
         # "Press any key" hint after counting
-        if @counting_done && (@tic / 17) % 2 == 0
-          # Blink hint via skull
-          skull = @skulls[@tic / 8 % 2]
-          draw_sprite(framebuffer, skull, 144, 210) if skull
-        end
+        return unless @counting_done && (@tic / 17).even?
+
+        # Blink hint via skull
+        skull = @skulls[@tic / 8 % 2]
+        draw_sprite(framebuffer, skull, 144, 210) if skull
       end
 
       def handle_key
@@ -137,7 +137,8 @@ module Doom
 
       def map_to_level_index(map_name)
         return 0 unless map_name
-        map_name[3].to_i - 1  # E1M1 -> 0, E1M2 -> 1, etc.
+
+        map_name[3].to_i - 1 # E1M1 -> 0, E1M2 -> 1, etc.
       end
 
       def load_graphics
@@ -172,11 +173,13 @@ module Doom
 
       def draw_background(framebuffer)
         return unless @wimap
+
         draw_fullscreen(framebuffer, @wimap)
       end
 
       def draw_fullscreen(framebuffer, sprite)
         return unless sprite
+
         y_offset = [(Render::SCREEN_HEIGHT - sprite.height) / 2, 0].max
         blit_sprite(framebuffer, sprite, 0, y_offset)
       end
@@ -197,7 +200,7 @@ module Doom
         draw_num_right(framebuffer, right_x, y, secs, pad: 2)
 
         # Colon
-        colon_x = right_x - num_width * 2 - 4
+        colon_x = right_x - (num_width * 2) - 4
         draw_sprite(framebuffer, @colon, colon_x, y) if @colon
 
         # Minutes

@@ -21,10 +21,10 @@ RSpec.describe Doom::Game::SectorEffects do
     bright = Doom::Map::Sector.new(0, 128, 'F', 'C', 255, special, 0)
     dark   = Doom::Map::Sector.new(0, 128, 'F', 'C', 100, 0, 0)
     sidedefs = [
-      Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 0),  # front -> bright
-      Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 1),  # back  -> dark
+      Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 0), # front -> bright
+      Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 1) # back  -> dark
     ]
-    linedefs = [Doom::Map::Linedef.new(0, 1, 0x0004, 0, 0, 0, 1)]  # TWOSIDED
+    linedefs = [Doom::Map::Linedef.new(0, 1, 0x0004, 0, 0, 0, 1)] # TWOSIDED
     map = Object.new
     map.define_singleton_method(:sectors) { [bright, dark] }
     map.define_singleton_method(:sidedefs) { sidedefs }
@@ -37,7 +37,10 @@ RSpec.describe Doom::Game::SectorEffects do
     map = flicker_map
     fx = described_class.new(map, random: Doom::Game::Random.new(seed))
     sector = map.sectors.first
-    Array.new(tics) { fx.update; sector.light_level }
+    Array.new(tics) {
+      fx.update
+      sector.light_level
+    }
   end
 
   describe '#initialize' do

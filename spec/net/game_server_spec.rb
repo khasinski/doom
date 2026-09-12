@@ -16,7 +16,15 @@ RSpec.describe Doom::Net::GameServer do
 
   after(:all) { @wad&.close }
 
-  after { @closeables&.each { |t| t.close rescue nil } }
+  after {
+    @closeables&.each { |t|
+      begin
+        t.close
+      rescue StandardError
+        nil
+      end
+    }
+  }
 
   def track(t)
     (@closeables ||= []) << t
@@ -49,7 +57,7 @@ RSpec.describe Doom::Net::GameServer do
   # snapshot, then follow the frame stream, applying joins and leaves as the
   # tic events they are. Its world must stay identical to the server's.
   class Follower
-    attr_reader :world, :player_id, :synced_tic
+    attr_reader :world, :player_id, :synced_tic, :transport
 
     def initialize(server, sprites, wad)
       @server = server
@@ -60,8 +68,6 @@ RSpec.describe Doom::Net::GameServer do
       @pending_frames = {}
       @synced_tic = nil
     end
-
-    attr_reader :transport
 
     def hello
       @transport.send_to_addr('127.0.0.1', @server.transport.local_port,
@@ -192,7 +198,7 @@ RSpec.describe Doom::Net::GameServer do
       follower.hello
 
       # Let the join complete, then play a while with scripted input.
-      script = lambda do |f, i|
+      script = lambda do |_f, i|
         [[server.tic + INPUT_LEAD + 1,
           Doom::Game::Ticcmd.new(1.0, 0.0, (i % 5) - 2.0, 0)]]
       end
@@ -250,12 +256,12 @@ RSpec.describe Doom::Net::GameServer do
       early = new_follower(server)
       early.hello
       run(server, [early], tics: 100,
-          input: ->(_f, i) { [[server.tic + 3, Doom::Game::Ticcmd.new(1.0, 0, (i % 5) - 2.0, 0)]] })
+                           input: ->(_f, i) { [[server.tic + 3, Doom::Game::Ticcmd.new(1.0, 0, (i % 5) - 2.0, 0)]] })
 
       late = new_follower(server)
       late.hello
       run(server, [early, late], tics: 60,
-          input: ->(_f, i) { [[server.tic + 3, Doom::Game::Ticcmd.new(-1.0, 0, 0, 0)]] })
+                                 input: ->(_f, _i) { [[server.tic + 3, Doom::Game::Ticcmd.new(-1.0, 0, 0, 0)]] })
 
       expect(late).to be_synced
       expect(late.world.state_hash).to eq(server.world.state_hash)

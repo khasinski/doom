@@ -18,7 +18,7 @@ RSpec.describe Doom::Platform::WindowLogic do
         Thing.new(0x0002), # medium-only
         Thing.new(0x0004), # hard-only
         Thing.new(0x0007), # all skills
-        Thing.new(0x0010), # multiplayer-only
+        Thing.new(0x0010) # multiplayer-only
       ]
     end
 
@@ -77,10 +77,8 @@ RSpec.describe Doom::Platform::WindowLogic do
     Desync = Struct.new(:tic, :sections)
 
     def lines(**overrides)
-      described_class.net_status_lines(**{
-        started: true, host: true, waiting: [],
-        stalled_seconds: 0.0, stall_threshold: 0.35, desync: nil
-      }.merge(overrides))
+      described_class.net_status_lines(started: true, host: true, waiting: [],
+                                       stalled_seconds: 0.0, stall_threshold: 0.35, desync: nil, **overrides)
     end
 
     it 'is silent during healthy, started play' do
@@ -110,10 +108,10 @@ RSpec.describe Doom::Platform::WindowLogic do
       result = lines(started: false, host: false, waiting: [3],
                      stalled_seconds: 1.0, desync: Desync.new(7, [:world]))
       expect(result).to eq([
-        'CONNECTING...',
-        'WAITING FOR PLAYER 3',
-        'DESYNC AT TIC 7 (world)',
-      ])
+                             'CONNECTING...',
+                             'WAITING FOR PLAYER 3',
+                             'DESYNC AT TIC 7 (world)'
+                           ])
     end
   end
 end

@@ -9,7 +9,7 @@ module Doom
   class WadDownloader
     # Doom shareware WAD v1.9 (freely distributable)
     SHAREWARE_URL = 'https://raw.githubusercontent.com/Akbar30Bill/DOOM_wads/master/doom1.wad'
-    SHAREWARE_SIZE = 4_196_020  # Expected size in bytes
+    SHAREWARE_SIZE = 4_196_020 # Expected size in bytes
     SHAREWARE_FILENAME = 'doom1.wad'
 
     class DownloadError < StandardError; end
@@ -27,20 +27,18 @@ module Doom
       return home_wad if File.exist?(home_wad)
 
       # No WAD found - offer to download
-      if custom_path
-        raise DownloadError, "WAD file not found: #{custom_path}"
-      end
+      raise DownloadError, "WAD file not found: #{custom_path}" if custom_path
 
       prompt_and_download(home_wad)
     end
 
     def self.prompt_and_download(destination)
-      puts "No DOOM WAD file found."
+      puts 'No DOOM WAD file found.'
       puts
-      puts "Would you like to download the shareware version of DOOM (4 MB)?"
-      puts "This is the free, legally distributable version with Episode 1."
+      puts 'Would you like to download the shareware version of DOOM (4 MB)?'
+      puts 'This is the free, legally distributable version with Episode 1.'
       puts
-      print "Download shareware DOOM? [Y/n] "
+      print 'Download shareware DOOM? [Y/n] '
 
       response = $stdin.gets&.strip&.downcase
       if response.nil? || response.empty? || response == 'y' || response == 'yes'
@@ -48,17 +46,17 @@ module Doom
         destination
       else
         puts
-        puts "To play DOOM, you need a WAD file. Options:"
+        puts 'To play DOOM, you need a WAD file. Options:'
         puts "  1. Run 'doom' again and accept the shareware download"
-        puts "  2. Copy your own doom1.wad or doom.wad to the current directory"
-        puts "  3. Specify a WAD path: doom /path/to/your.wad"
+        puts '  2. Copy your own doom1.wad or doom.wad to the current directory'
+        puts '  3. Specify a WAD path: doom /path/to/your.wad'
         exit 1
       end
     end
 
     def self.download_shareware(destination)
       puts
-      puts "Downloading DOOM shareware..."
+      puts 'Downloading DOOM shareware...'
 
       # Create directory if needed
       FileUtils.mkdir_p(File.dirname(destination))
@@ -71,10 +69,10 @@ module Doom
 
       # Verify file size
       actual_size = File.size(destination)
-      if actual_size < 1_000_000  # Less than 1MB is suspicious
-        File.delete(destination)
-        raise DownloadError, "Download appears incomplete (#{actual_size} bytes)"
-      end
+      return unless actual_size < 1_000_000 # Less than 1MB is suspicious
+
+      File.delete(destination)
+      raise DownloadError, "Download appears incomplete (#{actual_size} bytes)"
     end
 
     # Fetch a URL to a destination file, following redirects and streaming a
@@ -83,7 +81,7 @@ module Doom
     # the check runs here, it applies to redirect targets too, not just the
     # first URL.
     def self.download_from_url(url, destination, redirect_limit: 5)
-      raise DownloadError, "Too many redirects" if redirect_limit.negative?
+      raise DownloadError, 'Too many redirects' if redirect_limit.negative?
 
       uri = URI.parse(url)
       ssl_opts = { use_ssl: uri.scheme == 'https' }
@@ -92,7 +90,7 @@ module Doom
         begin
           Net::HTTP.start(uri.host, uri.port, **ssl_opts) { |h| h.head(uri) }
         rescue OpenSSL::SSL::SSLError
-          puts "SSL certificate verification failed, retrying without verification..."
+          puts 'SSL certificate verification failed, retrying without verification...'
           ssl_opts[:verify_mode] = OpenSSL::SSL::VERIFY_NONE
         end
       end
@@ -127,7 +125,7 @@ module Doom
       percent = (downloaded.to_f / total * 100).to_i
       bar_width = 40
       filled = (percent * bar_width / 100)
-      bar = '=' * filled + '-' * (bar_width - filled)
+      bar = ('=' * filled) + ('-' * (bar_width - filled))
       mb_downloaded = (downloaded / 1_048_576.0).round(1)
       mb_total = (total / 1_048_576.0).round(1)
       print "\r[#{bar}] #{percent}% (#{mb_downloaded}/#{mb_total} MB)"

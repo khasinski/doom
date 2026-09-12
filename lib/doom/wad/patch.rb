@@ -30,7 +30,7 @@ module Doom
         top_offset = data[6, 2].unpack1('s<')
 
         column_offsets = width.times.map do |i|
-          data[8 + i * 4, 4].unpack1('V')
+          data[8 + (i * 4), 4].unpack1('V')
         end
 
         columns = column_offsets.map do |offset|

@@ -11,16 +11,16 @@ module Doom
       # SDL2 keyboard grab via Gosu's bundled SDL -- prevents OS key interception
       module SDLKeyboardGrab
         def self.setup
-          require "fiddle"
-          gosu_spec = Gem.loaded_specs["gosu"]
-          lib_ext = RbConfig::CONFIG["DLEXT"] || "so"
-          bundle = File.join(gosu_spec.full_gem_path, "lib", "gosu.#{lib_ext}")
+          require 'fiddle'
+          gosu_spec = Gem.loaded_specs['gosu']
+          lib_ext = RbConfig::CONFIG['DLEXT'] || 'so'
+          bundle = File.join(gosu_spec.full_gem_path, 'lib', "gosu.#{lib_ext}")
           @lib = Fiddle.dlopen(bundle)
           @shared_window = Fiddle::Function.new(
-            @lib["_ZN4Gosu13shared_windowEv"], [], Fiddle::TYPE_VOIDP
+            @lib['_ZN4Gosu13shared_windowEv'], [], Fiddle::TYPE_VOIDP
           )
           @set_kb_grab = Fiddle::Function.new(
-            @lib["SDL_SetWindowKeyboardGrab"],
+            @lib['SDL_SetWindowKeyboardGrab'],
             [Fiddle::TYPE_VOIDP, Fiddle::TYPE_INT], Fiddle::TYPE_VOID
           )
           @ready = true
@@ -31,11 +31,13 @@ module Doom
 
         def self.grab!
           return unless @ready
+
           @set_kb_grab.call(@shared_window.call, 1)
         end
 
         def self.release!
           return unless @ready
+
           @set_kb_grab.call(@shared_window.call, 0)
         end
       end
@@ -56,7 +58,7 @@ module Doom
           require 'fiddle'
           gosu_spec = Gem.loaded_specs['gosu']
           lib_ext = RbConfig::CONFIG['DLEXT'] || 'so'
-          lib = Fiddle.dlopen(File.join(gosu_spec.full_gem_path, "lib", "gosu.#{lib_ext}"))
+          lib = Fiddle.dlopen(File.join(gosu_spec.full_gem_path, 'lib', "gosu.#{lib_ext}"))
 
           get_mode = Fiddle::Function.new(
             lib['SDL_GetCurrentDisplayMode'],
@@ -77,7 +79,7 @@ module Doom
 
       # Movement now lives in Game::PlayerPhysics and runs per tic, so the old
       # continuous-time thrust/friction constants moved there with it.
-      TURN_SPEED = 3.0       # Degrees per tic
+      TURN_SPEED = 3.0 # Degrees per tic
 
       # Frame generation is decoupled from presentation. Gosu's main loop is
       # limited by the buffer swap, which blocks on vblank -- so drawing every
@@ -89,8 +91,8 @@ module Doom
       # Gosu 1.4 exposes no refresh-rate API, so we ask SDL (see
       # SDLDisplayMode) and fall back to 60 Hz if it will not say.
       DEFAULT_REFRESH_HZ = 60.0
-      PRESENT_INTERVAL_SLACK = 0.85  # Aim slightly early so we don't miss a vblank
-      MOUSE_SENSITIVITY = 0.15  # Mouse look sensitivity
+      PRESENT_INTERVAL_SLACK = 0.85 # Aim slightly early so we don't miss a vblank
+      MOUSE_SENSITIVITY = 0.15 # Mouse look sensitivity
 
       # The simulation now lives in Game::World; this class is input and
       # output only. The world's subsystems are cached in ivars because the
@@ -101,7 +103,7 @@ module Doom
         fullscreen = ARGV.include?('--fullscreen') || ARGV.include?('-f')
         super(Render::SCREEN_WIDTH * SCALE, Render::SCREEN_HEIGHT * SCALE, fullscreen)
         self.caption = 'Doom Ruby'
-        self.update_interval = 0  # Uncap framerate (default 16.67ms = 60 FPS cap)
+        self.update_interval = 0 # Uncap framerate (default 16.67ms = 60 FPS cap)
         SDLKeyboardGrab.setup
 
         @renderer = renderer
@@ -114,7 +116,7 @@ module Doom
         @sound = sound_engine
         @skill = Game::Menu::SKILL_MEDIUM
         @session = session
-        @client = client   # authoritative-server client, if we joined one
+        @client = client # authoritative-server client, if we joined one
         @local_player_id = session&.local_id || client&.local_id || 0
         @last_tic_at = Time.now  # for interpolating between server frames
         @last_net_send_at = nil  # throttles outbound packets to the tic rate
@@ -122,7 +124,7 @@ module Doom
         menu.netgame = true if menu && (session || client)
 
         bind_world(world)
-        @pending_turn = 0.0  # Mouse turn accumulated between tics
+        @pending_turn = 0.0 # Mouse turn accumulated between tics
         @tic_accumulator = 0.0
         @screen_image = nil
         @mouse_captured = false
@@ -160,7 +162,6 @@ module Doom
           @all_palette_rgba << pal.colors.map { |r, g, b| [r, g, b, 255].pack('CCCC') }
         end
         @palette_rgba = @all_palette_rgba[0]
-
       end
 
       def advance_local
@@ -330,9 +331,7 @@ module Doom
         @status_bar&.update
         @renderer.hidden_things = @world.hidden_things
 
-        if @world.exit_triggered && !@intermission
-          trigger_level_exit(@world.exit_triggered)
-        end
+        trigger_level_exit(@world.exit_triggered) if @world.exit_triggered && !@intermission
 
         # Other players are drawn as sprites; the local one never is.
         @renderer.players = @world.players
@@ -349,12 +348,8 @@ module Doom
         track_frame_rates
 
         # Render HUD on top
-        if @weapon_renderer && !@player_state&.dead
-          @weapon_renderer.render(@renderer.framebuffer)
-        end
-        if @status_bar
-          @status_bar.render(@renderer.framebuffer)
-        end
+        @weapon_renderer.render(@renderer.framebuffer) if @weapon_renderer && !@player_state&.dead
+        @status_bar.render(@renderer.framebuffer) if @status_bar
 
         # Pickup message (drawn into framebuffer with DOOM font, 4 seconds like Chocolate Doom)
         if @doom_font && @item_pickup&.pickup_message && @item_pickup.message_tics > 0
@@ -362,9 +357,9 @@ module Doom
         end
 
         # Red tint when dead
-        if @player_state&.dead
-          hold_pain_palette
-        end
+        return unless @player_state&.dead
+
+        hold_pain_palette
       end
 
       # Per-frame input sampling. Produces nothing but intent: the simulation
@@ -376,16 +371,14 @@ module Doom
         # which in a networked game would desync us from everyone else, so there
         # it is the server's job (not yet wired -- dead players stay down).
         if @player_state&.dead
-          if !@session && !@client && @player_state.death_tic > 35
-            if Gosu.button_down?(Gosu::KB_SPACE) || Gosu.button_down?(Gosu::KB_X) ||
-               Gosu.button_down?(Gosu::MS_LEFT) || Gosu.button_down?(Gosu::KB_LEFT_SHIFT)
-              respawn_player
-            end
+          if !@session && !@client && @player_state.death_tic > 35 && (Gosu.button_down?(Gosu::KB_SPACE) || Gosu.button_down?(Gosu::KB_X) ||
+               Gosu.button_down?(Gosu::MS_LEFT) || Gosu.button_down?(Gosu::KB_LEFT_SHIFT))
+            respawn_player
           end
-          return  # No other input while dead
+          return # No other input while dead
         end
 
-        handle_mouse_look          # accumulates into @pending_turn
+        handle_mouse_look # accumulates into @pending_turn
         handle_weapon_switch if @player_state
       end
 
@@ -415,9 +408,7 @@ module Doom
            Gosu.button_down?(Gosu::KB_RIGHT_SHIFT)
           buttons |= Game::Ticcmd::BTN_FIRE
         end
-        if Gosu.button_down?(Gosu::KB_SPACE) || Gosu.button_down?(Gosu::KB_E)
-          buttons |= Game::Ticcmd::BTN_USE
-        end
+        buttons |= Game::Ticcmd::BTN_USE if Gosu.button_down?(Gosu::KB_SPACE) || Gosu.button_down?(Gosu::KB_E)
 
         Game::Ticcmd.new(forward, side, turn, buttons)
       end
@@ -445,6 +436,7 @@ module Doom
       # Lazily computed and cached on first access; cleared by load_next_map.
       def map_bounds
         return @map_bounds if defined?(@map_bounds) && @map_bounds
+
         min_x = min_y = Float::INFINITY
         max_x = max_y = -Float::INFINITY
         @map.vertices.each do |v|
@@ -454,6 +446,7 @@ module Doom
           max_y = v.y if v.y > max_y
         end
         return nil if max_x == min_x || max_y == min_y
+
         @map_bounds = { min_x: min_x, max_x: max_x, min_y: min_y, max_y: max_y }
       end
 
@@ -485,7 +478,7 @@ module Doom
         return true unless @uncapped_fps
 
         WindowLogic.present_due?(Gosu.milliseconds, @last_present_ms,
-                                @present_interval_ms, PRESENT_INTERVAL_SLACK)
+                                 @present_interval_ms, PRESENT_INTERVAL_SLACK)
       end
 
       attr_reader :refresh_hz
@@ -679,7 +672,7 @@ module Doom
                     "Renderer: #{renderer_name}",
                     "Map: #{@current_map}",
                     "Pos: #{@player.x.round}, #{@player.y.round}",
-                    "Ang: #{ang}",
+                    "Ang: #{ang}"
                   ]
                 else
                   [
@@ -687,7 +680,7 @@ module Doom
                     "YJIT: #{yjit_status}",
                     "Renderer: #{renderer_name}",
                     "Pos: #{@player.x.round}, #{@player.y.round}",
-                    "Ang: #{ang}",
+                    "Ang: #{ang}"
                   ]
                 end
 
@@ -806,9 +799,7 @@ module Doom
             end
           end
         when Gosu::KB_C
-          if @monster_ai
-            @monster_ai.aggression = !@monster_ai.aggression
-          end
+          @monster_ai.aggression = !@monster_ai.aggression if @monster_ai
         when Gosu::KB_M
           @show_map = !@show_map
         when Gosu::KB_F12
@@ -817,7 +808,7 @@ module Doom
       end
 
       def switch_renderer
-        current = Render::RendererFactory.type_of(@renderer)
+        Render::RendererFactory.type_of(@renderer)
         target = Render::RendererFactory.next_type(@renderer)
         replacement = Render::RendererFactory.build_like(@renderer, target)
         replacement.apply_view(@renderer.player_x, @renderer.player_y,
@@ -924,9 +915,9 @@ module Doom
         total_monsters = @monster_ai ? @monster_ai.monsters.size : 0
         killed = @combat ? @combat.dead_things.size : 0
 
-        total_items = Game::ItemPickup::ITEMS.keys.count { |t|
+        total_items = Game::ItemPickup::ITEMS.keys.count do |t|
           @map.things.any? { |th| th.type == t }
-        }
+        end
         picked = @item_pickup ? @item_pickup.picked_up.size : 0
 
         # Secret sectors (type 9) tracked by SectorActions
@@ -939,7 +930,7 @@ module Doom
           items: picked, total_items: total_items,
           secrets: found_secrets, total_secrets: total_secrets,
           time_tics: @leveltime,
-          exit_type: exit_type,
+          exit_type: exit_type
         }
 
         @intermission = Game::Intermission.new(@renderer.wad, @status_bar.gfx, stats)
@@ -954,7 +945,7 @@ module Doom
         # Load new map data
         map = Map::MapData.load(wad, map_name)
         @map = map
-        @map_bounds = nil  # Recompute on next automap draw
+        @map_bounds = nil # Recompute on next automap draw
         @sector_colors = build_sector_colors
 
         # Rebuild all systems for new map
@@ -968,7 +959,7 @@ module Doom
         world = Game::World.new(map, sprites: @renderer.sprites, sound: @sound,
                                      random: @random, skill_hidden: skill_hidden)
         world.damage_multiplier = @damage_multiplier
-        world.item_pickup.ammo_multiplier = (@skill == Game::Menu::SKILL_BABY) ? 2 : 1
+        world.item_pickup.ammo_multiplier = @skill == Game::Menu::SKILL_BABY ? 2 : 1
         world.monster_ai.aggression = true
         world.monster_ai.damage_multiplier = @damage_multiplier
         world.add_player
@@ -1002,26 +993,29 @@ module Doom
         @monster_ai.aggression = true
         @monster_ai.damage_multiplier = @damage_multiplier
         # Baby: double ammo from pickups (matching DOOM skill 1)
-        @item_pickup.ammo_multiplier = (skill == Game::Menu::SKILL_BABY) ? 2 : 1
+        @item_pickup.ammo_multiplier = skill == Game::Menu::SKILL_BABY ? 2 : 1
       end
 
       def setup_yjit_toggle
         return if @yjit_toggle_ready || !defined?(RubyVM::YJIT)
-        require "fiddle"
 
-        address = Fiddle::Handle::DEFAULT["rb_yjit_enabled_p"]
+        require 'fiddle'
+
+        address = Fiddle::Handle::DEFAULT['rb_yjit_enabled_p']
         enabled_ptr = Fiddle::Pointer.new(address, Fiddle::SIZEOF_CHAR)
 
         RubyVM::YJIT.singleton_class.prepend(Module.new do
           define_method(:enable) do |**kwargs|
             return false if enabled?
-            return super(**kwargs) unless RUBY_DESCRIPTION.include?("+YJIT")
+            return super(**kwargs) unless RUBY_DESCRIPTION.include?('+YJIT')
+
             enabled_ptr[0] = 1
             true
           end
 
           define_method(:disable) do
             return false unless enabled?
+
             enabled_ptr[0] = 0
             true
           end
@@ -1073,10 +1067,14 @@ module Doom
 
         sprite_lines = nearby.map do |s|
           "  #{s[:prefix]} type=#{s[:type]} pos=(#{s[:x]},#{s[:y]}) dist=#{s[:dist]} " \
-          "screen_x=#{s[:screen_x]} scale=#{s[:sprite_scale]} " \
+            "screen_x=#{s[:screen_x]} scale=#{s[:sprite_scale]} " \
           "range=#{s[:screen_range]} status=#{s[:status]} " \
           "clip_segs=#{s[:clipping_segs]}" \
-          "#{s[:clipping_detail]&.any? ? "\n    clips: #{s[:clipping_detail].map { |c| "ds[#{c[:x1]}..#{c[:x2]}] scale=#{c[:scale]} sil=#{c[:sil]}" }.join(', ')}" : ''}"
+          "#{if s[:clipping_detail]&.any?
+               "\n    clips: #{s[:clipping_detail].map do |c|
+                 "ds[#{c[:x1]}..#{c[:x2]}] scale=#{c[:scale]} sil=#{c[:sil]}"
+               end.join(', ')}"
+             end}"
         end
 
         File.write("#{prefix}.txt", <<~INFO)
@@ -1111,7 +1109,7 @@ module Doom
 
       def hsv_to_gosu(h, s, v)
         c = v * s
-        x = c * (1 - ((h / 60.0) % 2 - 1).abs)
+        x = c * (1 - (((h / 60.0) % 2) - 1).abs)
         m = v - c
 
         r, g, b = case (h / 60).to_i % 6
@@ -1134,25 +1132,28 @@ module Doom
         return unless bounds
 
         verts = @map.vertices
-        min_x, max_x, min_y, max_y = bounds[:min_x], bounds[:max_x], bounds[:min_y], bounds[:max_y]
+        min_x = bounds[:min_x]
+        max_x = bounds[:max_x]
+        min_y = bounds[:min_y]
+        max_y = bounds[:max_y]
         map_w = max_x - min_x
         map_h = max_y - min_y
 
         # Scale to fit screen with margin
-        draw_w = width - MAP_MARGIN * 2
-        draw_h = height - MAP_MARGIN * 2
+        draw_w = width - (MAP_MARGIN * 2)
+        draw_h = height - (MAP_MARGIN * 2)
         scale = [draw_w.to_f / map_w, draw_h.to_f / map_h].min
 
         # Center the map
-        offset_x = MAP_MARGIN + (draw_w - map_w * scale) / 2.0
-        offset_y = MAP_MARGIN + (draw_h - map_h * scale) / 2.0
+        offset_x = MAP_MARGIN + ((draw_w - (map_w * scale)) / 2.0)
+        offset_y = MAP_MARGIN + ((draw_h - (map_h * scale)) / 2.0)
 
         # World to screen coordinate transform (Y flipped: world Y+ is up, screen Y+ is down)
-        to_sx = ->(wx) { offset_x + (wx - min_x) * scale }
-        to_sy = ->(wy) { offset_y + (max_y - wy) * scale }
+        to_sx = ->(wx) { offset_x + ((wx - min_x) * scale) }
+        to_sy = ->(wy) { offset_y + ((max_y - wy) * scale) }
 
         # Draw linedefs colored by front sector
-        two_sided_color = Gosu::Color.new(100, 80, 80, 80)
+        Gosu::Color.new(100, 80, 80, 80)
 
         @map.linedefs.each do |linedef|
           v1 = verts[linedef.v1]
@@ -1188,16 +1189,16 @@ module Doom
         half_fov = Math::PI / 4.0 # 45 deg half = 90 deg total
 
         # Cone edges (in world space, Y+ is up; on screen Y is flipped via to_sy)
-        left_dx = Math.cos(half_fov) * cos_a - Math.sin(half_fov) * sin_a
-        left_dy = Math.cos(half_fov) * sin_a + Math.sin(half_fov) * cos_a
-        right_dx = Math.cos(-half_fov) * cos_a - Math.sin(-half_fov) * sin_a
-        right_dy = Math.cos(-half_fov) * sin_a + Math.sin(-half_fov) * cos_a
+        left_dx = (Math.cos(half_fov) * cos_a) - (Math.sin(half_fov) * sin_a)
+        left_dy = (Math.cos(half_fov) * sin_a) + (Math.sin(half_fov) * cos_a)
+        right_dx = (Math.cos(-half_fov) * cos_a) - (Math.sin(-half_fov) * sin_a)
+        right_dy = (Math.cos(-half_fov) * sin_a) + (Math.sin(-half_fov) * cos_a)
 
         # Screen positions for cone tips
-        lx = px + left_dx * fov_len
-        ly = py - left_dy * fov_len  # negate because screen Y is flipped
-        rx = px + right_dx * fov_len
-        ry = py - right_dy * fov_len
+        lx = px + (left_dx * fov_len)
+        ly = py - (left_dy * fov_len) # negate because screen Y is flipped
+        rx = px + (right_dx * fov_len)
+        ry = py - (right_dy * fov_len)
 
         cone_color = Gosu::Color.new(60, 0, 255, 0)
         Gosu.draw_triangle(px, py, cone_color, lx, ly, cone_color, rx, ry, cone_color, 2)
@@ -1213,8 +1214,8 @@ module Doom
 
         # Direction line
         dir_len = 12.0
-        dx = px + cos_a * dir_len
-        dy = py - sin_a * dir_len
+        dx = px + (cos_a * dir_len)
+        dy = py - (sin_a * dir_len)
         Gosu.draw_line(px, py, Gosu::Color::WHITE, dx, dy, Gosu::Color::WHITE, 3)
       end
 

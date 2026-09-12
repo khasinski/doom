@@ -8,7 +8,7 @@ module Doom
     class ScreenMelt
       WIDTH = SCREEN_WIDTH
       HEIGHT = SCREEN_HEIGHT
-      MELT_SPEED = HEIGHT / 30  # ~8 pixels per frame (Chocolate Doom does HEIGHT/15 at 35fps)
+      MELT_SPEED = HEIGHT / 30 # ~8 pixels per frame (Chocolate Doom does HEIGHT/15 at 35fps)
 
       def initialize(old_screen, new_screen)
         # Snapshot both screens (arrays of palette indices, 320x240)
@@ -20,9 +20,9 @@ module Doom
         # Column 0 gets random negative offset, each subsequent column
         # varies by -1/0/+1 from previous, creating a jagged melt line
         @y = Array.new(WIDTH)
-        @y[0] = -(rand(16))
+        @y[0] = -rand(16)
         (1...WIDTH).each do |i|
-          @y[i] = @y[i - 1] + (rand(3) - 1)
+          @y[i] = @y[i - 1] + rand(-1..1)
           @y[i] = -15 if @y[i] < -15
           @y[i] = 0 if @y[i] > 0
         end
@@ -41,26 +41,26 @@ module Doom
             @y[x] += 1
             all_done = false
             # Column hasn't started melting yet - show old screen
-            HEIGHT.times { |row| framebuffer[row * WIDTH + x] = @old[row * WIDTH + x] }
+            HEIGHT.times { |row| framebuffer[(row * WIDTH) + x] = @old[(row * WIDTH) + x] }
           elsif @y[x] < HEIGHT
             all_done = false
             dy = @y[x]
 
             # Top part: new screen revealed
             dy.times do |row|
-              framebuffer[row * WIDTH + x] = @new[row * WIDTH + x]
+              framebuffer[(row * WIDTH) + x] = @new[(row * WIDTH) + x]
             end
 
             # Bottom part: old screen shifted down
             (dy...HEIGHT).each do |row|
               src_row = row - dy
-              framebuffer[row * WIDTH + x] = @old[src_row * WIDTH + x]
+              framebuffer[(row * WIDTH) + x] = @old[(src_row * WIDTH) + x]
             end
 
             @y[x] += MELT_SPEED
           else
             # Column fully melted - show new screen
-            HEIGHT.times { |row| framebuffer[row * WIDTH + x] = @new[row * WIDTH + x] }
+            HEIGHT.times { |row| framebuffer[(row * WIDTH) + x] = @new[(row * WIDTH) + x] }
           end
         end
 

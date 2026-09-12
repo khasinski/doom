@@ -18,7 +18,7 @@ module Doom
     # That is the deal lockstep makes: everyone waits for the slowest peer, and
     # nobody ever has to take back something that already happened.
     class Lockstep
-      DEFAULT_DELAY = 2  # ~57ms at 35Hz
+      DEFAULT_DELAY = 2 # ~57ms at 35Hz
 
       attr_reader :local_id, :player_ids, :delay, :next_tic, :sample_tic
 
@@ -33,7 +33,7 @@ module Doom
         @peer_acks = {}    # player_id => lowest tic they still need
         @local_sent = {}   # tic => Ticcmd, kept for retransmission padding
         @next_tic = 1      # next tic to simulate
-        @sample_tic = delay + 1  # tic the next local sample is for
+        @sample_tic = delay + 1 # tic the next local sample is for
 
         # Prime the opening tics so play starts immediately instead of waiting
         # a delay's worth of round trips for commands nobody has sent yet.

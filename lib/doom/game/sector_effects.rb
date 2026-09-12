@@ -51,6 +51,7 @@ module Doom
         # Linedef type 48: scrolling wall (front side scrolls +1 unit/tic)
         @map.linedefs.each do |linedef|
           next unless linedef.special == 48
+
           side = @map.sidedefs[linedef.sidedef_right]
           @scroll_sides << side if side
         end
@@ -65,8 +66,10 @@ module Doom
         @map.linedefs.each do |ld|
           right = @map.sidedefs[ld.sidedef_right]
           next unless right
+
           left_idx = ld.sidedef_left
           next if left_idx >= 0xFFFF
+
           left = @map.sidedefs[left_idx]
           next unless left
 
@@ -88,7 +91,7 @@ module Doom
           @random = random
           @maxlight = sector.light_level
           @minlight = minlight
-          @count = (@random.rand(65)) + 1
+          @count = @random.rand(65) + 1
         end
 
         def update
@@ -97,10 +100,10 @@ module Doom
 
           if @sector.light_level == @maxlight
             @sector.light_level = @minlight
-            @count = (@random.rand(8)) + 1       # dark for 1-8 tics
+            @count = @random.rand(8) + 1 # dark for 1-8 tics
           else
             @sector.light_level = @maxlight
-            @count = (@random.rand(2) == 0 ? 1 : 65)  # bright for 1 or 65 tics (P_Random()&64)
+            @count = (@random.rand(2) == 0 ? 1 : 65) # bright for 1 or 65 tics (P_Random()&64)
           end
         end
       end
@@ -115,7 +118,7 @@ module Doom
           @minlight = 0 if @minlight == @maxlight
           @darktime = darktime
           @brighttime = STROBEBRIGHT
-          @count = in_sync ? 1 : (@random.rand(8)) + 1
+          @count = in_sync ? 1 : @random.rand(8) + 1
         end
 
         def update
@@ -138,7 +141,7 @@ module Doom
           @sector = sector
           @maxlight = sector.light_level
           @minlight = minlight
-          @direction = -1  # start dimming
+          @direction = -1 # start dimming
         end
 
         def update
@@ -163,7 +166,7 @@ module Doom
         def initialize(sector, minlight, random)
           @sector = sector
           @maxlight = sector.light_level
-          @minlight = minlight + 16  # fire doesn't go as dark
+          @minlight = minlight + 16 # fire doesn't go as dark
           @random = random
           @count = 4
         end
@@ -172,7 +175,7 @@ module Doom
           @count -= 1
           return if @count > 0
 
-          amount = (@random.rand(4)) * 16  # 0, 16, 32, or 48
+          amount = @random.rand(4) * 16 # 0, 16, 32, or 48
           level = @maxlight - amount
           @sector.light_level = level < @minlight ? @minlight : level
           @count = 4

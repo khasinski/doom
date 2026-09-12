@@ -38,14 +38,14 @@ RSpec.describe Doom::Game::ItemPickup do
 
     it 'does not pick up items when too far' do
       initial_health = player.health
-      pickup.update(at(-99999, -99999))
+      pickup.update(at(-99_999, -99_999))
       expect(player.health).to eq(initial_health)
     end
 
     it 'does not pick up same item twice' do
       bonus = @map.things.each_with_index.find { |t, _| t.type == 2014 }
       skip 'No health bonus in map' unless bonus
-      thing, _ = bonus
+      thing, = bonus
 
       player.health = 98
       pickup.update(at(thing.x.to_f, thing.y.to_f))
@@ -58,7 +58,7 @@ RSpec.describe Doom::Game::ItemPickup do
     it 'gives weapon and ammo' do
       shotgun = @map.things.each_with_index.find { |t, _| t.type == 2001 }
       skip 'No shotgun in map' unless shotgun
-      thing, _ = shotgun
+      thing, = shotgun
 
       expect(player.has_weapons[2]).to be false
       pickup.update(at(thing.x.to_f, thing.y.to_f))
@@ -71,7 +71,7 @@ RSpec.describe Doom::Game::ItemPickup do
     it 'picks up armor bonus' do
       bonus = @map.things.each_with_index.find { |t, _| t.type == 2015 }
       skip 'No armor bonus in map' unless bonus
-      thing, _ = bonus
+      thing, = bonus
 
       pickup.update(at(thing.x.to_f, thing.y.to_f))
       expect(player.armor).to eq(1)
@@ -81,7 +81,7 @@ RSpec.describe Doom::Game::ItemPickup do
       player.armor = 150
       ga = @map.things.each_with_index.find { |t, _| t.type == 2018 }
       skip 'No green armor in map' unless ga
-      thing, _ = ga
+      thing, = ga
 
       pickup.update(at(thing.x.to_f, thing.y.to_f))
       expect(player.armor).to eq(150) # unchanged

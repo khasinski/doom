@@ -13,17 +13,17 @@ RSpec.describe Doom::Game::PlayerPhysics do
       Doom::Map::Vertex.new(200, 200),
       Doom::Map::Vertex.new(0, 200),
       Doom::Map::Vertex.new(400, 0),
-      Doom::Map::Vertex.new(400, 200),
+      Doom::Map::Vertex.new(400, 200)
     ]
     sectors = [
       Doom::Map::Sector.new(0, 128, 'FLOOR', 'CEIL', 192, 0, 0),
-      Doom::Map::Sector.new(back_floor, back_ceiling, 'FLOOR', 'CEIL', 192, 0, 0),
+      Doom::Map::Sector.new(back_floor, back_ceiling, 'FLOOR', 'CEIL', 192, 0, 0)
     ]
     sidedefs = [
       Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 0),
       Doom::Map::Sidedef.new(0, 0, '-', '-', '-', 1),
       Doom::Map::Sidedef.new(0, 0, 'WALL', '-', '-', 0),
-      Doom::Map::Sidedef.new(0, 0, 'WALL', '-', '-', 1),
+      Doom::Map::Sidedef.new(0, 0, 'WALL', '-', '-', 1)
     ]
     flags = ml_blocking ? 0x0001 : 0
     linedefs = [
@@ -35,7 +35,7 @@ RSpec.describe Doom::Game::PlayerPhysics do
       Doom::Map::Linedef.new(3, 0, 0, 0, 0, 2, 0xFFFF),
       Doom::Map::Linedef.new(2, 5, 0, 0, 0, 3, 0xFFFF),
       Doom::Map::Linedef.new(5, 4, 0, 0, 0, 3, 0xFFFF),
-      Doom::Map::Linedef.new(4, 1, 0, 0, 0, 3, 0xFFFF),
+      Doom::Map::Linedef.new(4, 1, 0, 0, 0, 3, 0xFFFF)
     ]
     fake_map(vertices, linedefs, sidedefs, sectors, things)
   end
@@ -50,6 +50,7 @@ RSpec.describe Doom::Game::PlayerPhysics do
     # Cheap sector_at: x in [0,200) -> sector 0, [200,400) -> sector 1
     map.define_singleton_method(:sector_at) do |x, y|
       next nil if y < 0 || y >= 200 || x < 0 || x >= 400
+
       x < 200 ? sectors[0] : sectors[1]
     end
     map
@@ -102,7 +103,7 @@ RSpec.describe Doom::Game::PlayerPhysics do
     end
 
     it 'blocks moves that bring player within radius of a solid thing' do
-      m = build_map(things: [Doom::Map::Thing.new(150, 100, 0, 2035, 0)])  # Barrel
+      m = build_map(things: [Doom::Map::Thing.new(150, 100, 0, 2035, 0)]) # Barrel
       with_thing = described_class.new(m, player_state)
       with_thing.settle_at(50, 100)
       # Barrel radius 10 + player radius 16 = 26, so x=125 is within 26 of x=150
@@ -134,7 +135,7 @@ RSpec.describe Doom::Game::PlayerPhysics do
       p.settle_at(50, 100)
       expect(p.floor_z).to eq 0
       p.settle_at(250, 100)
-      expect(p.floor_z).to eq 0  # Did not snap down
+      expect(p.floor_z).to eq 0 # Did not snap down
     end
   end
 
@@ -150,7 +151,7 @@ RSpec.describe Doom::Game::PlayerPhysics do
 
     it 'kicks momz to -2 on the first tic in the air' do
       physics.settle_at(50, 100)
-      physics.settle_at(250, 100)  # walked off the cliff
+      physics.settle_at(250, 100) # walked off the cliff
       physics.step(250, 100)
       expect(physics.momz).to eq(-2.0)
       expect(physics.floor_z).to eq(-2.0)
@@ -169,7 +170,7 @@ RSpec.describe Doom::Game::PlayerPhysics do
     it 'clamps to ground and zeroes momz on landing' do
       physics.settle_at(50, 100)
       physics.settle_at(250, 100)
-      30.times { physics.step(250, 100) }  # plenty of ticks to hit -100
+      30.times { physics.step(250, 100) } # plenty of ticks to hit -100
       expect(physics.floor_z).to eq(-100)
       expect(physics.momz).to eq(0.0)
     end

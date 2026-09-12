@@ -29,7 +29,10 @@ RSpec.describe 'simulation determinism' do
     combat = Doom::Game::Combat.new(map, @sprites, {}, nil, random: rng)
     ai = Doom::Game::MonsterAI.new(map, combat, @sprites, {}, nil, random: rng)
     actor = Doom::Game::Player.new(state: player)
-    at = ->(x, y, z = 41.0) { actor.place(x, y, z, 0); actor }
+    at = lambda { |x, y, z = 41.0|
+      actor.place(x, y, z, 0)
+      actor
+    }
     effects = Doom::Game::SectorEffects.new(map, random: rng)
 
     # Park the player next to a real monster and wake every monster up, so the
@@ -57,11 +60,11 @@ RSpec.describe 'simulation determinism' do
       effects.update
 
       # Keep shooting so damage rolls and pain chances are drawn constantly.
-      if (t % 4).zero?
-        angle = t * 0.03
-        combat.fire(px, py, 41.0, Math.cos(angle), Math.sin(angle),
-                    Doom::Game::PlayerState::WEAPON_SHOTGUN)
-      end
+      next unless (t % 4).zero?
+
+      angle = t * 0.03
+      combat.fire(px, py, 41.0, Math.cos(angle), Math.sin(angle),
+                  Doom::Game::PlayerState::WEAPON_SHOTGUN)
     end
 
     {
@@ -70,7 +73,7 @@ RSpec.describe 'simulation determinism' do
       monster_hp: combat.instance_variable_get(:@monster_hp).sort.to_h,
       dead: combat.dead_things.keys.sort,
       monsters: ai.monsters.map { |m| [m.thing_idx, m.x.round(6), m.y.round(6), m.movedir, m.active] },
-      lights: map.sectors.map(&:light_level),
+      lights: map.sectors.map(&:light_level)
     }
   end
 

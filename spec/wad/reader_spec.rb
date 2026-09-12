@@ -50,7 +50,7 @@ RSpec.describe Doom::Wad::Reader do
       playpal = @wad.read_lump('PLAYPAL')
       expect(playpal).not_to be_nil
       # PLAYPAL is 14 palettes * 256 colors * 3 bytes = 10752 bytes
-      expect(playpal.size).to eq(10752)
+      expect(playpal.size).to eq(10_752)
     end
 
     it 'caches lump data' do

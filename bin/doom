@@ -2,11 +2,7 @@
 # frozen_string_literal: true
 
 # Enable YJIT unless --no-yjit flag is passed (for live toggle demo)
-unless ARGV.delete('--no-yjit')
-  if defined?(RubyVM::YJIT) && RubyVM::YJIT.respond_to?(:enable)
-    RubyVM::YJIT.enable
-  end
-end
+RubyVM::YJIT.enable if !ARGV.delete('--no-yjit') && defined?(RubyVM::YJIT) && RubyVM::YJIT.respond_to?(:enable)
 
 # Headless benchmark mode. Skips loading the full game stack (Gosu, sound,
 # menus, etc.) and runs the renderer in a tight loop. Self-contained: see
@@ -72,46 +68,46 @@ wants_version = ARGV.include?('-v') || ARGV.include?('--version')
 
 # Show help (before loading anything)
 if wants_help
-  puts "DOOM - Ruby port of the classic 1993 game"
+  puts 'DOOM - Ruby port of the classic 1993 game'
   puts
-  puts "Usage: doom [OPTIONS] [WAD_FILE]"
+  puts 'Usage: doom [OPTIONS] [WAD_FILE]'
   puts
-  puts "Options:"
-  puts "  -h, --help     Show this help message"
-  puts "  -v, --version  Show version"
-  puts "  --bench        Run headless renderer benchmark (auto-downloads Freedoom)"
-  puts "                 Subflags: --json --frames=N --warmup=N --map=E1M1 --wad=PATH"
-  puts "  --vsync        Present every frame instead of uncapping generation"
-  puts "  --renderer NAME  Renderer: classic, rasterizer, or raytracing (R cycles them)"
+  puts 'Options:'
+  puts '  -h, --help     Show this help message'
+  puts '  -v, --version  Show version'
+  puts '  --bench        Run headless renderer benchmark (auto-downloads Freedoom)'
+  puts '                 Subflags: --json --frames=N --warmup=N --map=E1M1 --wad=PATH'
+  puts '  --vsync        Present every frame instead of uncapping generation'
+  puts '  --renderer NAME  Renderer: classic, rasterizer, or raytracing (R cycles them)'
   puts
-  puts "Multiplayer, authoritative server (for many players over the internet):"
-  puts "  --serve                Run a headless server others join (no window)"
-  puts "  --join HOST[:PORT]     Join a server"
+  puts 'Multiplayer, authoritative server (for many players over the internet):'
+  puts '  --serve                Run a headless server others join (no window)'
+  puts '  --join HOST[:PORT]     Join a server'
   puts
-  puts "Multiplayer, lockstep peer-to-peer (as in the original, for a small LAN):"
-  puts "  --host                 Host a game and wait for others to join"
-  puts "  --connect HOST[:PORT]  Join a hosted game"
+  puts 'Multiplayer, lockstep peer-to-peer (as in the original, for a small LAN):'
+  puts '  --host                 Host a game and wait for others to join'
+  puts '  --connect HOST[:PORT]  Join a hosted game'
   puts
-  puts "  --port N               Port to serve/host on or join/connect to (default 5029)"
-  puts "  --players N            Players to seat when serving or hosting (default 2)"
-  puts "  --deathmatch           Deathmatch instead of co-op"
-  puts "  --frags N              Frags to win a deathmatch (default: no limit)"
+  puts '  --port N               Port to serve/host on or join/connect to (default 5029)'
+  puts '  --players N            Players to seat when serving or hosting (default 2)'
+  puts '  --deathmatch           Deathmatch instead of co-op'
+  puts '  --frags N              Frags to win a deathmatch (default: no limit)'
   puts
-  puts "If no WAD file is specified, doom will look for doom1.wad in:"
-  puts "  1. Current directory"
-  puts "  2. ~/.doom/"
+  puts 'If no WAD file is specified, doom will look for doom1.wad in:'
+  puts '  1. Current directory'
+  puts '  2. ~/.doom/'
   puts
   puts "If not found, you'll be prompted to download the shareware version."
   puts
-  puts "Controls:"
-  puts "  W/Up      - Move forward"
-  puts "  S/Down    - Move backward"
-  puts "  A         - Strafe left"
-  puts "  D         - Strafe right"
-  puts "  Left      - Turn left"
-  puts "  Right     - Turn right"
-  puts "  Mouse     - Look around (click to capture)"
-  puts "  Escape    - Release mouse / Quit"
+  puts 'Controls:'
+  puts '  W/Up      - Move forward'
+  puts '  S/Down    - Move backward'
+  puts '  A         - Strafe left'
+  puts '  D         - Strafe right'
+  puts '  Left      - Turn left'
+  puts '  Right     - Turn right'
+  puts '  Mouse     - Look around (click to capture)'
+  puts '  Escape    - Release mouse / Quit'
   exit 0
 end
 
@@ -144,7 +140,7 @@ begin
         end
 
   Doom.run(wad_path, rubykaigi: rubykaigi_mode, net: net, frag_limit: net_frags,
-           renderer: renderer_name)
+                     renderer: renderer_name)
 rescue Doom::WadDownloader::DownloadError => e
   puts "Error: #{e.message}"
   exit 1

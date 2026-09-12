@@ -50,7 +50,10 @@ RSpec.describe Doom::Game::Combat do
         c.players = [victim]
         # Imp fireball spawned 40 units away, aimed at the victim.
         c.spawn_monster_projectile(start.x - 40.0, start.y.to_f, floor + 32, 3001, mult, victim)
-        20.times { c.update; break if victim.state.health < 100 }
+        20.times {
+          c.update
+          break if victim.state.health < 100
+        }
         100 - victim.state.health
       end
 

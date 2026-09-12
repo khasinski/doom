@@ -44,9 +44,9 @@ module Doom
         end
 
         # length-prefixed homogeneous array
-        def list(items)
+        def list(items, &)
           u32(items.size)
-          items.each { |it| yield it }
+          items.each(&)
         end
 
         def to_s = @buf.dup
@@ -76,8 +76,8 @@ module Doom
           take(u16)
         end
 
-        def list
-          Array.new(u32) { yield }
+        def list(&)
+          Array.new(u32, &)
         end
 
         private
@@ -91,7 +91,7 @@ module Doom
         end
       end
 
-      NO_ID = 0xff       # sentinel for "no player" (target/owner)
+      NO_ID = 0xff # sentinel for "no player" (target/owner)
       PROJ_TARGETS = { monsters: 0, player: 1 }.freeze
       PROJ_TARGET_NAMES = PROJ_TARGETS.invert.freeze
 
@@ -166,7 +166,7 @@ module Doom
           random_index: r.u8,
           combat_tic: r.u32,
           monster_tic: r.u32,
-          aggression: r.bool,
+          aggression: r.bool
         }
       end
 
@@ -183,7 +183,9 @@ module Doom
       def load_map_state(r, map)
         count = r.u32
         count.times do |i|
-          light = r.i64; floor = r.i64; ceil = r.i64
+          light = r.i64
+          floor = r.i64
+          ceil = r.i64
           sec = map.sectors[i]
           next unless sec
 
@@ -200,8 +202,12 @@ module Doom
           w.u8(p.id)
           w.i64(p.frags)
           w.bool(p.use_held)
-          w.f64(p.x); w.f64(p.y); w.f64(p.z); w.f64(p.angle)
-          w.f64(p.momx); w.f64(p.momy)
+          w.f64(p.x)
+          w.f64(p.y)
+          w.f64(p.z)
+          w.f64(p.angle)
+          w.f64(p.momx)
+          w.f64(p.momy)
 
           phys = world.physics_for(p)
           w.f64(phys.floor_z || 0.0)
@@ -219,10 +225,13 @@ module Doom
           player = world.add_player(map.player_start_for(id) || map.player_start, id: id)
           player.frags = r.i64
           player.use_held = r.bool
-          player.x = r.f64; player.y = r.f64; player.z = r.f64
+          player.x = r.f64
+          player.y = r.f64
+          player.z = r.f64
           player.angle = r.f64
-          player.momx = r.f64; player.momy = r.f64
-          player.snapshot!  # collapse interpolation onto the restored pose
+          player.momx = r.f64
+          player.momy = r.f64
+          player.snapshot! # collapse interpolation onto the restored pose
 
           phys = world.physics_for(player)
           floor_z = r.f64
@@ -273,7 +282,10 @@ module Doom
         weapons.each_index { |i| weapons[i] = mask[i] == 1 }
 
         keys = {}
-        r.list { name = r.str; keys[name.to_sym] = r.bool }
+        r.list do
+          name = r.str
+          keys[name.to_sym] = r.bool
+        end
         s.keys.replace(keys)
       end
 
@@ -281,13 +293,17 @@ module Doom
 
       def dump_combat(w, combat)
         w.list(combat.instance_variable_get(:@monster_hp).to_a) do |idx, hp|
-          w.u32(idx); w.i64(hp)
+          w.u32(idx)
+          w.i64(hp)
         end
         w.list(combat.dead_things.to_a) do |idx, info|
-          w.u32(idx); w.u32(info[:tic]); w.str(info[:prefix].to_s)
+          w.u32(idx)
+          w.u32(info[:tic])
+          w.str(info[:prefix].to_s)
         end
         w.list(combat.instance_variable_get(:@pain_until).to_a) do |idx, tic|
-          w.u32(idx); w.u32(tic)
+          w.u32(idx)
+          w.u32(tic)
         end
         w.list(combat.projectiles) { |p| dump_projectile(w, p) }
       end
@@ -296,15 +312,24 @@ module Doom
         combat.instance_variable_set(:@tic, tic)
 
         hp = {}
-        r.list { idx = r.u32; hp[idx] = r.i64 }
+        r.list do
+          idx = r.u32
+          hp[idx] = r.i64
+        end
         combat.instance_variable_set(:@monster_hp, hp)
 
         dead = {}
-        r.list { idx = r.u32; dead[idx] = { tic: r.u32, prefix: r.str } }
+        r.list do
+          idx = r.u32
+          dead[idx] = { tic: r.u32, prefix: r.str }
+        end
         combat.instance_variable_set(:@dead_things, dead)
 
         pain = {}
-        r.list { idx = r.u32; pain[idx] = r.u32 }
+        r.list do
+          idx = r.u32
+          pain[idx] = r.u32
+        end
         combat.instance_variable_set(:@pain_until, pain)
 
         projectiles = r.list { load_projectile(r) }
@@ -312,8 +337,12 @@ module Doom
       end
 
       def dump_projectile(w, p)
-        w.f64(p.x); w.f64(p.y); w.f64(p.z)
-        w.f64(p.dx); w.f64(p.dy); w.f64(p.dz || 0.0)
+        w.f64(p.x)
+        w.f64(p.y)
+        w.f64(p.z)
+        w.f64(p.dx)
+        w.f64(p.dy)
+        w.f64(p.dz || 0.0)
         w.str(p.type.to_s)
         w.u32(p.spawn_tic)
         w.str(p.sprite_prefix.to_s)
@@ -351,7 +380,8 @@ module Doom
         w.list(ai.monsters) do |m|
           MONSTER_INT_FIELDS.each { |f| w.i64(m[f]) }
           MONSTER_BOOL_FIELDS.each { |f| w.bool(m[f]) }
-          w.f64(m.x); w.f64(m.y)
+          w.f64(m.x)
+          w.f64(m.y)
           w.u8(m.target&.id || NO_ID)
 
           # The map thing carries an integer-truncated copy of the monster's
@@ -363,7 +393,8 @@ module Doom
           # directly rather than recomputed. This was the field whose absence
           # broke the round-trip test once a lift was in play.
           thing = things[m.thing_idx]
-          w.i64(thing.x); w.i64(thing.y)
+          w.i64(thing.x)
+          w.i64(thing.y)
         end
       end
 
@@ -377,9 +408,11 @@ module Doom
           fields = {}
           MONSTER_INT_FIELDS.each { |f| fields[f] = r.i64 }
           MONSTER_BOOL_FIELDS.each { |f| fields[f] = r.bool }
-          fields[:x] = r.f64; fields[:y] = r.f64
+          fields[:x] = r.f64
+          fields[:y] = r.f64
           fields[:target_id] = r.u8
-          fields[:thing_x] = r.i64; fields[:thing_y] = r.i64
+          fields[:thing_x] = r.i64
+          fields[:thing_y] = r.i64
           fields
         end
 
@@ -394,7 +427,8 @@ module Doom
 
           MONSTER_INT_FIELDS.each { |k| mon[k] = f[k] }
           MONSTER_BOOL_FIELDS.each { |k| mon[k] = f[k] }
-          mon.x = f[:x]; mon.y = f[:y]
+          mon.x = f[:x]
+          mon.y = f[:y]
           mon.target = f[:target_id] == NO_ID ? nil : by_id[f[:target_id]]
 
           thing = things[f[:thing_idx]]
@@ -455,17 +489,20 @@ module Doom
 
       # --- sector actions: doors, lifts and trigger-once bookkeeping ----------
 
-      def dump_sector_actions(w, actions, map)
+      def dump_sector_actions(w, actions, _map)
         w.list(actions.instance_variable_get(:@active_doors).to_a) do |idx, d|
           w.u32(idx)
           w.i64(d[:state]) # DOOR_OPENING/OPEN/CLOSING are integers, not symbols
-          w.i64(d[:target_height]); w.i64(d[:original_height])
-          w.u32(d[:wait_tics]); w.bool(d[:stay_open])
+          w.i64(d[:target_height])
+          w.i64(d[:original_height])
+          w.u32(d[:wait_tics])
+          w.bool(d[:stay_open])
         end
         w.list(actions.instance_variable_get(:@active_lifts).to_a) do |idx, l|
           w.u32(idx)
           w.str(l[:state].to_s)
-          w.i64(l[:target_low]); w.i64(l[:original_height])
+          w.i64(l[:target_low])
+          w.i64(l[:original_height])
           w.u32(l[:wait_tics])
         end
         w.list(actions.instance_variable_get(:@crossed_linedefs).keys) { |idx| w.u32(idx) }
@@ -486,7 +523,10 @@ module Doom
         w.list(near.sort_by { |pid, _| pid }) do |pid, sides|
           w.u8(pid)
           live = (sides || {}).reject { |_, side| side.nil? }.sort_by { |idx, _| idx }
-          w.list(live) { |(idx, side)| w.u32(idx); w.i64(side) }
+          w.list(live) do |(idx, side)|
+            w.u32(idx)
+            w.i64(side)
+          end
         end
 
         w.bool(!actions.exit_triggered.nil?)
@@ -527,7 +567,10 @@ module Doom
         r.list do
           pid = r.u8
           sides = {}
-          r.list { idx = r.u32; sides[idx] = r.i64 }
+          r.list do
+            idx = r.u32
+            sides[idx] = r.i64
+          end
           near[pid] = sides
         end
         actions.instance_variable_set(:@near_linedefs, near)

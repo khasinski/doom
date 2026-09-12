@@ -11,7 +11,7 @@ module Doom
     class SoundManager
       def initialize(wad)
         @wad = wad
-        @cache = {}  # name => Gosu::Sample
+        @cache = {} # name => Gosu::Sample
         @temp_dir = File.join(Dir.tmpdir, "doom_rb_sounds_#{Process.pid}")
         Dir.mkdir(@temp_dir) unless Dir.exist?(@temp_dir)
 
@@ -68,12 +68,12 @@ module Doom
 
         File.open(path, 'wb') do |f|
           # RIFF header
-          f.write("RIFF")
+          f.write('RIFF')
           f.write([file_size].pack('V'))
-          f.write("WAVE")
+          f.write('WAVE')
 
           # fmt chunk
-          f.write("fmt ")
+          f.write('fmt ')
           f.write([16].pack('V'))          # chunk size
           f.write([1].pack('v'))           # PCM format
           f.write([1].pack('v'))           # mono
@@ -83,7 +83,7 @@ module Doom
           f.write([8].pack('v'))           # bits per sample
 
           # data chunk
-          f.write("data")
+          f.write('data')
           f.write([data_size].pack('V'))
           f.write(pcm_data)
         end

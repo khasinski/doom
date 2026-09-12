@@ -25,7 +25,10 @@ module Doom
 
       def normalize(type)
         value = (type || :classic).to_sym
-        raise ArgumentError, "unknown renderer #{type.inspect}; expected #{TYPES.join(' or ')}" unless TYPES.include?(value)
+        unless TYPES.include?(value)
+          raise ArgumentError,
+                "unknown renderer #{type.inspect}; expected #{TYPES.join(' or ')}"
+        end
 
         value
       end

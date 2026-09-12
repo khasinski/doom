@@ -163,9 +163,9 @@ RSpec.describe Doom::Net::Protocol do
   describe 'server packets' do
     it 'round-trips a welcome' do
       msg = described_class.decode(described_class.encode_welcome(
-        player_id: 5, num_players: 16, mode: :deathmatch,
-        skill: 3, snapshot_tic: 90_000, map: 'E1M5'
-      ))
+                                     player_id: 5, num_players: 16, mode: :deathmatch,
+                                     skill: 3, snapshot_tic: 90_000, map: 'E1M5'
+                                   ))
       expect(msg).to include(type: described_class::WELCOME, player_id: 5, num_players: 16,
                              mode: :deathmatch, skill: 3, snapshot_tic: 90_000, map: 'E1M5')
     end
@@ -319,7 +319,7 @@ RSpec.describe Doom::Net::Protocol do
                                        skill: 2, snapshot_tic: 10, map: 'E1M1'),
         described_class.encode_input(1, [[5, cmd], [6, cmd]]),
         described_class.encode_frame([{ tic: 5, joins: [1], leaves: [2], cmds: [[0, cmd]] }]),
-        described_class.snapshot_chunks(1, 'abc' * 100).first,
+        described_class.snapshot_chunks(1, 'abc' * 100).first
       ]
       packets.each do |base|
         (0..base.bytesize).each do |n|

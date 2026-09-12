@@ -35,7 +35,7 @@ module Doom
           players: crc(pack_players(world.players)),
           monsters: crc(pack_monsters(world.monster_ai)),
           combat: crc(pack_combat(world.combat)),
-          sectors: crc(pack_sectors(world)),
+          sectors: crc(pack_sectors(world))
         }
       end
 
@@ -56,7 +56,7 @@ module Doom
             s.keys.count { |_, v| v },
             # Frags are simulation state: peers that disagree on the score
             # disagree on who won, and that must show up as a desync.
-            p.frags,
+            p.frags
           ].pack('q<*') +
             [p.x, p.y, p.z, p.angle, p.momx, p.momy].pack('E*')
         end.join
@@ -74,7 +74,7 @@ module Doom
             # The map thing's integer position, which hitscan traces against,
             # lags mon.x/mon.y and is distinct sim state -- a desync in it makes
             # bullets miss where a monster appears to be.
-            thing.x, thing.y,
+            thing.x, thing.y
           ].pack('q<*') + [m.x, m.y].pack('E*')
         end.join
       end
@@ -85,7 +85,7 @@ module Doom
         hp = combat.instance_variable_get(:@monster_hp) || {}
         parts = [
           hp.sort.flatten.pack('q<*'),
-          combat.dead_things.keys.sort.pack('q<*'),
+          combat.dead_things.keys.sort.pack('q<*')
         ]
         # z and dz are as much sim state as x/y -- a projectile diverging only in
         # height still diverges. spawn_tic pins its identity, and the damage

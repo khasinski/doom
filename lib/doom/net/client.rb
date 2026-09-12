@@ -21,7 +21,7 @@ module Doom
     # server sends a fresh snapshot at the current tic.
     class Client
       HELLO_RESEND_SECONDS = 0.25
-      SYNC_TIMEOUT_SECONDS = 1.5   # No completed snapshot this long -> ask again
+      SYNC_TIMEOUT_SECONDS = 1.5 # No completed snapshot this long -> ask again
       # If the newest frame we've heard of is this far past the one we still
       # need, the missing one has aged out of the server's resend window and is
       # gone for good -- only a fresh snapshot recovers us.

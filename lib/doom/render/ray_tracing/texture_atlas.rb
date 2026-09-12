@@ -32,7 +32,7 @@ module Doom
             raise ArgumentError, 'ray texture atlas overflow' if y + height > @size
 
             height.times do |row|
-              destination = ((y + row) * @size + x) * 4
+              destination = (((y + row) * @size) + x) * 4
               pixels[destination, width * 4] = rgba.byteslice(row * width * 4, width * 4)
             end
             rectangles[name] = [x.to_f / @size, y.to_f / @size,
@@ -67,7 +67,7 @@ module Doom
           pixels = Array.new(width * height)
           width.times do |column|
             source.column_pixels(column).each_with_index do |value, row|
-              pixels[row * width + column] = value if row < height
+              pixels[(row * width) + column] = value if row < height
             end
           end
           pixels

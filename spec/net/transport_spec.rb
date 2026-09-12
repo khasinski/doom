@@ -21,6 +21,7 @@ RSpec.describe Doom::Net::Transport do
       msgs = transport.poll
       return msgs unless msgs.empty?
       return [] if Time.now > deadline
+
       sleep 0.005
     end
   end

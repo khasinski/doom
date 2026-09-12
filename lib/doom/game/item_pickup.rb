@@ -7,7 +7,7 @@ module Doom
     class ItemPickup
       PLAYER_RADIUS = 16.0
       THING_RADIUS = 20.0
-      PICKUP_DIST = PLAYER_RADIUS + THING_RADIUS  # 36 units (bounding box overlap)
+      PICKUP_DIST = PLAYER_RADIUS + THING_RADIUS # 36 units (bounding box overlap)
 
       # Item definitions: type => { category, value, ... }
       ITEMS = {
@@ -26,9 +26,9 @@ module Doom
         2049 => { cat: :ammo, ammo: :shells, amount: 20 },    # Box of shells
         2010 => { cat: :ammo, ammo: :rockets, amount: 1 },    # Rocket
         2046 => { cat: :ammo, ammo: :rockets, amount: 5 },    # Box of rockets
-        17   => { cat: :ammo, ammo: :cells, amount: 20 },     # Cell charge
-        2047 => { cat: :ammo, ammo: :cells, amount: 100 },    # Cell pack
-        8    => { cat: :backpack },                             # Backpack (doubles max ammo + some ammo)
+        17 => { cat: :ammo, ammo: :cells, amount: 20 }, # Cell charge
+        2047 => { cat: :ammo, ammo: :cells, amount: 100 }, # Cell pack
+        8 => { cat: :backpack }, # Backpack (doubles max ammo + some ammo)
 
         # Health
         2014 => { cat: :health, amount: 1, max: 200 },        # Health bonus (+1, up to 200)
@@ -37,17 +37,17 @@ module Doom
         2013 => { cat: :health, amount: 100, max: 200 },      # Soul sphere
 
         # Armor
-        2015 => { cat: :armor, amount: 1, max: 200 },         # Armor bonus (+1, up to 200)
+        2015 => { cat: :armor, amount: 1, max: 200 }, # Armor bonus (+1, up to 200)
         2018 => { cat: :armor, amount: 100, armor_type: 1 },   # Green armor (100%, absorbs 1/3)
         2019 => { cat: :armor, amount: 200, armor_type: 2 },   # Blue armor (200%, absorbs 1/2)
 
         # Keys
-        5  => { cat: :key, key: :blue_card },
-        6  => { cat: :key, key: :yellow_card },
+        5 => { cat: :key, key: :blue_card },
+        6 => { cat: :key, key: :yellow_card },
         13 => { cat: :key, key: :red_card },
         40 => { cat: :key, key: :blue_skull },
         39 => { cat: :key, key: :yellow_skull },
-        38 => { cat: :key, key: :red_skull },
+        38 => { cat: :key, key: :red_skull }
       }.freeze
 
       MESSAGETICS = 140    # 4 * TICRATE (4 seconds, matching Chocolate Doom)
@@ -80,6 +80,7 @@ module Doom
         @map.things.each_with_index do |thing, idx|
           next if @hidden_things[idx]
           next if @picked_up[idx]
+
           item = ITEMS[thing.type]
           next unless item
 
@@ -87,30 +88,30 @@ module Doom
           dy = (player.y - thing.y).abs
           next if dx >= PICKUP_DIST || dy >= PICKUP_DIST
 
-          if try_pickup(item, state)
-            @picked_up[idx] = true
-            @pickup_message = PICKUP_MESSAGES[thing.type]
-            @pickup_flash = FLASH_TICS
-            @message_tics = MESSAGETICS
-          end
+          next unless try_pickup(item, state)
+
+          @picked_up[idx] = true
+          @pickup_message = PICKUP_MESSAGES[thing.type]
+          @pickup_flash = FLASH_TICS
+          @message_tics = MESSAGETICS
         end
       end
 
       PICKUP_MESSAGES = {
-        2001 => "A SHOTGUN!", 2002 => "A CHAINGUN!", 2003 => "A ROCKET LAUNCHER!",
-        2004 => "A PLASMA RIFLE!", 2005 => "A CHAINSAW!", 2006 => "A BFG9000!",
-        2007 => "PICKED UP A CLIP.", 2048 => "PICKED UP A BOX OF BULLETS.",
-        2008 => "PICKED UP 4 SHOTGUN SHELLS.", 2049 => "PICKED UP A BOX OF SHELLS.",
-        2010 => "PICKED UP A ROCKET.", 2046 => "PICKED UP A BOX OF ROCKETS.",
-        17 => "PICKED UP AN ENERGY CELL.", 2047 => "PICKED UP AN ENERGY CELL PACK.",
-        8 => "PICKED UP A BACKPACK FULL OF AMMO!",
-        2011 => "PICKED UP A STIMPACK.", 2012 => "PICKED UP A MEDIKIT.",
-        2014 => "PICKED UP A HEALTH BONUS.", 2015 => "PICKED UP AN ARMOR BONUS.",
-        2018 => "PICKED UP THE ARMOR.", 2019 => "PICKED UP THE MEGAARMOR!",
-        2013 => "SUPERCHARGE!",
-        5 => "PICKED UP A BLUE KEYCARD.", 6 => "PICKED UP A YELLOW KEYCARD.",
-        13 => "PICKED UP A RED KEYCARD.", 40 => "PICKED UP A BLUE SKULL KEY.",
-        39 => "PICKED UP A YELLOW SKULL KEY.", 38 => "PICKED UP A RED SKULL KEY.",
+        2001 => 'A SHOTGUN!', 2002 => 'A CHAINGUN!', 2003 => 'A ROCKET LAUNCHER!',
+        2004 => 'A PLASMA RIFLE!', 2005 => 'A CHAINSAW!', 2006 => 'A BFG9000!',
+        2007 => 'PICKED UP A CLIP.', 2048 => 'PICKED UP A BOX OF BULLETS.',
+        2008 => 'PICKED UP 4 SHOTGUN SHELLS.', 2049 => 'PICKED UP A BOX OF SHELLS.',
+        2010 => 'PICKED UP A ROCKET.', 2046 => 'PICKED UP A BOX OF ROCKETS.',
+        17 => 'PICKED UP AN ENERGY CELL.', 2047 => 'PICKED UP AN ENERGY CELL PACK.',
+        8 => 'PICKED UP A BACKPACK FULL OF AMMO!',
+        2011 => 'PICKED UP A STIMPACK.', 2012 => 'PICKED UP A MEDIKIT.',
+        2014 => 'PICKED UP A HEALTH BONUS.', 2015 => 'PICKED UP AN ARMOR BONUS.',
+        2018 => 'PICKED UP THE ARMOR.', 2019 => 'PICKED UP THE MEGAARMOR!',
+        2013 => 'SUPERCHARGE!',
+        5 => 'PICKED UP A BLUE KEYCARD.', 6 => 'PICKED UP A YELLOW KEYCARD.',
+        13 => 'PICKED UP A RED KEYCARD.', 40 => 'PICKED UP A BLUE SKULL KEY.',
+        39 => 'PICKED UP A YELLOW SKULL KEY.', 38 => 'PICKED UP A RED SKULL KEY.'
       }.freeze
 
       private
@@ -150,19 +151,23 @@ module Doom
       end
 
       def give_ammo(type, amount, state)
-        amount = amount * @ammo_multiplier
+        amount *= @ammo_multiplier
         case type
         when :bullets
           return false if state.ammo_bullets >= state.max_bullets
+
           state.ammo_bullets = [state.ammo_bullets + amount, state.max_bullets].min
         when :shells
           return false if state.ammo_shells >= state.max_shells
+
           state.ammo_shells = [state.ammo_shells + amount, state.max_shells].min
         when :rockets
           return false if state.ammo_rockets >= state.max_rockets
+
           state.ammo_rockets = [state.ammo_rockets + amount, state.max_rockets].min
         when :cells
           return false if state.ammo_cells >= state.max_cells
+
           state.ammo_cells = [state.ammo_cells + amount, state.max_cells].min
         end
         true
@@ -182,6 +187,7 @@ module Doom
 
       def give_health(amount, max, state)
         return false if state.health >= max
+
         state.health = [state.health + amount, max].min
         true
       end
@@ -190,10 +196,12 @@ module Doom
         if item[:armor_type]
           # Green/blue armor: only pick up if better than current
           return false if state.armor >= item[:amount]
+
           state.armor = item[:amount]
         else
           # Armor bonus: +1, up to max
           return false if state.armor >= item[:max]
+
           state.armor = [state.armor + item[:amount], item[:max]].min
         end
         true
@@ -201,6 +209,7 @@ module Doom
 
       def give_key(key, state)
         return false if state.keys[key]
+
         state.keys[key] = true
         true
       end

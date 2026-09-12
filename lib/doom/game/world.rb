@@ -19,14 +19,13 @@ module Doom
 
       # Sector specials that hurt the player, damage per interval.
       SECTOR_DAMAGE = {
-        4 => 20, 5 => 10, 7 => 5, 16 => 20, 11 => 20,
+        4 => 20, 5 => 10, 7 => 5, 16 => 20, 11 => 20
       }.freeze
 
       MODES = %i[coop deathmatch].freeze
 
-      attr_reader :map, :players, :random, :leveltime, :mode
-      attr_reader :combat, :monster_ai, :item_pickup, :sector_actions, :sector_effects
-      attr_reader :physics_by_id
+      attr_reader :map, :players, :random, :leveltime, :mode, :combat, :monster_ai, :item_pickup, :sector_actions,
+                  :sector_effects, :physics_by_id
       # Frags needed to win, or nil for an open-ended match.
       attr_reader :frag_limit
       attr_accessor :damage_multiplier, :skill_hidden
@@ -265,6 +264,7 @@ module Doom
 
       def step_physics(player, physics)
         return unless physics.floor_z
+
         physics.step(player.x, player.y)
         z = physics.eye_z
         player.z = z if z
@@ -310,7 +310,7 @@ module Doom
         best_dist = Float::INFINITY
 
         @map.linedefs.each_with_index do |linedef, idx|
-          next if linedef.special == 0  # Skip non-special linedefs
+          next if linedef.special == 0 # Skip non-special linedefs
 
           v1 = @map.vertices[linedef.v1]
           v2 = @map.vertices[linedef.v2]
@@ -351,7 +351,7 @@ module Doom
         end
 
         dot_facing = (cos_angle * -normal_x) + (sin_angle * -normal_y)
-        dot_facing > 0.2  # ~78 degree cone, matching DOOM's generous use check
+        dot_facing > 0.2 # ~78 degree cone, matching DOOM's generous use check
       end
 
       def post_tic_player(player)
@@ -366,9 +366,7 @@ module Doom
         state.update_damage_count
         state.death_tic += 1 if state.dead
 
-        if !state.dead && (@leveltime % SECTOR_DAMAGE_INTERVAL).zero?
-          apply_sector_damage(player)
-        end
+        apply_sector_damage(player) if !state.dead && (@leveltime % SECTOR_DAMAGE_INTERVAL).zero?
 
         # Record the health baseline last, after sector damage, so this tic's
         # nukage/lava hit -- which apply_sector_damage already sounded -- is not
@@ -417,7 +415,6 @@ module Doom
         # Weapon pickup messages end with '!' in DOOM's string table.
         msg&.include?('!') ? @sound.weapon_pickup : @sound.item_pickup
       end
-
     end
   end
 end

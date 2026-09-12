@@ -49,7 +49,7 @@ module Doom
 
         # Read column offsets
         column_offsets = width.times.map do |i|
-          data[8 + i * 4, 4].unpack1('V')
+          data[8 + (i * 4), 4].unpack1('V')
         end
 
         # Build column data
@@ -66,6 +66,7 @@ module Doom
 
         loop do
           break if pos >= data.size
+
           top_delta = data[pos].ord
           break if top_delta == 0xFF
 

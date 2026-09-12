@@ -330,7 +330,7 @@ RSpec.describe Doom::Map::MapData do
       expect(m.blockmap_loaded?).to be true
       yielded = []
       m.each_linedef_near(0, 0, 0, 0) { |ld| yielded << ld }
-      expect(yielded).to be_empty  # block is empty
+      expect(yielded).to be_empty # block is empty
     end
   end
 end
