@@ -47,7 +47,7 @@ RSpec.describe Doom::Game::StateHash do
       script = <<~RUBY
         $LOAD_PATH.unshift #{File.expand_path('../../lib', __dir__).inspect}
         require "doom/wad/reader"; require "doom/map/data"; require "doom/wad/sprite"
-        %w[random state_hash player_state player ticcmd player_physics sector_actions
+        %w[random geometry state_hash player_state player ticcmd player_physics sector_actions
            animations item_pickup combat sector_effects monster_ai world].each { |m| require "doom/game/\#{m}" }
         wad = Doom::Wad::Reader.new(#{wad_path.inspect})
         map = Doom::Map::MapData.load(wad, "E1M1")

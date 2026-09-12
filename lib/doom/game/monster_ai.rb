@@ -359,7 +359,7 @@ module Doom
 
           # Simple line-circle intersection
           radius = Combat::MONSTER_RADIUS[mon.type] || 20
-          next unless line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, new_x, new_y, radius)
+          next unless Geometry.line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, new_x, new_y, radius)
 
           # One-sided walls always block
           if ld.sidedef_left == 0xFFFF
@@ -483,7 +483,7 @@ module Doom
           v1 = @map.vertices[ld.v1]
           v2 = @map.vertices[ld.v2]
 
-          next unless segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
+          next unless Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
 
           # One-sided walls always block
           return false if ld.sidedef_left == 0xFFFF
@@ -499,29 +499,6 @@ module Doom
           end
         end
         true
-      end
-
-      def segments_intersect?(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2)
-        d1x = ax2 - ax1; d1y = ay2 - ay1
-        d2x = bx2 - bx1; d2y = by2 - by1
-        denom = d1x * d2y - d1y * d2x
-        return false if denom.abs < 0.001
-        dx = bx1 - ax1; dy = by1 - ay1
-        t = (dx * d2y - dy * d2x).to_f / denom
-        u = (dx * d1y - dy * d1x).to_f / denom
-        t > 0.0 && t < 1.0 && u >= 0.0 && u <= 1.0
-      end
-
-      def line_circle_intersect?(x1, y1, x2, y2, cx, cy, radius)
-        dx = cx - x1; dy = cy - y1
-        line_dx = x2 - x1; line_dy = y2 - y1
-        line_len_sq = line_dx * line_dx + line_dy * line_dy
-        return false if line_len_sq == 0
-        t = ((dx * line_dx) + (dy * line_dy)) / line_len_sq
-        t = [[t, 0.0].max, 1.0].min
-        closest_x = x1 + t * line_dx; closest_y = y1 + t * line_dy
-        dist_sq = (cx - closest_x) ** 2 + (cy - closest_y) ** 2
-        dist_sq < radius * radius
       end
     end
   end

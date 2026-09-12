@@ -185,7 +185,7 @@ module Doom
           # Determine which side of the linedef the player is on
           # DOOM's P_CrossSpecialLine fires when the player transitions sides
           side = line_side(px, py, v1.x, v1.y, v2.x, v2.y)
-          dist = point_line_dist(px, py, v1.x, v1.y, v2.x, v2.y)
+          dist = Geometry.point_to_segment_distance(px, py, v1.x, v1.y, v2.x, v2.y)
 
           near = dist < 32  # Detection range
           prev_side = sides[idx]
@@ -236,16 +236,6 @@ module Doom
       def line_side(px, py, x1, y1, x2, y2)
         cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
         cross >= 0 ? 1 : 0
-      end
-
-      def point_line_dist(px, py, x1, y1, x2, y2)
-        dx = x2 - x1; dy = y2 - y1
-        len_sq = dx * dx + dy * dy
-        return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2) if len_sq == 0
-        t = ((px - x1) * dx + (py - y1) * dy).to_f / len_sq
-        t = [[t, 0.0].max, 1.0].min
-        cx = x1 + t * dx; cy = y1 + t * dy
-        Math.sqrt((px - cx) ** 2 + (py - cy) ** 2)
       end
 
       def activate_door(linedef, stay_open: false, key: nil, keys: {})

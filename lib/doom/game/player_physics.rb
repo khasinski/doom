@@ -232,11 +232,11 @@ module Doom
           v1 = @map.vertices[linedef.v1]
           v2 = @map.vertices[linedef.v2]
 
-          next unless line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, px + dx, py + dy, PLAYER_RADIUS)
+          next unless Geometry.line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, px + dx, py + dy, PLAYER_RADIUS)
           next unless linedef_blocks?(linedef, px + dx, py + dy) ||
                       crosses_blocking_linedef?(px, py, px + dx, py + dy, linedef)
 
-          dist = point_to_line_distance(px, py, v1.x, v1.y, v2.x, v2.y)
+          dist = Geometry.point_to_segment_distance(px, py, v1.x, v1.y, v2.x, v2.y)
           if dist < best_dist
             best_dist = dist
             best_wall = linedef
@@ -301,11 +301,11 @@ module Doom
         v2 = @map.vertices[linedef.v2]
 
         if linedef.sidedef_left == 0xFFFF
-          return segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
+          return Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
         end
 
         if (linedef.flags & 0x0001) != 0  # ML_BLOCKING
-          return segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
+          return Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
         end
 
         front_sector = sector_for_side(linedef.sidedef_right)
@@ -318,14 +318,14 @@ module Doom
 
         return false if step_up <= MAX_STEP_UP && (min_ceiling - max_floor) >= MIN_HEADROOM
 
-        segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
+        Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
       end
 
       def linedef_blocks?(linedef, x, y)
         v1 = @map.vertices[linedef.v1]
         v2 = @map.vertices[linedef.v2]
 
-        return false unless line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, x, y, PLAYER_RADIUS)
+        return false unless Geometry.line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, x, y, PLAYER_RADIUS)
 
         return true if linedef.sidedef_left == 0xFFFF
 
@@ -362,59 +362,6 @@ module Doom
 
       def sector_for_side(side_idx)
         @map.sectors[@map.sidedefs[side_idx].sector]
-      end
-
-      def segments_intersect?(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2)
-        d1x = ax2 - ax1
-        d1y = ay2 - ay1
-        d2x = bx2 - bx1
-        d2y = by2 - by1
-
-        denom = d1x * d2y - d1y * d2x
-        return false if denom.abs < 0.001
-
-        dx = bx1 - ax1
-        dy = by1 - ay1
-
-        t = (dx * d2y - dy * d2x).to_f / denom
-        u = (dx * d1y - dy * d1x).to_f / denom
-
-        t > 0.0 && t < 1.0 && u >= 0.0 && u <= 1.0
-      end
-
-      def point_to_line_distance(px, py, x1, y1, x2, y2)
-        dx = px - x1
-        dy = py - y1
-        line_dx = x2 - x1
-        line_dy = y2 - y1
-        line_len_sq = line_dx * line_dx + line_dy * line_dy
-        return Math.sqrt(dx * dx + dy * dy) if line_len_sq == 0
-
-        t = ((dx * line_dx) + (dy * line_dy)) / line_len_sq
-        t = [[t, 0.0].max, 1.0].min
-        closest_x = x1 + t * line_dx
-        closest_y = y1 + t * line_dy
-        Math.sqrt((px - closest_x)**2 + (py - closest_y)**2)
-      end
-
-      def line_circle_intersect?(x1, y1, x2, y2, cx, cy, radius)
-        dx = cx - x1
-        dy = cy - y1
-        line_dx = x2 - x1
-        line_dy = y2 - y1
-        line_len_sq = line_dx * line_dx + line_dy * line_dy
-        return false if line_len_sq == 0
-
-        t = ((dx * line_dx) + (dy * line_dy)).to_f / line_len_sq
-        t = [[t, 0.0].max, 1.0].min
-
-        closest_x = x1 + t * line_dx
-        closest_y = y1 + t * line_dy
-        dist_x = cx - closest_x
-        dist_y = cy - closest_y
-        dist_sq = dist_x * dist_x + dist_y * dist_y
-
-        dist_sq < radius * radius
       end
     end
   end

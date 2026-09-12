@@ -315,7 +315,7 @@ module Doom
           v1 = @map.vertices[linedef.v1]
           v2 = @map.vertices[linedef.v2]
 
-          dist = point_to_line_distance(px, py, v1.x, v1.y, v2.x, v2.y)
+          dist = Geometry.point_to_segment_distance(px, py, v1.x, v1.y, v2.x, v2.y)
           next if dist > USE_DISTANCE
           next if dist >= best_dist
           next unless facing_linedef?(px, py, cos_angle, sin_angle, v1, v2)
@@ -326,24 +326,6 @@ module Doom
         end
 
         @sector_actions.use_linedef(best_linedef, best_idx, player.state.keys) if best_linedef
-      end
-
-      def point_to_line_distance(px, py, x1, y1, x2, y2)
-        dx = px - x1
-        dy = py - y1
-
-        line_dx = x2 - x1
-        line_dy = y2 - y1
-        line_len_sq = (line_dx * line_dx) + (line_dy * line_dy)
-
-        return Math.sqrt((dx * dx) + (dy * dy)) if line_len_sq == 0
-
-        # Project point onto line, clamped to segment
-        t = (((dx * line_dx) + (dy * line_dy)) / line_len_sq).clamp(0.0, 1.0)
-        closest_x = x1 + (t * line_dx)
-        closest_y = y1 + (t * line_dy)
-
-        Math.hypot(px - closest_x, py - closest_y)
       end
 
       def facing_linedef?(px, py, cos_angle, sin_angle, v1, v2)
