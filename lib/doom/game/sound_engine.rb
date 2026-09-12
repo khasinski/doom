@@ -109,14 +109,6 @@ module Doom
         play(sound, throttle: 0.05) if sound
       end
 
-      def shotgun_cock
-        play('DSSGCOCK', throttle: 0.3)
-      end
-
-      def chainsaw_hit
-        play('DSSAWFUL', throttle: 0.1)
-      end
-
       # --- Player events ---
       def player_pain
         play('DSPLPAIN', throttle: 0.3)
@@ -134,10 +126,6 @@ module Doom
         play('DSWPNUP')
       end
 
-      def oof
-        play('DSOOF', throttle: 0.3)
-      end
-
       def noway
         play('DSNOWAY', throttle: 0.3)
       end
@@ -149,10 +137,6 @@ module Doom
 
       def door_close
         play('DSDORCLS', throttle: 0.2)
-      end
-
-      def switch_activate
-        play('DSSWTCHN')
       end
 
       def platform_start
@@ -187,14 +171,6 @@ module Doom
       # --- Explosions / impacts ---
       def explosion
         play('DSBAREXP')
-      end
-
-      def rocket_explode
-        play('DSRXPLOD')
-      end
-
-      def fireball_hit
-        play('DSFIRXPL', throttle: 0.1)
       end
     end
   end

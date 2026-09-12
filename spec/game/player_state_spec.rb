@@ -231,16 +231,4 @@ RSpec.describe Doom::Game::PlayerState do
       expect(player.can_attack?).to be true
     end
   end
-
-  describe '#health_level' do
-    it 'returns 4 for full health' do
-      player.health = 100
-      expect(player.health_level).to eq(4)
-    end
-
-    it 'returns 0 for low health' do
-      player.health = 10
-      expect(player.health_level).to eq(0)
-    end
-  end
 end

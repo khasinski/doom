@@ -132,7 +132,10 @@ module Doom
         @view_bob_offset = 0.0
         @momx = 0.0        # Simulated X momentum (map units/sec, not actual movement)
         @momy = 0.0        # Simulated Y momentum
-        @thrust_x = 0.0    # Per-frame thrust input (raw, before normalization)
+        # Held at zero and never read by game logic, but part of the snapshot
+        # wire format and state fingerprint (PLAYER_STATE_FLOATS), so removing
+        # them would need a snapshot version bump. Left in place deliberately.
+        @thrust_x = 0.0
         @thrust_y = 0.0
         @view_bob_angle = 0.0
       end
@@ -153,21 +156,6 @@ module Doom
           @ammo_cells
         else
           nil # Fist/chainsaw don't use ammo
-        end
-      end
-
-      def max_ammo_for_weapon
-        case @weapon
-        when WEAPON_PISTOL, WEAPON_CHAINGUN
-          @max_bullets
-        when WEAPON_SHOTGUN
-          @max_shells
-        when WEAPON_ROCKET
-          @max_rockets
-        when WEAPON_PLASMA, WEAPON_BFG
-          @max_cells
-        else
-          nil
         end
       end
 
@@ -310,17 +298,6 @@ module Doom
 
       def weapon_bob_y
         Math.sin(@bob_angle * 2) * @bob_amount * 0.5
-      end
-
-      def health_level
-        # 0 = dying, 4 = full health
-        case @health
-        when 80..200 then 4
-        when 60..79 then 3
-        when 40..59 then 2
-        when 20..39 then 1
-        else 0
-        end
       end
 
       def switch_weapon(weapon_num)
