@@ -26,8 +26,11 @@ module Doom
         entry = find_lump(name)
         return nil unless entry
 
-        @file.seek(entry.offset)
-        data = @file.read(entry.size)
+        # Route through read_lump_at, which reads from the file that actually
+        # owns the entry. After merge_pwad a lump the PWAD overrode (PLAYPAL,
+        # COLORMAP, TEXTUREx, PNAMES, a patch) lives in the PWAD file, so seeking
+        # this reader's own IWAD handle at the entry's offset would read garbage.
+        data = read_lump_at(entry)
         @lump_cache[name] = data
         data
       end
