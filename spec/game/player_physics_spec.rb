@@ -95,6 +95,30 @@ RSpec.describe Doom::Game::PlayerPhysics do
       expect(physics.valid_move?(50, 50, 50, -10)).to be false
     end
 
+    # Regression: at the base of tall stairs a falling player can slide so its
+    # radius overlaps the ledge line, then land wedged -- every direction blocked
+    # by the proximity step-up check. A body already overlapping the ledge must
+    # be able to move away, while still being unable to climb it.
+    context 'when already overlapping the base of a tall step (a landed wedge)' do
+      let(:map) { build_map(back_floor: 100) } # 100-unit step, impassable
+
+      before { physics.settle_at(190, 100) } # feet on floor 0, radius grazes x=200
+
+      it 'lets the player move away from the ledge to unstick' do
+        # x=190 (10u from the line) -> x=185 (15u away): still overlapping, but
+        # farther, so the move is allowed.
+        expect(physics.valid_move?(190, 100, 185, 100)).to be true
+      end
+
+      it 'still refuses to move further into or onto the step' do
+        expect(physics.valid_move?(190, 100, 195, 100)).to be false
+      end
+
+      it 'still blocks a normal approach into the ledge from clear ground' do
+        expect(physics.valid_move?(170, 100, 190, 100)).to be false
+      end
+    end
+
     it 'blocks ML_BLOCKING two-sided linedefs even with passable geometry' do
       m = build_map(ml_blocking: true)
       blocked = described_class.new(m, player_state)

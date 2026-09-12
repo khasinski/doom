@@ -235,7 +235,7 @@ module Doom
           v2 = @map.vertices[linedef.v2]
 
           next unless Geometry.line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, px + dx, py + dy, PLAYER_RADIUS)
-          next unless linedef_blocks?(linedef, px + dx, py + dy) ||
+          next unless linedef_blocks?(linedef, px, py, px + dx, py + dy) ||
                       crosses_blocking_linedef?(px, py, px + dx, py + dy, linedef)
 
           dist = Geometry.point_to_segment_distance(px, py, v1.x, v1.y, v2.x, v2.y)
@@ -270,7 +270,7 @@ module Doom
         return false if sector.floor_height - current_floor > MAX_STEP_UP
 
         each_nearby_linedef(old_x, old_y, new_x, new_y) do |linedef|
-          return false if linedef_blocks?(linedef, new_x, new_y)
+          return false if linedef_blocks?(linedef, old_x, old_y, new_x, new_y)
           return false if crosses_blocking_linedef?(old_x, old_y, new_x, new_y, linedef)
         end
 
@@ -321,26 +321,41 @@ module Doom
         Geometry.segments_intersect?(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)
       end
 
-      def linedef_blocks?(linedef, x, y)
+      def linedef_blocks?(linedef, old_x, old_y, new_x, new_y)
         v1 = @map.vertices[linedef.v1]
         v2 = @map.vertices[linedef.v2]
 
-        return false unless Geometry.line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, x, y, PLAYER_RADIUS)
+        return false unless Geometry.line_circle_intersect?(v1.x, v1.y, v2.x, v2.y, new_x, new_y, PLAYER_RADIUS)
 
-        return true if linedef.sidedef_left == 0xFFFF
+        impassable =
+          if linedef.sidedef_left == 0xFFFF
+            true
+          else
+            # ML_BLOCKING on two-sided lines is handled by crosses_blocking_linedef?
+            # (a proximity check would block the player when standing near, not
+            # just crossing).
+            front_sector = sector_for_side(linedef.sidedef_right)
+            back_sector = sector_for_side(linedef.sidedef_left)
 
-        # ML_BLOCKING on two-sided lines is handled by crosses_blocking_linedef?
-        # (proximity check would block the player when standing near, not just crossing).
+            min_ceiling = [front_sector.ceiling_height, back_sector.ceiling_height].min
+            max_floor = [front_sector.floor_height, back_sector.floor_height].max
+            current_floor = @floor_z || front_sector.floor_height
+            step_up = max_floor - current_floor
 
-        front_sector = sector_for_side(linedef.sidedef_right)
-        back_sector = sector_for_side(linedef.sidedef_left)
+            step_up > MAX_STEP_UP || (min_ceiling - max_floor) < MIN_HEADROOM
+          end
+        return false unless impassable
 
-        min_ceiling = [front_sector.ceiling_height, back_sector.ceiling_height].min
-        max_floor = [front_sector.floor_height, back_sector.floor_height].max
-        current_floor = @floor_z || front_sector.floor_height
-        step_up = max_floor - current_floor
-
-        step_up > MAX_STEP_UP || (min_ceiling - max_floor) < MIN_HEADROOM
+        # The circle overlaps an impassable wall at the destination. Block the
+        # move only if it does not increase the distance to that wall, so a body
+        # that is already overlapping one -- e.g. after landing from a fall at
+        # the base of a tall step, where the airborne slide let the radius graze
+        # the ledge -- can still move away and unstick, but can never push
+        # further in or climb the step. A normal head-on approach still stops at
+        # radius; sliding parallel (equal distance) is still allowed.
+        d_new = Geometry.point_to_segment_distance(new_x, new_y, v1.x, v1.y, v2.x, v2.y)
+        d_old = Geometry.point_to_segment_distance(old_x, old_y, v1.x, v1.y, v2.x, v2.y)
+        d_new < d_old
       end
 
       def collides_with_solid_thing?(x, y)
