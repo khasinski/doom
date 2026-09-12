@@ -1010,158 +1010,11 @@ module Doom
           floor_y = [front_floor_y, @floor_clip[x] - 1].min
 
           if back_sector
-            # Two-sided line
-            back_floor = back_sector.floor_height - @player_z
-            back_ceil = back_sector.ceiling_height - @player_z
-
-            # Chocolate Doom rounding:
-            #   pixhigh>>HEIGHTBITS (truncate for back ceiling / upper wall end)
-            #   (pixlow+HEIGHTUNIT-1)>>HEIGHTBITS (ceil for back floor / lower wall start)
-            back_ceil_y = (HALF_HEIGHT - (back_ceil * scale)).to_i
-            back_floor_y = (HALF_HEIGHT - (back_floor * scale)).ceil
-
-            # Determine visible ceiling/floor boundaries (the opening between sectors)
-            # high_ceil = top of the opening on screen (max Y = lower world ceiling)
-            # low_floor = bottom of the opening on screen (min Y = higher world floor)
-            [ceil_y, back_ceil_y].max
-            [floor_y, back_floor_y].min
-
-            # Check for closed door (no opening between sectors)
-            # Matches Chocolate Doom: backsector->ceilingheight <= frontsector->floorheight
-            #                      || backsector->floorheight >= frontsector->ceilingheight
-            closed_door = back_sector.ceiling_height <= sector.floor_height ||
-                          back_sector.floor_height >= sector.ceiling_height
-
-            both_sky = sector.ceiling_texture == 'F_SKY1' && back_sector.ceiling_texture == 'F_SKY1'
-
-            # Determine whether to mark ceiling/floor visplanes.
-            # Match Chocolate Doom: only mark when properties differ, plus force
-            # for closed doors. The background fill covers same-property gaps.
-            # Chocolate Doom sky hack: "worldtop = worldhigh" makes the front
-            # ceiling equal to the back ceiling when both are sky. This prevents
-            # the low sky ceiling from clipping walls in adjacent sectors.
-            effective_front_ceil = both_sky ? back_sector.ceiling_height : sector.ceiling_height
-
-            if closed_door
-              should_mark_ceiling = true
-              should_mark_floor = true
-            else
-              should_mark_ceiling = effective_front_ceil != back_sector.ceiling_height ||
-                                    sector.ceiling_texture != back_sector.ceiling_texture ||
-                                    sector.light_level != back_sector.light_level
-              should_mark_floor = sector.floor_height != back_sector.floor_height ||
-                                  sector.floor_texture != back_sector.floor_texture ||
-                                  sector.light_level != back_sector.light_level
-            end
-
-            # Mark ceiling visplane
-            if @current_ceiling_plane && should_mark_ceiling
-              mark_top = @ceiling_clip[x] + 1
-              mark_bottom = ceil_y - 1
-              mark_bottom = [@floor_clip[x] - 1, mark_bottom].min
-              @current_ceiling_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
-            end
-
-            # Mark floor visplane
-            if @current_floor_plane && should_mark_floor
-              mark_top = floor_y + 1
-              mark_bottom = @floor_clip[x] - 1
-              mark_top = [@ceiling_clip[x] + 1, mark_top].max
-              @current_floor_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
-            end
-
-            # Upper wall (ceiling step down) - skip if both sectors have sky
-            if !both_sky && sector.ceiling_height > back_sector.ceiling_height
-              if linedef.upper_unpegged?
-                upper_tex_y = sidedef.y_offset
-              else
-                texture = @textures[sidedef.upper_texture]
-                tex_height = texture ? texture.height : 128
-                upper_tex_y = sidedef.y_offset + back_sector.ceiling_height - sector.ceiling_height + tex_height
-              end
-              draw_wall_column_ex(x, ceil_y, back_ceil_y, sidedef.upper_texture, dist,
-                                  sector.light_level, tex_col, upper_tex_y, scale, sector.ceiling_height)
-            end
-
-            # Lower wall (floor step up)
-            if sector.floor_height < back_sector.floor_height
-              lower_tex_y = if linedef.lower_unpegged?
-                              sidedef.y_offset + sector.ceiling_height - back_sector.floor_height
-                            else
-                              sidedef.y_offset
-                            end
-              draw_wall_column_ex(x, back_floor_y, floor_y, sidedef.lower_texture, dist,
-                                  sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height)
-            end
-
-            # Store masked texture column for deferred rendering (grates, bars)
-            @current_masked_cols[x - x1] = tex_col if @current_masked_cols
-
-            # Update clip bounds
-            if closed_door
-              @wall_depth[x] = [@wall_depth[x], dist].min
-              @ceiling_clip[x] = SCREEN_HEIGHT
-              @floor_clip[x] = -1
-            else
-              # Ceiling clip (uses effective_front_ceil for sky hack)
-              if effective_front_ceil > back_sector.ceiling_height
-                @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
-              elsif effective_front_ceil < back_sector.ceiling_height
-                @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
-              elsif sector.ceiling_texture != back_sector.ceiling_texture ||
-                    sector.light_level != back_sector.light_level
-                @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
-              end
-
-              # Floor clip
-              if sector.floor_height < back_sector.floor_height
-                @floor_clip[x] = [back_floor_y, @floor_clip[x]].min
-              elsif sector.floor_height > back_sector.floor_height
-                # Chocolate Doom: else if (markfloor) floorclip = yh + 1
-                @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
-              elsif sector.floor_texture != back_sector.floor_texture ||
-                    sector.light_level != back_sector.light_level
-                @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
-              end
-            end
+            draw_two_sided_seg_column(x, x1, ceil_y, floor_y, scale, dist, tex_col,
+                                      sector, back_sector, sidedef, linedef)
           else
-            # One-sided (solid) wall
-            # Mark ceiling visplane (from previous clip to wall's ceiling)
-            # Clamp to floor_clip to prevent ceiling bleeding through portal openings
-            if @current_ceiling_plane
-              mark_top = @ceiling_clip[x] + 1
-              mark_bottom = [ceil_y - 1, @floor_clip[x] - 1].min
-              @current_ceiling_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
-            end
-
-            # Mark floor visplane (from wall's floor to previous floor clip)
-            # Clamp to ceiling_clip to prevent floor bleeding through portal openings
-            if @current_floor_plane
-              mark_top = [floor_y + 1, @ceiling_clip[x] + 1].max
-              mark_bottom = @floor_clip[x] - 1
-              @current_floor_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
-            end
-
-            # Draw wall (from clipped ceiling to clipped floor)
-            # Middle texture Y offset depends on DONTPEGBOTTOM flag
-            # With DONTPEGBOTTOM: texture bottom aligns with floor
-            # Without: texture top aligns with ceiling
-            if linedef.lower_unpegged?
-              texture = @textures[sidedef.middle_texture]
-              tex_height = texture ? texture.height : 128
-              mid_tex_y = sidedef.y_offset + tex_height - (sector.ceiling_height - sector.floor_height)
-            else
-              mid_tex_y = sidedef.y_offset
-            end
-            draw_wall_column_ex(x, ceil_y, floor_y, sidedef.middle_texture, dist,
-                                sector.light_level, tex_col, mid_tex_y, scale, sector.ceiling_height)
-
-            # Track wall depth for sprite clipping (solid wall occludes this column)
-            @wall_depth[x] = [@wall_depth[x], dist].min
-
-            # Fully occluded
-            @ceiling_clip[x] = SCREEN_HEIGHT
-            @floor_clip[x] = -1
+            draw_one_sided_seg_column(x, ceil_y, floor_y, scale, dist, tex_col,
+                                      sector, sidedef, linedef)
           end
         end
 
@@ -1185,6 +1038,163 @@ module Doom
           @drawsegs << drawseg
         end
         @current_masked_cols = nil
+      end
+
+      # One screen column of a two-sided seg: mark the ceiling/floor visplanes
+      # of the opening between the two sectors, draw the upper and lower wall
+      # steps, remember the masked-middle column, and tighten the clip bounds.
+      def draw_two_sided_seg_column(x, x1, ceil_y, floor_y, scale, dist, tex_col,
+                                    sector, back_sector, sidedef, linedef)
+        back_floor = back_sector.floor_height - @player_z
+        back_ceil = back_sector.ceiling_height - @player_z
+
+        # Chocolate Doom rounding:
+        #   pixhigh>>HEIGHTBITS (truncate for back ceiling / upper wall end)
+        #   (pixlow+HEIGHTUNIT-1)>>HEIGHTBITS (ceil for back floor / lower wall start)
+        back_ceil_y = (HALF_HEIGHT - (back_ceil * scale)).to_i
+        back_floor_y = (HALF_HEIGHT - (back_floor * scale)).ceil
+
+        # Check for closed door (no opening between sectors)
+        # Matches Chocolate Doom: backsector->ceilingheight <= frontsector->floorheight
+        #                      || backsector->floorheight >= frontsector->ceilingheight
+        closed_door = back_sector.ceiling_height <= sector.floor_height ||
+                      back_sector.floor_height >= sector.ceiling_height
+
+        both_sky = sector.ceiling_texture == 'F_SKY1' && back_sector.ceiling_texture == 'F_SKY1'
+
+        # Determine whether to mark ceiling/floor visplanes.
+        # Match Chocolate Doom: only mark when properties differ, plus force
+        # for closed doors. The background fill covers same-property gaps.
+        # Chocolate Doom sky hack: "worldtop = worldhigh" makes the front
+        # ceiling equal to the back ceiling when both are sky. This prevents
+        # the low sky ceiling from clipping walls in adjacent sectors.
+        effective_front_ceil = both_sky ? back_sector.ceiling_height : sector.ceiling_height
+
+        if closed_door
+          should_mark_ceiling = true
+          should_mark_floor = true
+        else
+          should_mark_ceiling = effective_front_ceil != back_sector.ceiling_height ||
+                                sector.ceiling_texture != back_sector.ceiling_texture ||
+                                sector.light_level != back_sector.light_level
+          should_mark_floor = sector.floor_height != back_sector.floor_height ||
+                              sector.floor_texture != back_sector.floor_texture ||
+                              sector.light_level != back_sector.light_level
+        end
+
+        # Mark ceiling visplane
+        if @current_ceiling_plane && should_mark_ceiling
+          mark_top = @ceiling_clip[x] + 1
+          mark_bottom = ceil_y - 1
+          mark_bottom = [@floor_clip[x] - 1, mark_bottom].min
+          @current_ceiling_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
+        end
+
+        # Mark floor visplane
+        if @current_floor_plane && should_mark_floor
+          mark_top = floor_y + 1
+          mark_bottom = @floor_clip[x] - 1
+          mark_top = [@ceiling_clip[x] + 1, mark_top].max
+          @current_floor_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
+        end
+
+        # Upper wall (ceiling step down) - skip if both sectors have sky
+        if !both_sky && sector.ceiling_height > back_sector.ceiling_height
+          if linedef.upper_unpegged?
+            upper_tex_y = sidedef.y_offset
+          else
+            texture = @textures[sidedef.upper_texture]
+            tex_height = texture ? texture.height : 128
+            upper_tex_y = sidedef.y_offset + back_sector.ceiling_height - sector.ceiling_height + tex_height
+          end
+          draw_wall_column_ex(x, ceil_y, back_ceil_y, sidedef.upper_texture, dist,
+                              sector.light_level, tex_col, upper_tex_y, scale, sector.ceiling_height)
+        end
+
+        # Lower wall (floor step up)
+        if sector.floor_height < back_sector.floor_height
+          lower_tex_y = if linedef.lower_unpegged?
+                          sidedef.y_offset + sector.ceiling_height - back_sector.floor_height
+                        else
+                          sidedef.y_offset
+                        end
+          draw_wall_column_ex(x, back_floor_y, floor_y, sidedef.lower_texture, dist,
+                              sector.light_level, tex_col, lower_tex_y, scale, back_sector.floor_height)
+        end
+
+        # Store masked texture column for deferred rendering (grates, bars)
+        @current_masked_cols[x - x1] = tex_col if @current_masked_cols
+
+        # Update clip bounds
+        if closed_door
+          @wall_depth[x] = [@wall_depth[x], dist].min
+          @ceiling_clip[x] = SCREEN_HEIGHT
+          @floor_clip[x] = -1
+        else
+          # Ceiling clip (uses effective_front_ceil for sky hack)
+          if effective_front_ceil > back_sector.ceiling_height
+            @ceiling_clip[x] = [back_ceil_y, @ceiling_clip[x]].max
+          elsif effective_front_ceil < back_sector.ceiling_height
+            @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
+          elsif sector.ceiling_texture != back_sector.ceiling_texture ||
+                sector.light_level != back_sector.light_level
+            @ceiling_clip[x] = [ceil_y - 1, @ceiling_clip[x]].max
+          end
+
+          # Floor clip
+          if sector.floor_height < back_sector.floor_height
+            @floor_clip[x] = [back_floor_y, @floor_clip[x]].min
+          elsif sector.floor_height > back_sector.floor_height
+            # Chocolate Doom: else if (markfloor) floorclip = yh + 1
+            @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
+          elsif sector.floor_texture != back_sector.floor_texture ||
+                sector.light_level != back_sector.light_level
+            @floor_clip[x] = [floor_y + 1, @floor_clip[x]].min
+          end
+        end
+      end
+
+      # One screen column of a one-sided (solid) wall: mark the ceiling and
+      # floor visplanes down to the wall, draw the full-height middle texture,
+      # and fully occlude the column for anything behind it.
+      def draw_one_sided_seg_column(x, ceil_y, floor_y, scale, dist, tex_col,
+                                    sector, sidedef, linedef)
+        # Mark ceiling visplane (from previous clip to wall's ceiling)
+        # Clamp to floor_clip to prevent ceiling bleeding through portal openings
+        if @current_ceiling_plane
+          mark_top = @ceiling_clip[x] + 1
+          mark_bottom = [ceil_y - 1, @floor_clip[x] - 1].min
+          @current_ceiling_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
+        end
+
+        # Mark floor visplane (from wall's floor to previous floor clip)
+        # Clamp to ceiling_clip to prevent floor bleeding through portal openings
+        if @current_floor_plane
+          mark_top = [floor_y + 1, @ceiling_clip[x] + 1].max
+          mark_bottom = @floor_clip[x] - 1
+          @current_floor_plane.mark(x, mark_top, mark_bottom) if mark_top <= mark_bottom
+        end
+
+        # Draw wall (from clipped ceiling to clipped floor)
+        # Middle texture Y offset depends on DONTPEGBOTTOM flag
+        # With DONTPEGBOTTOM: texture bottom aligns with floor
+        # Without: texture top aligns with ceiling
+        if linedef.lower_unpegged?
+          texture = @textures[sidedef.middle_texture]
+          tex_height = texture ? texture.height : 128
+          mid_tex_y = sidedef.y_offset + tex_height - (sector.ceiling_height - sector.floor_height)
+        else
+          mid_tex_y = sidedef.y_offset
+        end
+        draw_wall_column_ex(x, ceil_y, floor_y, sidedef.middle_texture, dist,
+                            sector.light_level, tex_col, mid_tex_y, scale, sector.ceiling_height)
+
+        # Track wall depth for sprite clipping (solid wall occludes this column)
+        @wall_depth[x] = [@wall_depth[x], dist].min
+
+        # Fully occluded
+        @ceiling_clip[x] = SCREEN_HEIGHT
+        @floor_clip[x] = -1
       end
 
       # Wall column drawing with proper texture mapping
