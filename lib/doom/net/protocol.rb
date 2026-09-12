@@ -35,6 +35,14 @@ module Doom
       # Payload per snapshot chunk, kept well under a typical path MTU so a
       # chunk is never itself IP-fragmented.
       SNAPSHOT_CHUNK_BYTES = 1024
+      # Ceiling for a FRAME packet. A frame carries every player's command, and
+      # FRAME_REDUNDANCY frames are repeated per packet against loss, so at 30
+      # players the packet approaches the ~1500-byte mobile MTU and past it IP
+      # fragments -- and the receiver's fixed recv buffer would silently truncate
+      # it. Kept under the IPv6 minimum MTU (1280) minus headers so a FRAME never
+      # fragments; encode_frame_capped drops the oldest (most-redundant) frames
+      # to fit, always keeping at least the newest.
+      MAX_FRAME_BYTES = 1200
 
       module_function
 
@@ -125,6 +133,20 @@ module Doom
             f[:cmds].map { |id, cmd| [id].pack('C') + cmd.pack }.join
         end.join
         [VERSION, FRAME, frames.size].pack('CCC') + body
+      end
+
+      # Encode the newest frames that fit under `max_bytes`, dropping the oldest
+      # (whose only job is redundancy) until the packet fits. Always keeps at
+      # least the newest frame, so a client can still advance even when a single
+      # frame at a huge player count is itself over budget.
+      def encode_frame_capped(frames, max_bytes: MAX_FRAME_BYTES)
+        selected = frames
+        loop do
+          packet = encode_frame(selected)
+          return packet if packet.bytesize <= max_bytes || selected.size <= 1
+
+          selected = selected[1..] # drop the oldest, retry
+        end
       end
 
       def decode(bytes)

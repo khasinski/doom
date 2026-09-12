@@ -139,7 +139,10 @@ module Doom
       def record_and_broadcast(frame)
         @frame_log << frame
         @frame_log.shift while @frame_log.size > FRAME_REDUNDANCY
-        packet = Protocol.encode_frame(@frame_log)
+        # Cap the packet under a safe MTU: at high player counts the full
+        # redundancy would fragment or be truncated. Redundancy degrades
+        # gracefully, the newest frame always ships.
+        packet = Protocol.encode_frame_capped(@frame_log)
         @clients.each_value { |c| @transport.send_to_addr(c.host, c.port, packet) }
       end
 

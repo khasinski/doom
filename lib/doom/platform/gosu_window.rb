@@ -117,6 +117,8 @@ module Doom
         @client = client   # authoritative-server client, if we joined one
         @local_player_id = session&.local_id || client&.local_id || 0
         @last_tic_at = Time.now  # for interpolating between server frames
+        @last_net_send_at = nil  # throttles outbound packets to the tic rate
+        @client_input_window = [] # recent [tic, ticcmd] resent against loss
         menu.netgame = true if menu && (session || client)
 
         bind_world(world)
@@ -179,12 +181,19 @@ module Doom
       # follow the world the client holds -- which it rebuilds from a fresh
       # snapshot on a resync, so re-point at it when the object changes.
       CLIENT_INPUT_LEAD = 3
+      # Outbound packets are paced to the tic rate, not the uncapped render loop:
+      # drawing runs at hundreds of FPS, and sending one packet per frame would
+      # flood the server (and, in P2P, every peer) from every phone in the room.
+      NET_SEND_INTERVAL = 1.0 / 35.0
+      # Each input packet repeats the last few tics of commands, so pacing the
+      # send rate down does not make a single dropped packet lose that input.
+      CLIENT_INPUT_REDUNDANCY = 4
 
       def advance_server_client
         @client.poll
         bind_world(@client.world) unless @world.equal?(@client.world)
 
-        @client.send_input([[@client.synced_tic + CLIENT_INPUT_LEAD, build_ticcmd]])
+        send_client_input
 
         if @client.synced_tic != @leveltime
           @leveltime = @client.synced_tic
@@ -203,11 +212,40 @@ module Doom
           @tic_accumulator -= 1.0
           @session.submit(build_ticcmd)
         end
-        @session.transmit
+        # Lockstep already resends a redundancy window from each peer's ack, so
+        # pacing transmit to the tic rate loses nothing but the flood.
+        @session.transmit if net_send_due?
 
         ran = @session.run(@world, limit: 10)
         ran.times { @item_pickup.update_flash }
         @leveltime = @world.leveltime
+      end
+
+      # Sample this frame's input for a near-future tic and send it, paced to the
+      # tic rate, with a short redundancy window against packet loss. Only the
+      # newest sample for a given target tic is kept.
+      def send_client_input
+        return unless net_send_due?
+
+        tic = @client.synced_tic + CLIENT_INPUT_LEAD
+        if @client_input_window.last&.first == tic
+          @client_input_window[-1] = [tic, build_ticcmd]
+        else
+          @client_input_window << [tic, build_ticcmd]
+        end
+        @client_input_window = @client_input_window.last(CLIENT_INPUT_REDUNDANCY)
+        @client.send_input(@client_input_window)
+      end
+
+      # True at most once per tic interval, so outbound packets track the 35 Hz
+      # simulation rather than the uncapped frame rate. Advances the clock as a
+      # side effect when it fires.
+      def net_send_due?
+        now = Time.now
+        return false if @last_net_send_at && (now - @last_net_send_at) < NET_SEND_INTERVAL
+
+        @last_net_send_at = now
+        true
       end
 
       # Point this window at a world, refreshing every cached reference. Called
@@ -569,6 +607,7 @@ module Doom
 
         @renderer.fog_enabled = @menu.options[:fog] if @renderer.respond_to?(:fog_enabled=)
         @renderer.flashlight_enabled = @menu.options[:flashlight] if @renderer.respond_to?(:flashlight_enabled=)
+        @renderer.bounces_enabled = @menu.options[:rt_bounces] if @renderer.respond_to?(:bounces_enabled=)
       end
 
       # Palette for the live game view: red pain flash while taking damage

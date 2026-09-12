@@ -182,4 +182,43 @@ RSpec.describe Doom::Net::Client do
       expect(client.world.state_hash).to eq(server.world.state_hash)
     end
   end
+
+  describe 'hardening against malformed snapshot chunks' do
+    # These arrive off an open UDP port, so a stray or hostile chunk must never
+    # crash the client. Drive on_chunk directly with crafted messages.
+    def welcome(client, snapshot_tic:)
+      client.send(:on_welcome, { type: Doom::Net::Protocol::WELCOME, player_id: 0,
+                                 map: 'E1M1', snapshot_tic: snapshot_tic })
+    end
+
+    def chunk(snapshot_tic:, index:, total:, bytes:)
+      { type: Doom::Net::Protocol::SNAPSHOT, snapshot_tic: snapshot_tic,
+        index: index, total: total, chunk: bytes.b }
+    end
+
+    it 'drops an out-of-range chunk index instead of splicing a gap and crashing' do
+      client = new_client(new_server)
+      welcome(client, snapshot_tic: 100)
+
+      client.send(:on_chunk, chunk(snapshot_tic: 100, index: 0, total: 2, bytes: 'aaa'))
+      expect do
+        client.send(:on_chunk, chunk(snapshot_tic: 100, index: 5, total: 2, bytes: 'bbb'))
+      end.not_to raise_error
+
+      # Index 1 is still genuinely missing, so no load was attempted.
+      expect(client).not_to be_playing
+    end
+
+    it 'requests a resync instead of raising when the reassembled snapshot is corrupt' do
+      client = new_client(new_server)
+      welcome(client, snapshot_tic: 100)
+
+      expect do
+        client.send(:on_chunk, chunk(snapshot_tic: 100, index: 0, total: 1, bytes: 'not a snapshot'))
+      end.not_to raise_error
+
+      expect(client).not_to be_playing
+      expect(client).not_to be_connected # reset_join ran: a fresh HELLO was sent
+    end
+  end
 end

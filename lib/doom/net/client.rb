@@ -121,12 +121,31 @@ module Doom
       def on_chunk(msg)
         return unless @snapshot_tic == msg[:snapshot_tic] && @map
 
-        @chunk_total = msg[:total]
-        @chunks[msg[:index]] = msg[:chunk]
-        return unless @chunks.size == @chunk_total
+        total = msg[:total]
+        index = msg[:index]
+        # A stray or hostile chunk (bad total, or an index outside the range)
+        # must not corrupt reassembly: without this an out-of-range index could
+        # push @chunks.size up to @chunk_total while a real index stays missing,
+        # so the join below would splice a gap and Snapshot.load would raise on
+        # the network path. Drop it instead.
+        return if total.nil? || total.zero? || index.nil? || index >= total
+
+        @chunk_total = total
+        @chunks[index] = msg[:chunk]
+        return unless @chunks.size == @chunk_total && (0...@chunk_total).all? { |i| @chunks.key?(i) }
 
         bytes = (0...@chunk_total).map { |i| @chunks[i] }.join
-        @world = Game::Snapshot.load(bytes, map: @map, sprites: @sprites, sound: @sound)
+        begin
+          world = Game::Snapshot.load(bytes, map: @map, sprites: @sprites, sound: @sound)
+        rescue StandardError => e
+          # A truncated or corrupt snapshot is recoverable: ask for a fresh one
+          # rather than letting the exception kill the client mid-game.
+          warn "snapshot load failed (#{e.class}: #{e.message}); requesting resync"
+          request_resync(@clock.call)
+          return
+        end
+
+        @world = world
         @synced_tic = @snapshot_tic
         @synced_at = @clock.call
         # Frames at or before the snapshot are already baked into it.

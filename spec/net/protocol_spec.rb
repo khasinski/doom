@@ -225,6 +225,34 @@ RSpec.describe Doom::Net::Protocol do
       expect(d[:chunk]).to eq('tiny'.b)
       expect(d[:total]).to eq(1)
     end
+
+    it 'caps a frame packet under the MTU ceiling by dropping the oldest frames' do
+      # Many players plus full redundancy would blow past the MTU. Build a log
+      # far larger than the cap and confirm the capped packet fits.
+      big_cmds = (0...40).map { |id| [id, cmd] }
+      frames = (1..12).map { |t| { tic: t, joins: [], leaves: [], cmds: big_cmds } }
+
+      uncapped = described_class.encode_frame(frames)
+      capped = described_class.encode_frame_capped(frames)
+
+      expect(uncapped.bytesize).to be > described_class::MAX_FRAME_BYTES
+      expect(capped.bytesize).to be <= described_class::MAX_FRAME_BYTES
+    end
+
+    it 'keeps the newest frame when capping, so the client can still advance' do
+      big_cmds = (0...40).map { |id| [id, cmd] }
+      frames = (1..12).map { |t| { tic: t, joins: [], leaves: [], cmds: big_cmds } }
+
+      msg = described_class.decode(described_class.encode_frame_capped(frames))
+      expect(msg[:frames].last[:tic]).to eq(12)
+      expect(msg[:frames]).not_to be_empty
+    end
+
+    it 'always sends at least one frame even if it alone exceeds the cap' do
+      huge = [{ tic: 1, joins: [], leaves: [], cmds: (0...200).map { |id| [id, cmd] } }]
+      msg = described_class.decode(described_class.encode_frame_capped(huge))
+      expect(msg[:frames].map { |f| f[:tic] }).to eq([1])
+    end
   end
 
   describe 'hostile input' do
