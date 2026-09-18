@@ -12,6 +12,22 @@ module Doom
       TEXELS_PER_NODE = 3
       BVH_LEAF_SIZE = 8
       MAX_RAY_LIGHTS = 8
+      # Soft shadows: each shadow test fires this many rays at jittered points on
+      # a small light disc (SHADOW_SOFTNESS map units across) and averages them,
+      # so edges get a penumbra instead of a hard cut. More samples = smoother
+      # but costs a BVH ray each; radius widens the penumbra.
+      SHADOW_SAMPLES = 5
+      SHADOW_SOFTNESS = 12.0
+      # Atmosphere: how much the sector light level fills unlit surfaces, and how
+      # bright the sky reads. Both kept low so shadows stay deep and the
+      # flashlight carries the scene -- lower is darker/moodier, higher is flatter.
+      AMBIENT_LEVEL = 0.18    # was 0.32
+      SKY_BRIGHTNESS = 0.28   # was 0.45
+      # Distance fog gives depth: without it a bright sector reads evenly lit all
+      # the way down a corridor. Higher density swallows distance sooner; FOG_MAX
+      # is how completely far surfaces fade into the dark fog colour.
+      FOG_DENSITY = 0.0011    # was 0.00075
+      FOG_MAX = 0.94          # was 0.82
       RAY_WIDTH = 640
       RAY_HEIGHT = 480
       MAX_TRIANGLES = 4096
@@ -46,6 +62,7 @@ module Doom
         uniform vec4 light_colors[#{MAX_RAY_LIGHTS}];
         uniform int fog_enabled;
         uniform int flashlight_enabled;
+        uniform int bounces_enabled;
 
         vec4 datum(float index) {
           float x = mod(index, #{DATA_WIDTH}.0);
@@ -96,7 +113,8 @@ module Doom
 
         bool accepts_surface(float base, vec2 barycentric) {
           float flags = datum(base + 3.0).w;
-          if (flags < 2048.0) return true;
+          float masked = floor(mod(flags, 4096.0) / 2048.0);
+          if (masked < 0.5) return true;
           vec4 uv0_uv1 = datum(base + 4.0);
           vec4 uv2_rect = datum(base + 5.0);
           vec4 rect_size = datum(base + 6.0);
@@ -139,6 +157,110 @@ module Doom
             }
           }
           return false;
+        }
+
+        // Average several shadow rays fired at jittered points on a small light
+        // disc so shadow edges soften into a penumbra. Returns visibility [0,1].
+        float shadow_visibility(vec3 origin, vec3 light_position) {
+          float lit = 0.0;
+          for (int s = 0; s < #{SHADOW_SAMPLES}; ++s) {
+            float angle = float(s) * 2.39996323;                       // golden-angle spread
+            float disc_radius = #{SHADOW_SOFTNESS} * sqrt((float(s) + 0.5) / float(#{SHADOW_SAMPLES}));
+            vec3 jittered = light_position + camera_right * (cos(angle) * disc_radius) +
+                                             camera_up * (sin(angle) * disc_radius);
+            vec3 delta = jittered - origin;
+            float light_dist = length(delta);
+            if (!shadowed(origin, delta / max(light_dist, 0.001), light_dist - 0.1)) lit += 1.0;
+          }
+          return lit / float(#{SHADOW_SAMPLES});
+        }
+
+        bool trace_scene(vec3 origin, vec3 direction, float distance_limit,
+                         int ignored_triangle,
+                         out int hit, out float nearest, out vec2 hit_barycentric) {
+          nearest = distance_limit;
+          hit = -1;
+          hit_barycentric = vec2(0.0);
+          vec3 inverse_direction = 1.0 / direction;
+          int node_index = 0;
+          while (node_index < node_count) {
+            float node_base = float(node_index * #{TEXELS_PER_NODE});
+            vec4 minimum_escape = node_datum(node_base);
+            vec4 maximum_start = node_datum(node_base + 1.0);
+            int escape = int(minimum_escape.w + 0.5);
+            if (!intersect_box(origin, inverse_direction, minimum_escape.xyz,
+                               maximum_start.xyz, nearest)) {
+              node_index = escape;
+              continue;
+            }
+            if (maximum_start.w >= 0.0) {
+              int start = int(maximum_start.w + 0.5);
+              int count = int(node_datum(node_base + 2.0).x + 0.5);
+              for (int offset = 0; offset < #{BVH_LEAF_SIZE}; ++offset) {
+                if (offset >= count) break;
+                int triangle_index = start + offset;
+                if (triangle_index == ignored_triangle) continue;
+                float distance;
+                vec2 barycentric;
+                float triangle_base = float(triangle_index * #{TEXELS_PER_TRIANGLE});
+                if (intersect_triangle(origin, direction, triangle_base,
+                                       distance, barycentric) && distance < nearest &&
+                    accepts_surface(triangle_base, barycentric)) {
+                  nearest = distance;
+                  hit = triangle_index;
+                  hit_barycentric = barycentric;
+                }
+              }
+              node_index = escape;
+            } else {
+              node_index += 1;
+            }
+          }
+          return hit >= 0;
+        }
+
+        vec3 sky_radiance(vec3 direction) {
+          float sky_u = atan(direction.y, direction.x) * 2.0 / 3.14159265;
+          float sky_v = 0.5 - asin(clamp(direction.z, -1.0, 1.0)) / 3.14159265;
+          return texture2D(sky_texture, vec2(sky_u, sky_v * (200.0 / 128.0))).rgb * #{SKY_BRIGHTNESS};
+        }
+
+        vec3 secondary_radiance(vec3 origin, vec3 direction, int source_triangle) {
+          int secondary_hit;
+          float secondary_distance;
+          vec2 barycentric;
+          if (!trace_scene(origin, direction, 1.0e20, source_triangle, secondary_hit,
+                           secondary_distance, barycentric))
+            return sky_radiance(direction);
+
+          float base = float(secondary_hit * #{TEXELS_PER_TRIANGLE});
+          vec4 normal_light = datum(base + 3.0);
+          vec4 uv0_uv1 = datum(base + 4.0);
+          vec4 uv2_rect = datum(base + 5.0);
+          vec4 rect_size = datum(base + 6.0);
+          float w = 1.0 - barycentric.x - barycentric.y;
+          vec2 uv = uv0_uv1.xy * w + uv0_uv1.zw * barycentric.x + uv2_rect.xy * barycentric.y;
+          vec2 atlas_uv = rect_size.xy + fract(uv / rect_size.zw) * uv2_rect.zw;
+          vec3 albedo = texture2D(material_atlas, atlas_uv).rgb;
+          float emission = floor(mod(normal_light.w, 2048.0) / 1024.0);
+          float sector = clamp(mod(normal_light.w, 1024.0) / 255.0, 0.10, 1.0);
+          return albedo * (vec3(sector * #{AMBIENT_LEVEL}) + emission * vec3(0.18, 0.62, 0.12));
+        }
+
+        float noise(vec3 point) {
+          return fract(sin(dot(point, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+        }
+
+        vec3 diffuse_bounce_direction(vec3 normal, float surface_id) {
+          vec3 helper = abs(normal.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+          vec3 tangent = normalize(cross(helper, normal));
+          vec3 bitangent = cross(normal, tangent);
+          // Keep the sample fixed to the triangle. Hashing the continuously
+          // moving hit point makes indirect light sparkle as the camera moves.
+          float angle = noise(vec3(surface_id, surface_id * 0.37, 1.0)) * 6.2831853;
+          float radius = 0.65;
+          return normalize(normal * sqrt(1.0 - radius * radius) +
+                           tangent * cos(angle) * radius + bitangent * sin(angle) * radius);
         }
 
         void main() {
@@ -189,7 +311,7 @@ module Doom
             float sky_u = atan(direction.y, direction.x) * 2.0 / 3.14159265;
             float sky_v = (1.0 - screen_uv.y) * (200.0 / 128.0);
             vec3 sky = texture2D(sky_texture, vec2(sky_u, sky_v)).rgb;
-            gl_FragColor = vec4(sky * 0.45, 1.0);
+            gl_FragColor = vec4(sky * #{SKY_BRIGHTNESS}, 1.0);
             return;
           }
           float base = float(hit * #{TEXELS_PER_TRIANGLE});
@@ -207,7 +329,7 @@ module Doom
           vec3 point = camera_position + direction * nearest;
           float emission = floor(mod(normal_light.w, 2048.0) / 1024.0);
           float sector = clamp(mod(normal_light.w, 1024.0) / 255.0, 0.10, 1.0);
-          vec3 ambient = albedo * sector * 0.32;
+          vec3 ambient = albedo * sector * #{AMBIENT_LEVEL};
           vec3 direct = vec3(0.0);
           float strongest_score = 0.0;
           float second_score = 0.0;
@@ -248,26 +370,50 @@ module Doom
               second_distance = light_distance;
             }
           }
-          // All lights illuminate, but only the two dominant contributors
-          // launch expensive BVH shadow rays for this particular surface.
-          if (strongest_score > 0.003 && shadowed(point + normal * 0.08,
-              strongest_direction, strongest_distance - 0.1))
-            direct -= strongest_direct * 0.92;
-          if (second_score > 0.003 && shadowed(point + normal * 0.08,
-              second_direction, second_distance - 0.1))
-            direct -= second_direct * 0.92;
+          // Flashlight beam coverage for this point: wide and feathered so the
+          // beam edge is soft, not a hard disc.
+          float flashlight_beam = 0.0;
+          if (flashlight_enabled != 0) {
+            flashlight_beam = smoothstep(0.65, 0.95,
+              dot(normalize(point - camera_position), camera_forward));
+          }
+
+          // All lights illuminate, but only the two dominant contributors launch
+          // expensive BVH shadow rays for this surface.
+          if (strongest_score > 0.003) {
+            float strongest_visibility = shadow_visibility(point + normal * 0.08,
+              point + strongest_direction * strongest_distance);
+            direct -= strongest_direct * 0.92 * (1.0 - strongest_visibility);
+          }
+          if (second_score > 0.003) {
+            float second_visibility = shadow_visibility(point + normal * 0.08,
+              point + second_direction * second_distance);
+            direct -= second_direct * 0.92 * (1.0 - second_visibility);
+          }
 
           if (flashlight_enabled != 0) {
-            vec3 camera_to_point = normalize(point - camera_position);
-            float cone = smoothstep(0.80, 0.96, dot(camera_to_point, camera_forward));
-            vec3 point_to_camera = -camera_to_point;
-            float facing = max(dot(normal, point_to_camera), 0.0);
-            float flashlight_attenuation = 1.0 / (1.0 + nearest * 0.0015 +
-                                                  nearest * nearest * 0.000002);
+            // The flashlight sits slightly to the side of and below the eye, not
+            // exactly at it. A light co-located with the camera can never cast a
+            // visible shadow: the shadow of any caster falls directly behind it,
+            // hidden from the eye, and the shadow ray back to the camera retraces
+            // the (empty by construction) primary ray. Offsetting it like a
+            // handheld lantern throws shadows to the side where they show.
+            vec3 flashlight_position = camera_position + camera_right * 14.0 - camera_up * 10.0;
+
+            // The beam still points where you look; reuse the wide coverage.
+            float cone = flashlight_beam;
+
+            // Lighting and shadowing come from the offset lantern position.
+            vec3 to_flashlight = flashlight_position - point;
+            float flashlight_distance = length(to_flashlight);
+            vec3 flashlight_direction = to_flashlight / max(flashlight_distance, 0.001);
+            float facing = max(dot(normal, flashlight_direction), 0.0);
+            float flashlight_attenuation = 1.0 / (1.0 + flashlight_distance * 0.0015 +
+                                                  flashlight_distance * flashlight_distance * 0.000002);
             float flashlight_strength = cone * facing * flashlight_attenuation;
             if (flashlight_strength > 0.004) {
-              float flashlight_visible = shadowed(point + normal * 0.08,
-                point_to_camera, nearest - 0.15) ? 0.06 : 1.0;
+              float flashlight_visible = mix(0.06, 1.0,
+                shadow_visibility(point + normal * 0.08, flashlight_position));
               direct += albedo * vec3(1.0, 0.88, 0.68) * flashlight_strength *
                         flashlight_visible * 2.2;
             }
@@ -276,9 +422,34 @@ module Doom
           vec3 shaded = ambient + direct;
           if (emission > 0.5)
             shaded += albedo * vec3(0.18, 0.62, 0.12);
+          if (bounces_enabled != 0) {
+            float reflective = floor(mod(normal_light.w, 8192.0) / 4096.0);
+            float refractive = floor(mod(normal_light.w, 16384.0) / 8192.0);
+            if (reflective > 0.5) {
+              vec3 reflected = secondary_radiance(point + normal * 0.12,
+                                                  reflect(direction, normal), hit);
+              float fresnel = pow(1.0 - max(dot(-direction, normal), 0.0), 5.0);
+              float reflection_mix = refractive > 0.5
+                ? mix(0.34, 0.72, fresnel)
+                : mix(0.42, 0.68, fresnel);
+              shaded = mix(shaded, reflected, reflection_mix);
+            } else {
+              vec3 bounced = secondary_radiance(point + normal * 0.12,
+                diffuse_bounce_direction(normal, float(hit)), hit);
+              shaded += albedo * bounced * 0.18;
+            }
+            if (refractive > 0.5) {
+              vec3 transmitted_direction = refract(direction, normal, 1.0 / 1.33);
+              if (length(transmitted_direction) > 0.01) {
+                vec3 transmitted = secondary_radiance(point - normal * 0.12,
+                                                      transmitted_direction, hit);
+                shaded = mix(shaded, transmitted * vec3(0.72, 0.92, 0.74), 0.08);
+              }
+            }
+          }
           if (fog_enabled != 0) {
-            float fog = clamp(1.0 - exp(-nearest * 0.00075), 0.0, 0.82);
-            shaded = mix(shaded, vec3(0.035, 0.045, 0.060), fog);
+            float fog = clamp(1.0 - exp(-nearest * #{FOG_DENSITY}), 0.0, #{FOG_MAX});
+            shaded = mix(shaded, vec3(0.020, 0.025, 0.035), fog);
           }
           gl_FragColor = vec4(shaded, 1.0);
         }
@@ -312,7 +483,7 @@ module Doom
         void main() {
           vec4 texel = texture2D(sprite_texture, sprite_uv);
           if (texel.a < 0.01) discard;
-          vec3 shaded = texel.rgb * clamp(sector_light, 0.10, 1.0) * 0.32;
+          vec3 shaded = texel.rgb * clamp(sector_light, 0.10, 1.0) * #{AMBIENT_LEVEL};
           for (int light_index = 0; light_index < #{MAX_RAY_LIGHTS}; ++light_index) {
             if (light_index >= light_count) break;
             float distance_to_light = length(light_positions[light_index].xyz - world_position);
@@ -330,8 +501,8 @@ module Doom
             shaded += texel.rgb * vec3(1.0, 0.88, 0.68) * cone * attenuation * 1.5;
           }
           if (fog_enabled != 0) {
-            float fog = clamp(1.0 - exp(-distance_to_camera * 0.00075), 0.0, 0.82);
-            shaded = mix(shaded, vec3(0.035, 0.045, 0.060), fog);
+            float fog = clamp(1.0 - exp(-distance_to_camera * #{FOG_DENSITY}), 0.0, #{FOG_MAX});
+            shaded = mix(shaded, vec3(0.020, 0.025, 0.035), fog);
           }
           gl_FragColor = vec4(shaded, texel.a);
         }
@@ -341,13 +512,14 @@ module Doom
         true
       end
 
-      attr_accessor :fog_enabled, :flashlight_enabled
+      attr_accessor :fog_enabled, :flashlight_enabled, :bounces_enabled
 
       def initialize(...)
         super
         @ray_materials = RayTracing::MaterialState.new(@flats, @animations)
         @fog_enabled = true
         @flashlight_enabled = true
+        @bounces_enabled = true
       end
 
       def render_frame
@@ -452,6 +624,7 @@ module Doom
                                GL_TEXTURE_2D, @ray_target_texture, 0)
         status = glCheckFramebufferStatus(GL_FRAMEBUFFER)
         raise "ray framebuffer incomplete: 0x#{status.to_s(16)}" unless status == GL_FRAMEBUFFER_COMPLETE
+
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
       end
 
@@ -461,13 +634,19 @@ module Doom
         glEnable(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, @ray_target_texture)
         glColor3f(1.0, 1.0, 1.0)
-        glMatrixMode(GL_PROJECTION); glLoadIdentity
-        glMatrixMode(GL_MODELVIEW); glLoadIdentity
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity
         glBegin(GL_QUADS)
-        glTexCoord2f(0.0, 0.0); glVertex2f(-1.0, -1.0)
-        glTexCoord2f(1.0, 0.0); glVertex2f(1.0, -1.0)
-        glTexCoord2f(1.0, 1.0); glVertex2f(1.0, 1.0)
-        glTexCoord2f(0.0, 1.0); glVertex2f(-1.0, 1.0)
+        glTexCoord2f(0.0, 0.0)
+        glVertex2f(-1.0, -1.0)
+        glTexCoord2f(1.0, 0.0)
+        glVertex2f(1.0, -1.0)
+        glTexCoord2f(1.0, 1.0)
+        glVertex2f(1.0, 1.0)
+        glTexCoord2f(0.0, 1.0)
+        glVertex2f(-1.0, 1.0)
         glEnd
       end
 
@@ -497,6 +676,7 @@ module Doom
         uniform1i('node_count', @ray_bvh.nodes.size)
         uniform1i('fog_enabled', @fog_enabled ? 1 : 0)
         uniform1i('flashlight_enabled', @flashlight_enabled ? 1 : 0)
+        uniform1i('bounces_enabled', @bounces_enabled ? 1 : 0)
         uniform3f('camera_position', @player_x, @player_y, @player_z)
         uniform3f('camera_forward', @cos_angle, @sin_angle, 0.0)
         uniform3f('camera_right', @sin_angle, -@cos_angle, 0.0)
@@ -510,27 +690,29 @@ module Doom
         colors.concat(Array.new((MAX_RAY_LIGHTS - lights.size) * 4, 0.0))
         uniform4fv('light_positions', MAX_RAY_LIGHTS, positions)
         uniform4fv('light_colors', MAX_RAY_LIGHTS, colors)
-        glMatrixMode(GL_PROJECTION); glLoadIdentity
-        glMatrixMode(GL_MODELVIEW); glLoadIdentity
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity
         glBegin(GL_QUADS)
-        glTexCoord2f(0.0, 0.0); glVertex2f(-1.0, -1.0)
-        glTexCoord2f(1.0, 0.0); glVertex2f(1.0, -1.0)
-        glTexCoord2f(1.0, 1.0); glVertex2f(1.0, 1.0)
-        glTexCoord2f(0.0, 1.0); glVertex2f(-1.0, 1.0)
+        glTexCoord2f(0.0, 0.0)
+        glVertex2f(-1.0, -1.0)
+        glTexCoord2f(1.0, 0.0)
+        glVertex2f(1.0, -1.0)
+        glTexCoord2f(1.0, 1.0)
+        glVertex2f(1.0, 1.0)
+        glTexCoord2f(0.0, 1.0)
+        glVertex2f(-1.0, 1.0)
         glEnd
         glUseProgram(0)
         glActiveTexture(GL_TEXTURE0)
       end
 
       def build_ray_scene
-        unless @ray_program
-          @ray_program = create_program(VERTEX_SHADER, FRAGMENT_SHADER)
-        end
+        @ray_program ||= create_program(VERTEX_SHADER, FRAGMENT_SHADER)
         unless @ray_atlas_texture
           materials = @mesh.triangles.map(&:material).compact
-          if @animations
-            materials.concat(@ray_materials.animation_names)
-          end
+          materials.concat(@ray_materials.animation_names) if @animations
           atlas_builder = RayTracing::TextureAtlas.new(
             size: ATLAS_SIZE, textures: @textures, flats: @flats, palette: @palette
           )
@@ -564,34 +746,65 @@ module Doom
         end
         texel_count = floats.size / 4
         @ray_data_height = [(texel_count.to_f / DATA_WIDTH).ceil, 1].max
-        floats.concat(Array.new(DATA_WIDTH * @ray_data_height * 4 - floats.size, 0.0))
-        @ray_data_texture = replace_texture(@ray_data_texture, DATA_WIDTH, @ray_data_height, GL_RGBA32F, GL_FLOAT, floats.pack('f*'))
+        floats.concat(Array.new((DATA_WIDTH * @ray_data_height * 4) - floats.size, 0.0))
+        @ray_data_texture = replace_texture(@ray_data_texture, DATA_WIDTH, @ray_data_height, GL_RGBA32F, GL_FLOAT,
+                                            floats.pack('f*'))
       end
 
       def upload_bvh
         floats = @ray_bvh.packed_floats
         texels = floats.size / 4
         @ray_bvh_height = [(texels.to_f / NODE_DATA_WIDTH).ceil, 1].max
-        floats.concat(Array.new(NODE_DATA_WIDTH * @ray_bvh_height * 4 - floats.size, 0.0))
+        floats.concat(Array.new((NODE_DATA_WIDTH * @ray_bvh_height * 4) - floats.size, 0.0))
         @ray_bvh_texture = replace_texture(@ray_bvh_texture, NODE_DATA_WIDTH, @ray_bvh_height,
                                            GL_RGBA32F, GL_FLOAT, floats.pack('f*'))
       end
 
+      # Ceiling flats that are light fixtures rather than plain ceilings. These
+      # glow as warm point lights so the lamps dotting the map actually cast
+      # light and shadows instead of just being bright textures.
+      CEILING_LAMP_PATTERN = /\ATLITE/
+
       def ray_lights
-        lights = active_lights + acid_lights
-        lights.sort_by { |light| (light[:x] - @player_x)**2 + (light[:y] - @player_y)**2 }
+        lights = active_lights + acid_lights + ceiling_lamp_lights
+        lights.sort_by { |light| ((light[:x] - @player_x)**2) + ((light[:y] - @player_y)**2) }
       end
+
+      # Approximate RGB light reaching a point: sector ambient, the nearest point
+      # lights by distance falloff, and the flashlight (always on a held object
+      # right in front of the eye). Used to tint the weapon so lamps and the beam
+      # colour the player's hand. Values may exceed 1.0; the caller clamps.
+      def light_color_at(x, y, z)
+        sector = @map.sector_at(x, y)
+        ambient = ((sector&.light_level || 128).to_f / 255.0) * AMBIENT_LEVEL
+        color = [ambient, ambient, ambient]
+
+        ray_lights.first(MAX_RAY_LIGHTS).each do |light|
+          dx = light[:x] - x
+          dy = light[:y] - y
+          dz = light[:z] - z
+          distance_sq = (dx * dx) + (dy * dy) + (dz * dz)
+          attenuation = 1.0 / (1.0 + (Math.sqrt(distance_sq) * 0.0015) + (distance_sq * 0.000004))
+          light[:color].each_with_index { |channel, index| color[index] += channel * attenuation }
+        end
+
+        if @flashlight_enabled
+          color[0] += 0.70
+          color[1] += 0.62
+          color[2] += 0.48
+        end
+
+        color
+      end
+      # Called from the window to tint the weapon; must be reachable despite
+      # sitting among the private light helpers.
+      public :light_color_at
 
       def acid_lights
         @acid_lights ||= @map.sectors.each_with_index.filter_map do |sector, sector_index|
           next unless @ray_materials.emissive?(sector.floor_texture)
 
-          points = @map.linedefs.flat_map do |line|
-            touches = [line.sidedef_right, line.sidedef_left].compact.any? do |side_index|
-              side_index >= 0 && @map.sidedefs[side_index]&.sector == sector_index
-            end
-            touches ? [@map.vertices[line.v1], @map.vertices[line.v2]] : []
-          end.uniq { |point| [point.x, point.y] }
+          points = sector_perimeter_points(sector_index)
           next if points.empty?
 
           { x: points.sum(&:x).to_f / points.size,
@@ -599,6 +812,53 @@ module Doom
             z: sector.floor_height.to_f + 18.0,
             color: [0.22, 1.0, 0.18] }
         end
+      end
+
+      def ceiling_lamp_lights
+        @ceiling_lamp_lights ||= @map.sectors.each_with_index.filter_map do |sector, sector_index|
+          next unless sector.ceiling_texture&.match?(CEILING_LAMP_PATTERN)
+
+          points = sector_perimeter_points(sector_index)
+          next if points.empty?
+
+          { x: points.sum(&:x).to_f / points.size,
+            y: points.sum(&:y).to_f / points.size,
+            z: sector.ceiling_height.to_f - 12.0,
+            color: lamp_color(sector.ceiling_texture) }
+        end
+      end
+
+      # A lamp glows in the hue of its own fixture flat: average the flat's
+      # colours and normalise to full brightness, so a red light flat throws red
+      # light and a warm one throws warm light. Falls back to warm white.
+      def lamp_color(flat_name)
+        @lamp_colors ||= {}
+        @lamp_colors[flat_name] ||= begin
+          flat = @flats[flat_name]
+          pixels = flat.respond_to?(:pixels) ? flat.pixels : nil
+          if pixels && !pixels.empty?
+            sums = pixels.each_with_object([0, 0, 0]) do |index, acc|
+              rgb = @palette.colors[index]
+              acc[0] += rgb[0]; acc[1] += rgb[1]; acc[2] += rgb[2]
+            end
+            average = sums.map { |channel| channel.to_f / pixels.size }
+            peak = average.max
+            peak.positive? ? average.map { |channel| channel / peak } : [1.0, 0.93, 0.78]
+          else
+            [1.0, 0.93, 0.78]
+          end
+        end
+      end
+
+      # The distinct vertices of every linedef bordering a sector -- used to find
+      # a sector's rough centre for placing a light in it.
+      def sector_perimeter_points(sector_index)
+        @map.linedefs.flat_map do |line|
+          touches = [line.sidedef_right, line.sidedef_left].compact.any? do |side_index|
+            side_index >= 0 && @map.sidedefs[side_index]&.sector == sector_index
+          end
+          touches ? [@map.vertices[line.v1], @map.vertices[line.v2]] : []
+        end.uniq { |point| [point.x, point.y] }
       end
 
       def replace_texture(old_id, width, height, internal, type, data)
@@ -625,7 +885,9 @@ module Doom
         status = [0].pack('L')
         glGetProgramiv(program, GL_LINK_STATUS, status)
         raise "ray shader link failed: #{program_log(program)}" if status.unpack1('L').zero?
-        glDeleteShader(vertex); glDeleteShader(fragment)
+
+        glDeleteShader(vertex)
+        glDeleteShader(fragment)
         program
       end
 
@@ -639,6 +901,7 @@ module Doom
         status = [0].pack('L')
         glGetShaderiv(shader, GL_COMPILE_STATUS, status)
         raise "ray shader compile failed: #{shader_log(shader)}" if status.unpack1('L').zero?
+
         shader
       end
 
@@ -657,11 +920,14 @@ module Doom
       end
 
       def bind_ray_texture(unit, texture, uniform, index)
-        glActiveTexture(unit); glBindTexture(GL_TEXTURE_2D, texture || 0); uniform1i(uniform, index)
+        glActiveTexture(unit)
+        glBindTexture(GL_TEXTURE_2D, texture || 0)
+        uniform1i(uniform, index)
       end
 
       def uniform1i(name, value, program: @ray_program) = glUniform1i(glGetUniformLocation(program, name), value)
       def uniform1f(name, value, program: @ray_program) = glUniform1f(glGetUniformLocation(program, name), value.to_f)
+
       def uniform3f(name, x, y, z, program: @ray_program)
         glUniform3f(glGetUniformLocation(program, name), x.to_f, y.to_f, z.to_f)
       end

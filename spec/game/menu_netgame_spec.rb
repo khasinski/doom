@@ -52,11 +52,11 @@ RSpec.describe 'menu in a netgame' do
     end
 
     it 'keeps the presentation-only options, which touch no game state' do
-      expect(menu.options_items).to include(:fullscreen, :uncapped_fps, :fog, :flashlight)
+      expect(menu.options_items).to include(:fullscreen, :uncapped_fps, :fog, :flashlight, :rt_bounces)
     end
 
     it 'enables ray-tracing atmosphere controls by default' do
-      expect(menu.options).to include(fog: true, flashlight: true)
+      expect(menu.options).to include(fog: true, flashlight: true, rt_bounces: true)
     end
 
     it 'leaves no gap in the item list for the cursor to land on' do

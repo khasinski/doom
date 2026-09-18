@@ -513,18 +513,57 @@ module Doom
       # transparent indexed overlay for the existing weapon/status renderers,
       # preserving the gameplay UI while the world is drawn by OpenGL.
       def draw_hardware_hud(menu: false)
-        transparent = -1
-        overlay = Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, transparent)
-        @weapon_renderer&.render(overlay) unless @player_state&.dead
-        @status_bar&.render(overlay)
-        if @doom_font && @item_pickup&.pickup_message && @item_pickup.message_tics > 0
-          @doom_font.draw_text(overlay, @item_pickup.pickup_message, 2, 2)
+        # The weapon hand is a held object, so the world's light colours it: tint
+        # it by the light where the player stands (lamps, the flashlight). Drawn
+        # on its own so only it is lit -- never while a menu is up or the player
+        # is dead.
+        unless menu || @player_state&.dead
+          weapon = new_hud_overlay
+          @weapon_renderer&.render(weapon)
+          blit_hud_overlay(weapon, active_palette_index, weapon_light_tint)
         end
-        @menu.render(overlay, nil) if menu
-        palette = @all_palette_rgba[active_palette_index]
-        rgba = overlay.map { |index| index == transparent ? "\0\0\0\0" : palette[index] }.join
+
+        # HUD, pickup message and menu: readable UI, never lit by the world. The
+        # menu also drops the pain/pickup tint (normal palette), as the classic
+        # present(fb) path does.
+        hud = new_hud_overlay
+        @status_bar&.render(hud)
+        if @doom_font && @item_pickup&.pickup_message && @item_pickup.message_tics.positive?
+          @doom_font.draw_text(hud, @item_pickup.pickup_message, 2, 2)
+        end
+        @menu.render(hud, nil) if menu
+        blit_hud_overlay(hud, menu ? 0 : active_palette_index, nil)
+      end
+
+      def new_hud_overlay
+        Array.new(Render::SCREEN_WIDTH * Render::SCREEN_HEIGHT, -1)
+      end
+
+      # Blit an indexed overlay (transparent = -1) over the GL world, coloured by
+      # palette `pal_idx`; `tint` multiplies the whole image (nil = untinted).
+      def blit_hud_overlay(overlay, pal_idx, tint)
+        palette = @all_palette_rgba[pal_idx]
+        rgba = overlay.map { |index| index == -1 ? "\0\0\0\0" : palette[index] }.join
         image = Gosu::Image.from_blob(Render::SCREEN_WIDTH, Render::SCREEN_HEIGHT, rgba)
-        image.draw(0, 0, 10, SCALE, SCALE)
+        if tint
+          image.draw(0, 0, 10, SCALE, SCALE, tint)
+        else
+          image.draw(0, 0, 10, SCALE, SCALE)
+        end
+      end
+
+      # The world light reaching the player, as a Gosu colour to multiply the
+      # weapon by. Only the hardware/ray-traced renderer computes this; the
+      # rasterizer leaves the weapon at full brightness.
+      def weapon_light_tint
+        return nil unless @renderer.respond_to?(:light_color_at)
+
+        r, g, b = @renderer.light_color_at(@player.x, @player.y, @player.z)
+        Gosu::Color.rgba(hud_tint_byte(r), hud_tint_byte(g), hud_tint_byte(b), 255)
+      end
+
+      def hud_tint_byte(value)
+        (value * 255.0).clamp(0.0, 255.0).to_i
       end
 
       def sync_renderer_visual_options

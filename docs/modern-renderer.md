@@ -31,6 +31,9 @@ It supports:
 - textured walls, floors, ceilings and Doom's sky projection;
 - animated flats and wall textures;
 - dynamic point lights and BVH-traced shadows;
+- one-bounce reflections on metallic and liquid materials;
+- refraction through liquid surfaces;
+- one sampled indirect diffuse bounce on ordinary surfaces;
 - emissive nukage/slime sectors;
 - optional distance fog and a shadowed flashlight (`Options` menu);
 - lit and fogged rasterized sprites with depth-tested world occlusion;
@@ -38,4 +41,11 @@ It supports:
 - BVH refitting for moving doors and lifts without rebuilding static textures.
 
 Sprite pixels are still a hybrid raster pass rather than ray-traced geometry.
-Reflections and indirect light bounces are not implemented.
+Secondary effects use one deterministic sample per pixel, without temporal
+accumulation, denoising, or recursive path tracing. Toggle them with
+`RT BOUNCES` in the Options menu when higher frame rate is more important.
+
+The current backend uses portable GLSL in Gosu's OpenGL context. It therefore
+runs on Apple Silicon and NVIDIA GPUs, but does not use Metal ray-intersection
+functions or NVIDIA RT cores directly. Those require native Metal and Vulkan
+or OptiX presentation backends because OpenGL cannot expose either API.

@@ -73,12 +73,13 @@ Press `R` during play to switch between them without restarting the simulation.
 
 - `classic` is the pixel-accurate software BSP renderer.
 - `rasterizer` builds a textured 3D world and draws it through Gosu's OpenGL context with a depth buffer.
-- `raytracing` traces primary and shadow rays on the GPU using a stackless BVH. It includes dynamic lights, hard shadows, emissive nukage, fog, and a flashlight. It does not require dedicated hardware ray-intersection units.
+- `raytracing` traces primary, shadow, reflection, refraction, and indirect-light rays on the GPU using a stackless BVH. It includes dynamic lights, hard shadows, emissive nukage, fog, and a flashlight. It does not require dedicated hardware ray-intersection units.
 
-The ray tracer uses a hybrid raster pass for sprites and does not yet implement
-reflections or indirect light bounces. Fog and the flashlight can be toggled in
-the Options menu. See [Modern renderers](docs/modern-renderer.md) for implementation
-details and current limitations.
+The ray tracer uses a hybrid raster pass for sprites. Its secondary rays are a
+single-bounce approximation rather than a converged path-traced image. Fog, the
+flashlight, and secondary rays can be toggled in the Options menu. See
+[Modern renderers](docs/modern-renderer.md) for implementation details and
+current limitations.
 
 ## Multiplayer
 

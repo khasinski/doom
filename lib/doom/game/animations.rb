@@ -37,7 +37,7 @@ module Doom
         [true, 'BFALL1',   'BFALL4'],
         [true, 'SFALL1',   'SFALL4'],
         [true, 'WFALL1',   'WFALL4'],
-        [true, 'DBRAIN1',  'DBRAIN4'],
+        [true, 'DBRAIN1',  'DBRAIN4']
       ].freeze
 
       attr_reader :flat_translation, :texture_translation
@@ -61,7 +61,7 @@ module Doom
           @anims << {
             is_texture: is_texture,
             frames: frames,
-            speed: TICS_PER_FRAME,
+            speed: TICS_PER_FRAME
           }
         end
       end
@@ -91,6 +91,13 @@ module Doom
       # Translate a texture name to its current animation frame
       def translate_texture(name)
         @texture_translation[name] || name
+      end
+
+      # Every frame that may be selected later. Renderers use this while
+      # building immutable texture atlases, including when the first draw
+      # happens in a menu before update has populated the translations.
+      def frame_names
+        @anims.flat_map { |animation| animation[:frames] }.uniq
       end
     end
   end

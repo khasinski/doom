@@ -8,7 +8,7 @@ module Doom
     class Menu
       include FramebufferBlitter
 
-      SKULL_ANIM_TICS = 8  # Skull cursor blink rate
+      SKULL_ANIM_TICS = 8 # Skull cursor blink rate
 
       # Difficulty levels matching DOOM's skill levels
       SKILL_BABY = 0      # I'm too young to die
@@ -22,7 +22,7 @@ module Doom
       STATE_MAIN = :main
       STATE_SKILL = :skill
       STATE_OPTIONS = :options
-      STATE_NONE = :none   # In-game, no menu
+      STATE_NONE = :none # In-game, no menu
 
       # Main menu items
       MAIN_ITEMS = %i[new_game options quit].freeze
@@ -36,21 +36,23 @@ module Doom
       NETGAME_UNSAFE_MAIN = %i[new_game].freeze
 
       # Options menu items
-      OPTIONS_ITEMS = %i[god_mode infinite_ammo all_weapons uncapped_fps fullscreen fog flashlight rubykaigi_mode].freeze
+      OPTIONS_ITEMS = %i[god_mode infinite_ammo all_weapons uncapped_fps fullscreen fog flashlight rt_bounces
+                         rubykaigi_mode].freeze
       OPTIONS_LABELS = {
-        god_mode: "GOD MODE",
-        infinite_ammo: "INFINITE AMMO",
-        all_weapons: "ALL WEAPONS",
-        uncapped_fps: "UNCAPPED FPS",
-        fullscreen: "FULLSCREEN",
-        fog: "RAY FOG",
-        flashlight: "FLASHLIGHT",
-        rubykaigi_mode: "RUBYKAIGI MODE",
+        god_mode: 'GOD MODE',
+        infinite_ammo: 'INFINITE AMMO',
+        all_weapons: 'ALL WEAPONS',
+        uncapped_fps: 'UNCAPPED FPS',
+        fullscreen: 'FULLSCREEN',
+        fog: 'RAY FOG',
+        flashlight: 'FLASHLIGHT',
+        rt_bounces: 'RT BOUNCES',
+        rubykaigi_mode: 'RUBYKAIGI MODE'
       }.freeze
 
       OPTIONS_X = 48
       OPTIONS_Y = 50
-      OPTIONS_SPACING = 18
+      OPTIONS_SPACING = 16
 
       # Skill menu items
       SKILL_ITEMS = [SKILL_BABY, SKILL_EASY, SKILL_MEDIUM, SKILL_HARD, SKILL_NIGHTMARE].freeze
@@ -74,7 +76,7 @@ module Doom
         @cursor = 0
         @skull_frame = 0
         @skull_tic = 0
-        @selected_skill = SKILL_MEDIUM  # Default difficulty
+        @selected_skill = SKILL_MEDIUM # Default difficulty
         @game_started = false
         @netgame = false
 
@@ -87,7 +89,8 @@ module Doom
           fullscreen: false,
           fog: true,
           flashlight: true,
-          rubykaigi_mode: false,
+          rt_bounces: true,
+          rubykaigi_mode: false
         }
 
         load_graphics
@@ -103,15 +106,15 @@ module Doom
 
       def update
         @skull_tic += 1
-        if @skull_tic >= SKULL_ANIM_TICS
-          @skull_tic = 0
-          @skull_frame = 1 - @skull_frame
-        end
+        return unless @skull_tic >= SKULL_ANIM_TICS
+
+        @skull_tic = 0
+        @skull_frame = 1 - @skull_frame
       end
 
       # NOTE: palette_colors is unused here (callers in gosu_window.rb pass nil).
       # Kept only to preserve the call signature; drop it once the callers do.
-      def render(framebuffer, palette_colors)
+      def render(framebuffer, _palette_colors)
         case @state
         when STATE_TITLE
           render_title(framebuffer)
@@ -196,7 +199,7 @@ module Doom
           @kaigi_title.each_with_index do |color, i|
             x = i % w
             y = (i / w) + 20
-            framebuffer[y * w + x] = color if y < Render::SCREEN_HEIGHT
+            framebuffer[(y * w) + x] = color if y < Render::SCREEN_HEIGHT
           end
         elsif @title
           draw_fullscreen(framebuffer, @title)
@@ -211,16 +214,17 @@ module Doom
         items = [@m_newg, @m_option, @m_quitg]
         items.each_with_index do |item, i|
           next unless item
-          draw_sprite(framebuffer, item, MAIN_X, MAIN_Y + i * MAIN_SPACING)
+
+          draw_sprite(framebuffer, item, MAIN_X, MAIN_Y + (i * MAIN_SPACING))
         end
 
         # Draw skull cursor
         skull = @skulls[@skull_frame]
-        if skull
-          skull_x = MAIN_X - 32
-          skull_y = MAIN_Y + @cursor * MAIN_SPACING - 5
-          draw_sprite(framebuffer, skull, skull_x, skull_y)
-        end
+        return unless skull
+
+        skull_x = MAIN_X - 32
+        skull_y = MAIN_Y + (@cursor * MAIN_SPACING) - 5
+        draw_sprite(framebuffer, skull, skull_x, skull_y)
       end
 
       def render_skill_menu(framebuffer)
@@ -231,16 +235,17 @@ module Doom
         skill_items = [@m_jkill, @m_hurt, @m_rough, @m_ultra, @m_nmare]
         skill_items.each_with_index do |item, i|
           next unless item
-          draw_sprite(framebuffer, item, SKILL_X, SKILL_Y + i * SKILL_SPACING)
+
+          draw_sprite(framebuffer, item, SKILL_X, SKILL_Y + (i * SKILL_SPACING))
         end
 
         # Draw skull cursor
         skull = @skulls[@skull_frame]
-        if skull
-          skull_x = SKILL_X - 32
-          skull_y = SKILL_Y + @cursor * SKILL_SPACING - 5
-          draw_sprite(framebuffer, skull, skull_x, skull_y)
-        end
+        return unless skull
+
+        skull_x = SKILL_X - 32
+        skull_y = SKILL_Y + (@cursor * SKILL_SPACING) - 5
+        draw_sprite(framebuffer, skull, skull_x, skull_y)
       end
 
       def handle_main_key(key)
@@ -253,7 +258,7 @@ module Doom
           case main_items[@cursor]
           when :new_game
             @state = STATE_SKILL
-            @cursor = SKILL_MEDIUM  # Default to "Hurt me plenty"
+            @cursor = SKILL_MEDIUM # Default to "Hurt me plenty"
           when :options
             @state = STATE_OPTIONS
             @cursor = 0
@@ -292,24 +297,24 @@ module Doom
 
       def render_options_menu(framebuffer)
         # Draw title using font
-        @font&.draw_centered(framebuffer, "OPTIONS", 20)
+        @font&.draw_centered(framebuffer, 'OPTIONS', 20)
 
         # Draw each option with ON/OFF status
         options_items.each_with_index do |item, i|
-          y = OPTIONS_Y + i * OPTIONS_SPACING
+          y = OPTIONS_Y + (i * OPTIONS_SPACING)
           label = OPTIONS_LABELS[item]
-          value = @options[item] ? "ON" : "OFF"
+          value = @options[item] ? 'ON' : 'OFF'
           @font&.draw_text(framebuffer, label, OPTIONS_X, y)
           @font&.draw_text(framebuffer, value, 260, y)
         end
 
         # Draw skull cursor
         skull = @skulls[@skull_frame]
-        if skull
-          skull_x = OPTIONS_X - 32
-          skull_y = OPTIONS_Y + @cursor * OPTIONS_SPACING - 5
-          draw_sprite(framebuffer, skull, skull_x, skull_y)
-        end
+        return unless skull
+
+        skull_x = OPTIONS_X - 32
+        skull_y = OPTIONS_Y + (@cursor * OPTIONS_SPACING) - 5
+        draw_sprite(framebuffer, skull, skull_x, skull_y)
       end
 
       def handle_options_key(key)
@@ -324,7 +329,7 @@ module Doom
           return { action: :toggle_option, option: item, value: @options[item] }
         when :escape
           @state = STATE_MAIN
-          @cursor = 1  # Options is the second main menu item
+          @cursor = 1 # Options is the second main menu item
         end
         nil
       end

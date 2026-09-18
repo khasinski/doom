@@ -51,4 +51,10 @@ RSpec.describe Doom::Game::Animations do
       expect(anims.translate_texture('STARTAN3')).to eq('STARTAN3')
     end
   end
+
+  describe '#frame_names' do
+    it 'exposes all atlas frames before the first update' do
+      expect(anims.frame_names).to include('NUKAGE1', 'NUKAGE2', 'NUKAGE3')
+    end
+  end
 end
