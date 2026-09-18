@@ -35,3 +35,11 @@ spec/examples.txt
 !doom_bench/preview/*.png
 !doom_bench/docs/assets/previews/
 !doom_bench/docs/assets/previews/*.png
+
+# spinel_native benchmarking: local result data, compiled AOT binaries, raw frames
+/bench_local/
+/bench_results_20260915/
+bench/spinel/frame_bench_spinel
+bench/spinel/bsp_bench_spinel
+bench/**/*.ppm
+bench/*.ppm

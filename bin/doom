@@ -15,6 +15,10 @@ end
 # Parse flags
 rubykaigi_mode = ARGV.delete('--rubykaigi') || ARGV.delete('--kaigi')
 
+# --native: run the real game with its renderer hot path compiled by
+# spinel_native (needs the spinel compiler; set SPINEL=/path/to/bin/spinel).
+ENV['DOOM_NATIVE'] = '1' if ARGV.delete('--native')
+
 # Multiplayer flags, parsed before the heavy requires so a bad invocation
 # fails fast rather than after a WAD load. Accepts --flag value and --flag=value.
 def take_flag(name)
@@ -115,6 +119,26 @@ if wants_version
   require_relative '../lib/doom/version'
   puts "DOOM Ruby v#{Doom::VERSION}"
   exit 0
+end
+
+# TruffleRuby on macOS: its Gosu build is not linked with SDL2, and macOS ships
+# only sdl2-compat, so preload it here (global) to satisfy Gosu's flat-namespace
+# symbol lookups. The window also needs the Cocoa main thread, which only the
+# JVM launch flag can give -- warn if it looks absent.
+if defined?(RUBY_ENGINE) && RUBY_ENGINE == 'truffleruby' && RUBY_PLATFORM.include?('darwin')
+  begin
+    require 'fiddle'
+    %w[
+      /opt/homebrew/lib/libSDL2-2.0.0.dylib /opt/homebrew/lib/libSDL2.dylib
+      /usr/local/lib/libSDL2-2.0.0.dylib /usr/local/lib/libSDL2.dylib
+    ].each { |p| (Fiddle.dlopen(p); break) if File.exist?(p) }
+  rescue StandardError => e
+    warn "[doom] SDL2 preload for TruffleRuby failed (#{e.message}); the window may not open"
+  end
+  unless (ENV['JAVA_TOOL_OPTIONS'].to_s + ENV['TRUFFLERUBYOPT'].to_s).include?('XstartOnFirstThread')
+    warn "[doom] on TruffleRuby/macOS the window needs the main thread: run with " \
+         "`truffleruby --vm.XstartOnFirstThread bin/doom ...`"
+  end
 end
 
 # Now load the full library

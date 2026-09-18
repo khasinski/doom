@@ -62,7 +62,18 @@ module Doom
         @textures = textures
         @palette = palette
         @colormap = colormap
+        @flats_array = flats
         @flats = flats.to_h { |f| [f.name, f] }
+        # Opt-in: route the wall/floor/ceiling rasterisation through the
+        # spinel_native-compiled port of this renderer's hot path. Everything
+        # else (sprites, weapon, HUD, physics, sound) stays the real game.
+        @native_kernel = !ENV["DOOM_NATIVE"].to_s.empty? && ENV["DOOM_NATIVE"] != "0"
+        if @native_kernel
+          warn "[doom] compiling spinel_native render kernel (first run may take a few seconds)..."
+          @sn = build_native_renderer
+          @native_kernel = !@sn.nil?
+          warn "[doom] spinel_native renderer ready" if @sn
+        end
         @sprites = sprites
         @animations = animations
         @hidden_things = nil
@@ -231,33 +242,38 @@ module Doom
       end
 
       def render_frame
-        clear_framebuffer
-        reset_clipping
+        if @native_kernel
+          native_wall_pass
+          @drawsegs = []
+        else
+          clear_framebuffer
+          reset_clipping
 
-        @sin_angle = Math.sin(@player_angle)
-        @cos_angle = Math.cos(@player_angle)
+          @sin_angle = Math.sin(@player_angle)
+          @cos_angle = Math.cos(@player_angle)
 
-        # Precompute column angles for floor/ceiling rendering
-        precompute_column_data
+          # Precompute column angles for floor/ceiling rendering
+          precompute_column_data
 
-        # Draw player's sector floor/ceiling as background fallback.
-        # Visplanes (with correct per-sector lighting) overwrite this for sectors
-        # with different properties. This only remains visible at gaps between
-        # same-property sectors where the light level matches anyway.
-        draw_floor_ceiling_background
+          # Draw player's sector floor/ceiling as background fallback.
+          # Visplanes (with correct per-sector lighting) overwrite this for sectors
+          # with different properties. This only remains visible at gaps between
+          # same-property sectors where the light level matches anyway.
+          draw_floor_ceiling_background
 
-        # Initialize visplanes for tracking visible floor/ceiling spans
-        @visplanes = []
-        @visplane_hash = {} # Hash for O(1) lookup by (height, texture, light_level, is_ceiling)
+          # Initialize visplanes for tracking visible floor/ceiling spans
+          @visplanes = []
+          @visplane_hash = {} # Hash for O(1) lookup by (height, texture, light_level, is_ceiling)
 
-        # Initialize drawsegs for sprite clipping
-        @drawsegs = []
+          # Initialize drawsegs for sprite clipping
+          @drawsegs = []
 
-        # Render walls via BSP traversal
-        render_bsp_node(@map.nodes.size - 1)
+          # Render walls via BSP traversal
+          render_bsp_node(@map.nodes.size - 1)
 
-        # Draw visplanes for sectors different from background
-        draw_all_visplanes
+          # Draw visplanes for sectors different from background
+          draw_all_visplanes
+        end
 
         # Save wall clip arrays for sprite clipping (reuse preallocated arrays)
         @sprite_ceiling_clip.replace(@ceiling_clip)
@@ -266,6 +282,38 @@ module Doom
 
         # R_DrawMasked: render sprites and masked middle textures interleaved
         draw_masked if @sprites
+      end
+
+      # Wall/floor/ceiling/sky rasterisation through the spinel_native-compiled
+      # port of this renderer's hot path. Fills @framebuffer plus the clip rows
+      # the Ruby sprite pass reads. Falls back to the Ruby path if the kernel
+      # cannot be built (e.g. no spinel compiler available).
+      def native_wall_pass
+        @sn ||= build_native_renderer
+        unless @sn
+          @native_kernel = false
+          return render_frame
+        end
+        # The sprite pass (kept in Ruby) transforms things with @sin_angle /
+        # @cos_angle, so they must be set for the current frame even though the
+        # native kernel computes its own trig internally.
+        @sin_angle = Math.sin(@player_angle)
+        @cos_angle = Math.cos(@player_angle)
+        fb = @sn.render_at(@player_x, @player_y, @player_z, @player_angle)
+        @framebuffer.replace(fb)
+        @ceiling_clip.replace(@sn.ceiling_clip)
+        @floor_clip.replace(@sn.floor_clip)
+        @wall_depth.replace(@sn.wall_depth)
+      end
+
+      def build_native_renderer
+        # Dynamic form so the spinel AOT compiler ignores this require (it pulls
+        # in the spinel_native gem, irrelevant to an AOT build); CRuby is unaffected.
+        send(:require_relative, "spinel_native_renderer")
+        SpinelNativeRenderer.new(@map, @palette, @colormap, @textures, @flats_array)
+      rescue StandardError, LoadError => e
+        warn "[doom] spinel_native renderer unavailable, using Ruby renderer (#{e.message.lines.first.to_s.strip})"
+        nil
       end
 
       # Precompute column-based data for floor/ceiling rendering (R_InitLightTables-like)
@@ -1771,6 +1819,16 @@ module Doom
         (x1..x2).each do |x|
           clipbot[x] = SCREEN_HEIGHT if clipbot[x] == -2
           cliptop[x] = -1 if cliptop[x] == -2
+        end
+
+        # The native wall pass emits no drawsegs (the silhouette bookkeeping is
+        # not ported), so the drawseg loop above clipped nothing and sprites
+        # would draw over the walls in front of them. Occlude, per column, any
+        # sprite that sits behind the nearest solid wall recorded by the wall
+        # pass -- the common case (a monster behind a wall or the far background).
+        if @native_kernel
+          swd = @sprite_wall_depth
+          (x1..x2).each { |x| cliptop[x] = SCREEN_HEIGHT if swd[x] < dist }
         end
 
         # Calculate sprite screen Y positions

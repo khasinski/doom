@@ -1,13 +1,19 @@
 # frozen_string_literal: true
 
-require 'opengl'
+# OpenGL is only needed by this hardware renderer; on runtimes without the gem
+# (e.g. TruffleRuby/JRuby) the classic renderer still loads and runs.
+begin
+  require 'opengl'
+rescue LoadError
+  warn "[doom] opengl gem not available; the hardware renderer is disabled" if $VERBOSE
+end
 
 module Doom
   module Render
     # GPU rasterizer hosted inside Gosu's OpenGL context. The initial backend
     # renders real world triangles with perspective projection and depth test.
     class HardwareRenderer < Renderer
-      include OpenGL
+      include OpenGL if defined?(OpenGL)
 
       ANIMATED_DECORATIONS = %w[TBLU TGRN TRED SMIT COLU CAND CBRA].freeze
       Batch = Struct.new(:material, :light, :surface, :masked, :buffer, :vertex_count)
@@ -417,9 +423,55 @@ module Doom
           glEnd
         end
 
+        draw_projectiles
+
         glDisable(GL_ALPHA_TEST)
         glDisable(GL_BLEND)
         glDisable(GL_TEXTURE_2D)
+      end
+
+      # Fireballs and rockets in flight. Unlike map things these are dynamic and
+      # live on @combat, not @map.things, so draw_sprites skips them; billboard
+      # them centred on their flight height (they fly above the floor).
+      def draw_projectiles
+        return unless @combat && @sprites
+
+        @combat.projectiles.each do |projectile|
+          sprite = projectile_sprite(projectile)
+          next unless sprite
+
+          id = sprite_texture(sprite)
+          next unless id
+
+          sector = @map.sector_at(projectile.x, projectile.y)
+          top = projectile.z + (sprite.height / 2.0)
+          bottom = top - sprite.height
+          right_x = @sin_angle
+          right_y = -@cos_angle
+          left_x = projectile.x - (right_x * sprite.left_offset)
+          left_y = projectile.y - (right_y * sprite.left_offset)
+          right_edge_x = left_x + (right_x * sprite.width)
+          right_edge_y = left_y + (right_y * sprite.width)
+
+          before_sprite_draw(nil, sprite, sector)
+          glBindTexture(GL_TEXTURE_2D, id)
+          glColor3f(1.0, 1.0, 1.0)
+          glBegin(GL_QUADS)
+          sprite_vertex(left_x, left_y, bottom, 0.0, 1.0)
+          sprite_vertex(right_edge_x, right_edge_y, bottom, 1.0, 1.0)
+          sprite_vertex(right_edge_x, right_edge_y, top, 1.0, 0.0)
+          sprite_vertex(left_x, left_y, top, 0.0, 0.0)
+          glEnd
+        end
+      end
+
+      def projectile_sprite(projectile)
+        prefix = projectile.sprite_prefix || 'MISL'
+        frame = %w[A B][@leveltime / 4 % 2]
+        viewer_angle = Math.atan2(projectile.y - @player_y, projectile.x - @player_x)
+        travel_angle = Math.atan2(projectile.dy, projectile.dx)
+        @sprites.get_frame_rotated(prefix, frame, viewer_angle, travel_angle) ||
+          @sprites.get_frame_by_prefix(prefix, 'A')
       end
 
       # Extension point for renderers that shade billboard fragments. The
