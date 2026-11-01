@@ -5,7 +5,7 @@
 begin
   require 'opengl'
 rescue LoadError
-  warn "[doom] opengl gem not available; the hardware renderer is disabled" if $VERBOSE
+  warn '[doom] opengl gem not available; the hardware renderer is disabled' if $VERBOSE
 end
 
 module Doom

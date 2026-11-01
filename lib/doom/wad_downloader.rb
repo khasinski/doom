@@ -83,28 +83,28 @@ module Doom
     def self.download_from_url(url, destination, redirect_limit: 5)
       raise DownloadError, 'Too many redirects' if redirect_limit.negative?
 
-      uri = URI.parse(url)
+      uri = ::URI.parse(url)
       ssl_opts = { use_ssl: uri.scheme == 'https' }
 
       if ssl_opts[:use_ssl]
         begin
-          Net::HTTP.start(uri.host, uri.port, **ssl_opts) { |h| h.head(uri) }
-        rescue OpenSSL::SSL::SSLError
+          ::Net::HTTP.start(uri.host, uri.port, **ssl_opts) { |h| h.head(uri) }
+        rescue ::OpenSSL::SSL::SSLError
           puts 'SSL certificate verification failed, retrying without verification...'
-          ssl_opts[:verify_mode] = OpenSSL::SSL::VERIFY_NONE
+          ssl_opts[:verify_mode] = ::OpenSSL::SSL::VERIFY_NONE
         end
       end
 
       downloaded = 0
-      Net::HTTP.start(uri.host, uri.port, **ssl_opts) do |http|
-        request = Net::HTTP::Get.new(uri)
+      ::Net::HTTP.start(uri.host, uri.port, **ssl_opts) do |http|
+        request = ::Net::HTTP::Get.new(uri)
 
         http.request(request) do |response|
           case response
-          when Net::HTTPRedirection
+          when ::Net::HTTPRedirection
             return download_from_url(response['location'], destination,
                                      redirect_limit: redirect_limit - 1)
-          when Net::HTTPSuccess
+          when ::Net::HTTPSuccess
             total_size = response['content-length']&.to_i || SHAREWARE_SIZE
 
             File.open(destination, 'wb') do |file|

@@ -9,10 +9,15 @@ AllCops:
   SuggestExtensions: false
   Exclude:
     - 'doom_bench/**/*'
+    - 'bench_results_*/**/*'
     - 'vendor/**/*'
     - 'bench/**/*'
     - 'tools/**/*'
     - 'tmp/**/*'
+    # Spinel's compiler-facing hot path favors explicit compact arithmetic and
+    # short locals; byte-for-byte renderer characterization covers its output.
+    - 'lib/doom/render/spinel_native/**/*'
+    - 'lib/doom/render/spinel_native_renderer.rb'
     # Files with uncommitted in-progress work when RuboCop was introduced.
     # Excluded so the linter does not fight a half-finished change; drop these
     # entries and run `rubocop -a` on them once that work is committed.

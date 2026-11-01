@@ -3,6 +3,15 @@
 require_relative '../spec_helper'
 require 'zlib'
 
+# [map, x, y, z, angle_degrees] => expected framebuffer CRC32
+RENDERER_OUTPUT_SCENES = {
+  ['E1M1', 1056.0, -3616.0, 41.0, 90.0] => 1_910_367_440,
+  ['E1M1', 1056.0, -3616.0, 41.0, 210.0] => 3_816_593_378,
+  ['E1M1', 1520.0, -3200.0, 41.0, 45.0] => 4_045_630_233,
+  ['E1M2', -320.0, -256.0, 41.0, 0.0] => 3_434_959_376,
+  ['E1M5', 88.0, -3072.0, 41.0, 270.0] => 1_421_083_691
+}.freeze
+
 # Byte-for-byte characterization of the software renderer across several maps
 # and camera angles. These CRCs were captured from known-good output; they pin
 # the rendered image so a refactor of the drawing hot paths (draw_seg_range and
@@ -23,16 +32,7 @@ RSpec.describe 'renderer output characterization' do
 
   after(:all) { @wad&.close }
 
-  # [map, x, y, z, angle_degrees] => expected framebuffer CRC32
-  SCENES = {
-    ['E1M1', 1056.0, -3616.0, 41.0, 90.0]  => 1_910_367_440,
-    ['E1M1', 1056.0, -3616.0, 41.0, 210.0] => 3_816_593_378,
-    ['E1M1', 1520.0, -3200.0, 41.0, 45.0]  => 4_045_630_233,
-    ['E1M2', -320.0, -256.0, 41.0, 0.0]    => 3_434_959_376,
-    ['E1M5', 88.0, -3072.0, 41.0, 270.0]   => 1_421_083_691,
-  }.freeze
-
-  SCENES.each do |(map_name, x, y, z, deg), expected_crc|
+  RENDERER_OUTPUT_SCENES.each do |(map_name, x, y, z, deg), expected_crc|
     it "renders #{map_name} at (#{x}, #{y}) facing #{deg} deg byte-for-byte" do
       map = Doom::Map::MapData.load(@wad, map_name)
       renderer = Doom::Render::Renderer.new(@wad, map, @textures, @palette,

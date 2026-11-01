@@ -131,13 +131,18 @@ if defined?(RUBY_ENGINE) && RUBY_ENGINE == 'truffleruby' && RUBY_PLATFORM.includ
     %w[
       /opt/homebrew/lib/libSDL2-2.0.0.dylib /opt/homebrew/lib/libSDL2.dylib
       /usr/local/lib/libSDL2-2.0.0.dylib /usr/local/lib/libSDL2.dylib
-    ].each { |p| (Fiddle.dlopen(p); break) if File.exist?(p) }
+    ].each do |path|
+      next unless File.exist?(path)
+
+      Fiddle.dlopen(path)
+      break
+    end
   rescue StandardError => e
     warn "[doom] SDL2 preload for TruffleRuby failed (#{e.message}); the window may not open"
   end
   unless (ENV['JAVA_TOOL_OPTIONS'].to_s + ENV['TRUFFLERUBYOPT'].to_s).include?('XstartOnFirstThread')
-    warn "[doom] on TruffleRuby/macOS the window needs the main thread: run with " \
-         "`truffleruby --vm.XstartOnFirstThread bin/doom ...`"
+    warn '[doom] on TruffleRuby/macOS the window needs the main thread: run with ' \
+         '`truffleruby --vm.XstartOnFirstThread bin/doom ...`'
   end
 end
 

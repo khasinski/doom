@@ -67,12 +67,12 @@ module Doom
         # Opt-in: route the wall/floor/ceiling rasterisation through the
         # spinel_native-compiled port of this renderer's hot path. Everything
         # else (sprites, weapon, HUD, physics, sound) stays the real game.
-        @native_kernel = !ENV["DOOM_NATIVE"].to_s.empty? && ENV["DOOM_NATIVE"] != "0"
+        @native_kernel = !ENV['DOOM_NATIVE'].to_s.empty? && ENV['DOOM_NATIVE'] != '0'
         if @native_kernel
-          warn "[doom] compiling spinel_native render kernel (first run may take a few seconds)..."
+          warn '[doom] compiling spinel_native render kernel (first run may take a few seconds)...'
           @sn = build_native_renderer
           @native_kernel = !@sn.nil?
-          warn "[doom] spinel_native renderer ready" if @sn
+          warn '[doom] spinel_native renderer ready' if @sn
         end
         @sprites = sprites
         @animations = animations
@@ -309,7 +309,7 @@ module Doom
       def build_native_renderer
         # Dynamic form so the spinel AOT compiler ignores this require (it pulls
         # in the spinel_native gem, irrelevant to an AOT build); CRuby is unaffected.
-        send(:require_relative, "spinel_native_renderer")
+        send(:require_relative, 'spinel_native_renderer')
         SpinelNativeRenderer.new(@map, @palette, @colormap, @textures, @flats_array)
       rescue StandardError, LoadError => e
         warn "[doom] spinel_native renderer unavailable, using Ruby renderer (#{e.message.lines.first.to_s.strip})"
