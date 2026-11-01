@@ -68,12 +68,7 @@ module Doom
         # spinel_native-compiled port of this renderer's hot path. Everything
         # else (sprites, weapon, HUD, physics, sound) stays the real game.
         @native_kernel = !ENV['DOOM_NATIVE'].to_s.empty? && ENV['DOOM_NATIVE'] != '0'
-        if @native_kernel
-          warn '[doom] compiling spinel_native render kernel (first run may take a few seconds)...'
-          @sn = build_native_renderer
-          @native_kernel = !@sn.nil?
-          warn '[doom] spinel_native renderer ready' if @sn
-        end
+        warn '[doom] spinel_native renderer requested; loading it on first frame' if @native_kernel
         @sprites = sprites
         @animations = animations
         @hidden_things = nil
