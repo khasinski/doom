@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'gosu_loader'
+Doom::Platform::GosuLoader.prepare!
 require 'gosu'
 require_relative 'sdl'
 require_relative 'window_logic'

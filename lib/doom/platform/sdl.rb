@@ -9,12 +9,13 @@ module Doom
         gosu_spec = Gem.loaded_specs['gosu']
         lib_ext = RbConfig::CONFIG['DLEXT'] || 'so'
         bundle = File.join(gosu_spec.full_gem_path, 'lib', "gosu.#{lib_ext}")
-        @lib = Fiddle.dlopen(bundle)
+        @gosu_lib = Fiddle.dlopen(bundle)
+        @sdl_lib = Doom::Platform::GosuLoader.sdl2_handle || @gosu_lib
         @shared_window = Fiddle::Function.new(
-          @lib['_ZN4Gosu13shared_windowEv'], [], Fiddle::TYPE_VOIDP
+          @gosu_lib['_ZN4Gosu13shared_windowEv'], [], Fiddle::TYPE_VOIDP
         )
         @set_kb_grab = Fiddle::Function.new(
-          @lib['SDL_SetWindowKeyboardGrab'],
+          @sdl_lib['SDL_SetWindowKeyboardGrab'],
           [Fiddle::TYPE_VOIDP, Fiddle::TYPE_INT], Fiddle::TYPE_VOID
         )
         @ready = true
@@ -52,7 +53,8 @@ module Doom
         require 'fiddle'
         gosu_spec = Gem.loaded_specs['gosu']
         lib_ext = RbConfig::CONFIG['DLEXT'] || 'so'
-        lib = Fiddle.dlopen(File.join(gosu_spec.full_gem_path, 'lib', "gosu.#{lib_ext}"))
+        bundle = File.join(gosu_spec.full_gem_path, 'lib', "gosu.#{lib_ext}")
+        lib = Doom::Platform::GosuLoader.sdl2_handle || Fiddle.dlopen(bundle)
 
         get_mode = Fiddle::Function.new(
           lib['SDL_GetCurrentDisplayMode'],
