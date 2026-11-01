@@ -302,9 +302,16 @@ module Doom
       # Yield each linedef whose block overlaps the bounding box (min_x, min_y,
       # max_x, max_y). Yields each linedef at most once per call. Falls back
       # to iterating all linedefs if no blockmap is loaded.
-      def each_linedef_near(min_x, min_y, max_x, max_y, &)
+      # Avoid anonymous block forwarding: Ruby 4.0.9's parser rejects that form.
+      def each_linedef_near(min_x, min_y, max_x, max_y)
+        return enum_for(__method__, min_x, min_y, max_x, max_y) unless block_given?
+
         unless @blockmap_blocks
-          @linedefs.each(&)
+          line_index = 0
+          while line_index < @linedefs.size
+            yield @linedefs[line_index]
+            line_index += 1
+          end
           return
         end
 

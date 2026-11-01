@@ -317,6 +317,14 @@ RSpec.describe Doom::Map::MapData do
       expect(m.blockmap_loaded?).to be false
     end
 
+    it 'returns an enumerator when no block is given' do
+      m = Doom::Map::MapData.new('TEST')
+      linedef = Doom::Map::Linedef.new(0, 0, 0, 0, 0, 0, 0xFFFF)
+      m.linedefs << linedef
+
+      expect(m.each_linedef_near(0, 0, 100, 100).to_a).to eq([linedef])
+    end
+
     it 'parses a blockmap header and reports loaded' do
       # Header: origin (-100, -100), 2 cols, 2 rows. 4 block offsets, all
       # pointing to a single sentinel-then-terminator block.
