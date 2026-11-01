@@ -44,9 +44,11 @@ module Doom
         end
 
         # length-prefixed homogeneous array
-        def list(items, &)
+        def list(items, &block)
+          return enum_for(__method__, items) unless block
+
           u32(items.size)
-          items.each(&)
+          items.each(&block)
         end
 
         def to_s = @buf.dup
@@ -76,8 +78,10 @@ module Doom
           take(u16)
         end
 
-        def list(&)
-          Array.new(u32, &)
+        def list(&block)
+          return enum_for(__method__) unless block
+
+          Array.new(u32, &block)
         end
 
         private

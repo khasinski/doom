@@ -94,8 +94,10 @@ module Doom
           [minimum, maximum]
         end
 
-        def axes(&)
-          3.times.map(&)
+        def axes(&block)
+          return enum_for(__method__) unless block
+
+          3.times.map(&block)
         end
       end
     end

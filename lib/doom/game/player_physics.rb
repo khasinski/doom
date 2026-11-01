@@ -284,9 +284,11 @@ module Doom
       # Iterate linedefs that may interact with the player moving from
       # (x1, y1) to (x2, y2). Uses BLOCKMAP when available; otherwise falls
       # back to scanning all linedefs.
-      def each_nearby_linedef(x1, y1, x2, y2, &)
+      def each_nearby_linedef(x1, y1, x2, y2, &block)
+        return enum_for(__method__, x1, y1, x2, y2) unless block
+
         unless @map.respond_to?(:blockmap_loaded?) && @map.blockmap_loaded?
-          @map.linedefs.each(&)
+          @map.linedefs.each(&block)
           return
         end
 
@@ -295,7 +297,7 @@ module Doom
         max_x = [x1, x2].max + PLAYER_RADIUS
         min_y = [y1, y2].min - PLAYER_RADIUS
         max_y = [y1, y2].max + PLAYER_RADIUS
-        @map.each_linedef_near(min_x, min_y, max_x, max_y, &)
+        @map.each_linedef_near(min_x, min_y, max_x, max_y, &block)
       end
 
       def crosses_blocking_linedef?(x1, y1, x2, y2, linedef)
