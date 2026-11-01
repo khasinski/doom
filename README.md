@@ -130,6 +130,9 @@ brew install sdl2
 If an older installation reports `symbol not found in flat namespace _OBJC_CLASS_$_NSScreen`,
 update the gem with `gem update doom`. This is fixed in Doom Ruby 0.11.1.
 
+If the first-run WAD downloader fails with `uninitialized constant Doom::Net::HTTP`,
+update to Doom Ruby 0.11.2.
+
 **Ubuntu/Debian:**
 ```bash
 sudo apt-get install build-essential libsdl2-dev libgl1-mesa-dev libopenal-dev libsndfile1-dev libmpg123-dev libfontconfig1-dev
